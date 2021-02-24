@@ -1,8 +1,13 @@
 """""""""""""""""""""""""""""""""""""
 " Plugin Management
 """""""""""""""""""""""""""""""""""""
+if empty(glob('~/.vim/autoload/plug.vim'))
+  silent !curl -fLo ~/.vim/autoload/plug.vim --create-dirs
+    \ https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+  autocmd VimEnter * PlugInstall
+endif
 
-call plug#begin()
+call plug#begin('~/.vim/plugged')
   Plug 'preservim/nerdtree'
     nmap <silent> <F1> :call NERDTreeToggleInCurDir()<cr>
 
@@ -15,14 +20,17 @@ call plug#begin()
     endfunction
     let g:golden_ratio_exclude_nonmodifiable = 1
 
-  Plug 'numirias/semshi', {'do': ':UpdateRemotePlugins'}
+  Plug 'lifepillar/vim-cheat40'
+  Plug 'ntpeters/vim-better-whitespace'
+  Plug 'tpope/vim-sensible'
+  Plug 'Glench/Vim-Jinja2-Syntax'
+  Plug 'sheerun/vim-polyglot'
   Plug 'Vimjas/vim-python-pep8-indent'
   Plug 'mattn/emmet-vim'
   Plug 'jiangmiao/auto-pairs'
-  Plug 'phanviet/vim-monokai-pro'
   Plug 'tpope/vim-surround'
   Plug 'tpope/vim-repeat'
-  Plug 'itchyny/lightline.vim'
+  Plug 'vim-airline/vim-airline'
   Plug 'tpope/vim-rails'
   Plug 'tpope/vim-fugitive'
   Plug 'vim-ruby/vim-ruby'
@@ -31,17 +39,17 @@ call plug#begin()
   Plug 'tweekmonster/fzf-filemru'
   nnoremap <silent> <C-p> :FilesMru<CR>
 
-  Plug 'tpope/vim-haml' 
+  Plug 'tpope/vim-haml'
   Plug 'tpope/vim-endwise'
   Plug 'rstacruz/vim-closer'
-  Plug 'rhysd/vim-fixjson' 
+  Plug 'rhysd/vim-fixjson'
   Plug 'Shougo/neosnippet.vim'
   Plug 'Shougo/neosnippet-snippets'
   Plug 'preservim/nerdcommenter'
   nmap <C-_> <leader>c<Space>
   nmap <C-_> <leader>_<Space>
   vmap <C-_> <leader>_<Space>
-  
+
   Plug 'machakann/vim-highlightedyank'
   Plug 'roman/golden-ratio'
   " Easymotion
@@ -52,11 +60,14 @@ call plug#begin()
   let g:EasyMotion_off_screen_search = 0
   nmap ; <Plug>(easymotion-s2)
 " }}}
-  Plug 'neoclide/coc.nvim', {'branch': 'master', 'do': 'yarn install --frozen-lockfile'}
-  command! -nargs=0 Prettier :call CocAction('runCommand', 'prettier.formatFile')
-  
+
 call plug#end()
 
+packadd! dracula_pro
+syntax enable
+let g:dracula_colorterm = 0
+colorscheme dracula_pro
+let g:airline_theme='dracula_pro'
 
 """"""""""""""""""""""""""""""""""""
 " Line
@@ -89,7 +100,7 @@ set expandtab
 " 1 tab = 2 spaces
 set tabstop=2 shiftwidth=2
 
-" when deleting whitespace at the beginning of a line, delete 
+" when deleting whitespace at the beginning of a line, delete
 " 1 tab worth of spaces (for us this is 2 spaces)
 set smarttab
 
@@ -133,27 +144,21 @@ set so=999
 
 set termguicolors
 
-colorscheme monokai_pro
 set background=dark
 set autoread
 
-let g:lightline = {
-      \ 'colorscheme': 'monokai_pro',
-      \ }
-
 filetype plugin on
 filetype plugin indent on
-syntax enable
 
 noremap <Space> <Nop>
 let mapleader=","
 set iskeyword+=-
 
 " set backup
-set backupdir=~/.vim-tmp,~/.tmp,~/tmp,/var/tmp,/tmp
-set backupskip=/tmp/*,/private/tmp/*
-set directory=~/.vim-tmp,~/.tmp,~/tmp,/var/tmp,/tmp
-set writebackup
+"set backupdir=~/.vim-tmp,~/.tmp,~/tmp,/var/tmp,/tmp
+"set backupskip=/tmp/*,/private/tmp/*
+"set directory=~/.vim-tmp,~/.tmp,~/tmp,/var/tmp,/tmp
+"set writebackup
 
 " edit vimrc/zshrc and load vimrc bindings
 nnoremap <leader>ev :vsp ~/.vimrc<CR>
