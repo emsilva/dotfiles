@@ -9,8 +9,8 @@ endif
 
 call plug#begin('~/.vim/plugged')
   Plug 'preservim/nerdtree'
-    nmap <silent> <F1> :call NERDTreeToggleInCurDir()<cr>
 
+    nmap <silent> <F1> :call NERDTreeToggleInCurDir()<cr>
     function! NERDTreeToggleInCurDir()
       if (exists("t:NERDTreeBufName") && bufwinnr(t:NERDTreeBufName) != -1)
         exe ":NERDTreeClose"
@@ -19,6 +19,16 @@ call plug#begin('~/.vim/plugged')
       endif
     endfunction
     let g:golden_ratio_exclude_nonmodifiable = 1
+
+  Plug 'ycm-core/YouCompleteMe'
+    let g:ycm_python_binary_path = 'python'
+    let g:ycm_python_interpreter_path = ''
+    let g:ycm_python_sys_path = []
+    let g:ycm_extra_conf_vim_data = [
+      \  'g:ycm_python_interpreter_path',
+      \  'g:ycm_python_sys_path'
+      \]
+    let g:ycm_global_ycm_extra_conf = '~/.global_extra_conf.py'
 
   Plug 'lifepillar/vim-cheat40'
   Plug 'ntpeters/vim-better-whitespace'
@@ -83,6 +93,8 @@ set visualbell
 set textwidth=79
 set backspace=indent,eol,start
 set showtabline=2
+set foldcolumn=3
+set colorcolumn=80
 
 " Move up/down editor lines
 nnoremap j gj
