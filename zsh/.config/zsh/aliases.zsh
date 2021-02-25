@@ -1,8 +1,11 @@
 alias :e='vim'
 alias oldvim='/usr/bin/vim'
+alias ev='$EDITOR ~/.vimrc'
+alias ez='$EDITOR ~/.zshrc && source ~/.zshrc'
+alias ealias='$EDITOR ~/.config/zsh/aliases.zsh && source ~/.config/zsh/aliases.zsh'
 alias sy='systemctl'
-alias ls='/usr/local/bin/gls --color=auto' 
-alias ll='/usr/local/bin/gls --color=auto -GFhl' 
+alias ls='/usr/local/bin/gls --color=auto'
+alias ll='/usr/local/bin/gls --color=auto -GFhl'
 alias be='bundle exec'
 alias bi='bundle install'
 alias bu='bundle update'
@@ -11,8 +14,4 @@ alias ...='cd ../..'
 alias ....='cd ../../..'
 alias git='LANG=en_US.UTF-8 git'
 alias g="git status"
-function gg () {
-  git commit -a -m "$@"
-}
 alias be='bundle exec'
-

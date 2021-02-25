@@ -1,14 +1,11 @@
-function zsh_refresh() {
-  rm -rfv ~/.zsh/cache/*
-  rm -fv ~/.zcompdump
-  compinit
-  echo 'Done!'
-}
-
-function zsh_stats() {
-  fc -l 1 | awk '{CMD[$2]++;count++;}END { for (a in CMD)print CMD[a] " " CMD[a]/count*100 "% " a;}' | grep -v "./" | column -c3 -s " " -t | sort -nr | nl |  head -n20
-}
-
-function path() {
+path() {
   echo $PATH | tr : '\n'
+}
+
+gg() {
+  git commit -a -m "$@"
+}
+
+cdmk() {
+    mkdir "$1" && cd "$1"
 }

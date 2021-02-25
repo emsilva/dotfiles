@@ -127,12 +127,15 @@ source ~/.config/zsh/functions.zsh
 export EDITOR=nvim
 export LSCOLORS=Gxfxcxdxbxegedabagacad
 
+export LC_ALL=en_US.UTF-8
+
 if type rg &> /dev/null; then
   export FZF_DEFAULT_COMMAND='rg --files'
   export FZF_DEFAULT_OPTS='-m --height 50% --border'
 fi
 
 eval "$(rbenv init -)"
+eval "$(direnv hook zsh)"
 export PATH="$(pyenv root)/shims:$HOME/local/bin:$PATH"
 
 

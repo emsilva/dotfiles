@@ -1,4 +1,10 @@
-"""""""""""""""""""""""""""""""""""""
+packadd! dracula_pro
+syntax enable
+let g:dracula_colorterm = 0
+colorscheme dracula_pro
+let g:airline_theme='dracula_pro'
+
+""""""""""""""""""""""""""""""""""""""
 " Plugin Management
 """""""""""""""""""""""""""""""""""""
 if empty(glob('~/.vim/autoload/plug.vim'))
@@ -21,15 +27,26 @@ call plug#begin('~/.vim/plugged')
     let g:golden_ratio_exclude_nonmodifiable = 1
 
   Plug 'ycm-core/YouCompleteMe'
-    let g:ycm_python_binary_path = 'python'
-    let g:ycm_python_interpreter_path = ''
-    let g:ycm_python_sys_path = []
-    let g:ycm_extra_conf_vim_data = [
-      \  'g:ycm_python_interpreter_path',
-      \  'g:ycm_python_sys_path'
-      \]
-    let g:ycm_global_ycm_extra_conf = '~/.global_extra_conf.py'
+    " Point YCM to the Pipenv created virtualenv, if possible
+    " At first, get the output of 'pipenv --venv' command.
+    let pipenv_venv_path = system('pipenv --venv')
+    " The above system() call produces a non zero exit code whenever
+    " a proper virtual environment has not been found.
+    " So, second, we only point YCM to the virtual environment when
+    " the call to 'pipenv --venv' was successful.
+    " Remember, that 'pipenv --venv' only points to the root directory
+    " of the virtual environment, so we have to append a full path to
+    " the python executable.
+    if v:shell_error == 0
+      let venv_path = substitute(pipenv_venv_path, '\n', '', '')
+      let g:ycm_python_binary_path = venv_path . '/bin/python'
+    else
+      let g:ycm_python_binary_path = 'python'
+    endif
 
+  Plug 'dense-analysis/ale'
+  Plug 'tell-k/vim-autopep8'
+  Plug 'mhinz/vim-signify'
   Plug 'lifepillar/vim-cheat40'
   Plug 'ntpeters/vim-better-whitespace'
   Plug 'tpope/vim-sensible'
@@ -73,11 +90,6 @@ call plug#begin('~/.vim/plugged')
 
 call plug#end()
 
-packadd! dracula_pro
-syntax enable
-let g:dracula_colorterm = 0
-colorscheme dracula_pro
-let g:airline_theme='dracula_pro'
 
 """"""""""""""""""""""""""""""""""""
 " Line
@@ -93,7 +105,6 @@ set visualbell
 set textwidth=79
 set backspace=indent,eol,start
 set showtabline=2
-set foldcolumn=3
 set colorcolumn=80
 
 " Move up/down editor lines
@@ -156,7 +167,6 @@ set so=999
 
 set termguicolors
 
-set background=dark
 set autoread
 
 filetype plugin on
