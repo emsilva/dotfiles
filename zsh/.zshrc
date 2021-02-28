@@ -136,7 +136,6 @@ fi
 
 eval "$(rbenv init -)"
 eval "$(direnv hook zsh)"
-export PATH="$(pyenv root)/shims:$HOME/local/bin:$PATH"
 
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh

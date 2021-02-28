@@ -1,0 +1,46 @@
+#!/usr/bin/env zsh
+#
+#
+function bytesFormater() {
+  formated=`gnumfmt --to=iec-i --suffix=B --padding=7 "$2"`
+  echo "- "$1 $formated
+}
+
+if [ -z "$1" ] ; then
+  transcodedir="."
+else
+  transcodedir="$1"
+fi
+
+setopt extendedglob
+files=($transcodedir/**/*.(#i)(wmv|avi|mpg|mkv|3gp|mov|mp4|vob|mts|m4v)(N.))
+files=("${(@)files:#*hevc.mp4*}")
+total=${#files[@]}
+
+i=0
+for f in "${files[@]}"; do
+  i=$(( i + 1 ))
+  echo "\n"
+  echo "- Processing file $i out of $total."
+  original_file=`stat -f%z "$f"`
+  bytesFormater "Original file:" $original_file  
+
+  nice HandbrakeCLI -i "$f" -o "${f%\.*}.hevc.mp4" -5 --preset="Devices/Apple 2160p60 4K HEVC Surround" 2> /dev/null    
+
+  transcoded_file=`stat -f%z "${f%\.*}.hevc.mp4"`
+  bytesFormater "Transcoded file:" $transcoded_file
+  
+  size_reduction=$(($original_file - $transcoded_file))
+  bytesFormater "Size reduction:" $size_reduction
+  
+  if [ $? -eq 0 ]; then
+    echo "- Complete!"
+
+    rm "$f"
+  else
+    echo "- Conversion failed :(" 
+    exit
+  fi
+done
+echo "\n"
+echo "- All done!"
