@@ -11,18 +11,35 @@ then
 fi
 
 #Installs all Homebrew apps necessary
-homebrew_apps=( 
-                coreutils 
-                dockutil 
-                mysides 
-                chezmoi 
+homebrew_casks=(
+                 cask-fonts
+               )
+
+for homebrew_cask in "${homebrew_casks[@]}"
+do
+  if ! brew tap | grep $homebrew_cask &> /dev/null
+  then
+    brew tap $homebrew_cask
+  fi
+done
+
+homebrew_apps=(
+                python3
+                python-tk@3.9
+                coreutils
+                dockutil
+                mysides
+                chezmoi
                 mas
                 meld
                 iterm2
 		            visual-studio-code
                 monitorcontrol
-                "--cask 1password/tap/1password-cli" 
-)
+                "--cask whatsapp"
+                "--cask telegram"
+                "--cask signal"
+                "--cask 1password/tap/1password-cli"
+              )
 
 for homebrew_app in "${homebrew_apps[@]}"
 do
@@ -35,13 +52,13 @@ done
 ###############################################
 # Installs MacApp Store Apps                  #
 ###############################################
-macstore_apps=( 
+macstore_apps=(
                 402670023  # Keyboard Pilot
                 425424353  # The Unarchiver
                 1508732804 # Soulver
                 403504866  # PCalc
                 937984704  # Amphetamine
-)
+              )
 
 for macstore_app in "${macstore_apps[@]}"
 do
@@ -53,6 +70,7 @@ done
 ###############################################
 github_repos=(
                 "trapd00r/LS_COLORS"
+                "zplug/zplug"
 )
 for github_repo in "${github_repos[@]}"
 do
