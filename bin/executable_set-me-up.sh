@@ -18,6 +18,7 @@ homebrew_apps=(
                 chezmoi 
                 mas
                 meld
+                iterm2
                 "--cask 1password/tap/1password-cli" 
 )
 
@@ -64,17 +65,20 @@ done
 # Everything Else                             #
 ###############################################
 
+# iTerm2
 # installs shell integration for iTerm2
 # https://iterm2.com/documentation-shell-integration.html
-
 if ! test -f ~/.iterm2_shell_integration.zsh
 then
   curl -L https://iterm2.com/shell_integration/install_shell_integration.sh | bash
 fi
 
+# Sets up and loads iTerm2 preferences
+defaults write com.googlecode.iterm2 PrefsCustomFolder -string "~/.local/share/iterm2/"
+defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
+
 # installs oh-my-zsh
 # https://ohmyz.sh/
-
 if ! test -d ~/.oh-my-zsh/
 then
   sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --keep-zshrc
