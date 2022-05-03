@@ -39,6 +39,7 @@ homebrew_apps=(
                 "--cask telegram"
                 "--cask signal"
                 "--cask 1password/tap/1password-cli"
+                "--cask font-fira-code"
               )
 
 for homebrew_app in "${homebrew_apps[@]}"
