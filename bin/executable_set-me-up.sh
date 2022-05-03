@@ -19,6 +19,7 @@ homebrew_apps=(
                 mas
                 meld
                 iterm2
+		visual-studio-code
                 "--cask 1password/tap/1password-cli" 
 )
 
