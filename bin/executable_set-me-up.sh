@@ -10,11 +10,9 @@ then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-#Installs all Homebrew apps necessary
-homebrew_casks=(
-                 cask-fonts
-               )
+#Installs all Homebrew apps
 
+homebrew_casks=(  )
 for homebrew_cask in "${homebrew_casks[@]}"
 do
   if ! brew tap | grep $homebrew_cask &> /dev/null
@@ -39,7 +37,6 @@ homebrew_apps=(
                 "--cask telegram"
                 "--cask signal"
                 "--cask 1password/tap/1password-cli"
-                "--cask font-fira-code"
               )
 
 for homebrew_app in "${homebrew_apps[@]}"
