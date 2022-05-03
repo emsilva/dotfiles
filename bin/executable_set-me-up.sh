@@ -19,7 +19,8 @@ homebrew_apps=(
                 mas
                 meld
                 iterm2
-		visual-studio-code
+		            visual-studio-code
+                monitorcontrol
                 "--cask 1password/tap/1password-cli" 
 )
 
