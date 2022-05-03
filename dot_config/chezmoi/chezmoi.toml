@@ -1,0 +1,7 @@
+[edit]
+    command = "code"
+    args = ["--wait"]
+
+[diff]
+    command = "meld"
+    args = ["--diff", "{{ .Destination }}", "{{ .Target }}"]
