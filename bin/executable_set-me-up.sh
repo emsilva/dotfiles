@@ -31,8 +31,9 @@ homebrew_apps=(
                 mas
                 meld
                 iterm2
-		            visual-studio-code
+		 visual-studio-code
                 monitorcontrol
+                handbrake
                 "--cask whatsapp"
                 "--cask telegram"
                 "--cask signal"
