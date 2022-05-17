@@ -31,7 +31,7 @@ homebrew_apps=(
                 mas
                 meld
                 iterm2
-		 visual-studio-code
+                visual-studio-code
                 monitorcontrol
                 handbrake
                 "--cask whatsapp"
@@ -49,6 +49,21 @@ do
 done
 
 ###############################################
+# Installs Ruby Gems                          #
+###############################################
+ruby_gems=(
+                video_transcoding
+          )
+
+for ruby_gem in "${ruby_gems[@]}"
+do
+  if ! gem list | grep $ruby_gem &> /dev/null
+  then
+    gem install $ruby_gem
+  fi
+done
+
+###############################################
 # Installs MacApp Store Apps                  #
 ###############################################
 macstore_apps=(
@@ -57,6 +72,7 @@ macstore_apps=(
                 1508732804 # Soulver
                 403504866  # PCalc
                 937984704  # Amphetamine
+                1561788435 # Usage
               )
 
 for macstore_app in "${macstore_apps[@]}"
