@@ -11,7 +11,6 @@ then
 fi
 
 #Installs all Homebrew apps
-
 homebrew_casks=(  )
 for homebrew_cask in "${homebrew_casks[@]}"
 do
@@ -25,6 +24,7 @@ homebrew_apps=(
                 python3
                 python-tk@3.9
                 coreutils
+                wget
                 dockutil
                 mysides
                 chezmoi
@@ -34,6 +34,9 @@ homebrew_apps=(
                 visual-studio-code
                 monitorcontrol
                 handbrake
+                ruby
+                mosh
+                ansible
                 "--cask whatsapp"
                 "--cask telegram"
                 "--cask signal"
@@ -47,6 +50,14 @@ do
     brew install $homebrew_app
   fi
 done
+
+###############################################
+# Sets up dotfiles                            #
+###############################################
+if ! test -d ~/.local/share/chezmoi/
+then
+  chezmoi init --apply emsilva/dotfiles
+fi
 
 ###############################################
 # Installs Ruby Gems                          #
@@ -73,6 +84,7 @@ macstore_apps=(
                 403504866  # PCalc
                 937984704  # Amphetamine
                 1561788435 # Usage
+                1224268771 # Screens
               )
 
 for macstore_app in "${macstore_apps[@]}"
