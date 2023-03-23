@@ -48,6 +48,7 @@ homebrew_apps=(
                 mactex
                 openjdk
                 plantuml
+                syncthing
                 "emacs-plus@28 --with-native-comp --with-modern-black-variant-icon"
                 "--cask whatsapp"
                 "--cask telegram"
@@ -63,6 +64,18 @@ do
   fi
 done
 
+homebrew_services=(
+                syncthing
+              )
+
+for homebrew_service in "${homebrew_services[@]}"
+do
+  service_status=$(brew services list | grep "$homebrew_service" | awk '{print $2}')
+  if [[ "$service_status" == "none" ]]
+  then
+    brew services start "${homebrew_service}"
+  fi
+done
 ###############################################
 # Sets up dotfiles                            #
 ###############################################
@@ -117,6 +130,25 @@ do
   if ! test -d ~/.local/share/$dirname &> /dev/null
   then
     git clone https://github.com/$github_repo ~/.local/share/$dirname
+  fi
+done
+
+###############################################
+# Sets up starting folders                    #
+###############################################
+
+# Define your array of folder names
+folder_names=(
+  "$HOME/org"
+  "$HOME/code/work"
+)
+
+# Loop through the array of folder names and create the folders if they don't exist
+for folder_name in "${folder_names[@]}"
+do
+  if [[ ! -d "$folder_name" ]]; then
+    mkdir "$folder_name"
+    echo "Created folder: $folder_name"
   fi
 done
 
