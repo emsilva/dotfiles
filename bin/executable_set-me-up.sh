@@ -11,7 +11,7 @@ then
 fi
 
 #Installs all Homebrew apps
-homebrew_casks=(  )
+homebrew_casks=( "d12frosted/emacs-plus" )
 for homebrew_cask in "${homebrew_casks[@]}"
 do
   if ! brew tap | grep $homebrew_cask &> /dev/null
@@ -24,19 +24,31 @@ homebrew_apps=(
                 python3
                 python-tk@3.9
                 coreutils
+                cmake
                 wget
                 dockutil
                 mysides
                 chezmoi
                 mas
-                meld
                 iterm2
                 visual-studio-code
                 monitorcontrol
                 handbrake
                 ruby
                 mosh
+                marked
+                shellcheck
+                graphviz
+                jq
+                grep
                 ansible
+                ripgrep
+                fd
+                tradingview
+                mactex
+                openjdk
+                plantuml
+                "emacs-plus@28 --with-native-comp --with-modern-black-variant-icon"
                 "--cask whatsapp"
                 "--cask telegram"
                 "--cask signal"
@@ -111,6 +123,25 @@ done
 ###############################################
 # Everything Else                             #
 ###############################################
+
+# Doom Emacs
+# Check if the Doom binary does not exist
+if ! test -f ~/.emacs.d/bin/doom; then
+  # If it doesn't exist, check if the ~/.emacs.d directory exists
+  if [ -d ~/.emacs.d ]; then
+    # If the directory exists, delete it and all of its contents
+    echo "Deleting existing ~/.emacs.d directory..."
+    rm -rf ~/.emacs.d
+  fi
+  # Clone the Doom Emacs repository from GitHub to the ~/.emacs.d directory
+  echo "Cloning Doom Emacs repository to ~/.emacs.d directory..."
+  git clone --depth 1 https://github.com/doomemacs/doomemacs ~/.emacs.d
+  ~/.emacs.d/bin/doom install
+  ~/.emacs.d/bin/doom sync
+else
+  # If the Doom binary exists, output a message indicating that Doom Emacs is already installed
+  echo "Doom Emacs is already installed!"
+fi
 
 # iTerm2
 # installs shell integration for iTerm2
