@@ -26,62 +26,43 @@ install_homebrew() {
 install_packages() {
     print_info "Installing Homebrew packages..."
     
-    # Parse packages.yml and install (simplified approach)
-    # In a real implementation, you'd want to use a proper YAML parser
-    # For now, we'll just install the packages we know we need
+    # Install common packages
+    print_info "Installing common packages..."
+    local common_packages
+    mapfile -t common_packages < <(awk '/^common:/,/^macos:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
     
-    # Tap repositories
-    brew tap trapd00r/LS_COLORS || true
-    
-    # Install formulas
-    local formulas=(
-        python3
-        python-tk@3.9
-        coreutils
-        cmake
-        wget
-        dockutil
-        mysides
-        ruby
-        mosh
-        shellcheck
-        graphviz
-        jq
-        grep
-        ansible
-        ripgrep
-        fd
-        plantuml
-        syncthing
-        openjdk
-        handbrake
-        marked
-        mactex
-        tradingview
-        zplug
-    )
-    
-    for formula in "${formulas[@]}"; do
-        if ! brew list --formula "$formula" &> /dev/null; then
-            print_info "Installing formula: $formula"
-            brew install "$formula" || print_warn "Failed to install $formula"
+    for package in "${common_packages[@]}"; do
+        if [[ -n "$package" ]]; then
+            if ! brew list --formula "$package" &> /dev/null; then
+                print_info "Installing common package: $package"
+                brew install "$package" || print_warn "Failed to install $package"
+            fi
         fi
     done
     
-    # Install casks
-    local casks=(
-        iterm2
-        visual-studio-code
-        monitorcontrol
-        whatsapp
-        telegram
-        signal
-    )
+    # Tap repositories from packages.yml
+    print_info "Adding Homebrew taps..."
+    local taps
+    mapfile -t taps < <(awk '/^macos:/,/^[a-z]/ {if ($0 ~ /^    taps:/,/^    [a-z]/) {if ($0 ~ /^      - /) print $2}}' packages.yml)
     
-    for cask in "${casks[@]}"; do
-        if ! brew list --cask "$cask" &> /dev/null; then
-            print_info "Installing cask: $cask"
-            brew install --cask "$cask" || print_warn "Failed to install $cask"
+    for tap in "${taps[@]}"; do
+        if [[ -n "$tap" ]]; then
+            print_info "Adding tap: $tap"
+            brew tap "$tap" || print_warn "Failed to add tap $tap"
+        fi
+    done
+    
+    # Install macOS-specific formulas from packages.yml
+    print_info "Installing macOS-specific packages..."
+    local formulas
+    mapfile -t formulas < <(awk '/^macos:/,/^[a-z]/ {if ($0 ~ /^    formulas:/,/^    [a-z]/) {if ($0 ~ /^      - /) print $2}}' packages.yml)
+    
+    for formula in "${formulas[@]}"; do
+        if [[ -n "$formula" ]]; then
+            if ! brew list --formula "$formula" &> /dev/null; then
+                print_info "Installing formula: $formula"
+                brew install "$formula" || print_warn "Failed to install $formula"
+            fi
         fi
     done
 }
@@ -90,14 +71,15 @@ install_packages() {
 install_ruby_gems() {
     print_info "Installing Ruby gems..."
     
-    local gems=(
-        video_transcoding
-    )
+    local gems
+    mapfile -t gems < <(awk '/^ruby_gems:/,/^services:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
     
     for gem in "${gems[@]}"; do
-        if ! gem list | grep "$gem" &> /dev/null; then
-            print_info "Installing gem: $gem"
-            gem install "$gem" || print_warn "Failed to install $gem"
+        if [[ -n "$gem" ]]; then
+            if ! gem list | grep "$gem" &> /dev/null; then
+                print_info "Installing gem: $gem"
+                gem install "$gem" || print_warn "Failed to install $gem"
+            fi
         fi
     done
 }
@@ -106,15 +88,16 @@ install_ruby_gems() {
 start_services() {
     print_info "Starting services..."
     
-    local services=(
-        syncthing
-    )
+    local services
+    mapfile -t services < <(awk '/^services:/,/^[a-z]/ {if ($0 ~ /^  macos:/,/^  [a-z]/) {if ($0 ~ /^    - /) print $2}}' packages.yml)
     
     for service in "${services[@]}"; do
-        local service_status=$(brew services list | grep "$service" | awk '{print $2}')
-        if [[ "$service_status" == "none" ]]; then
-            print_info "Starting service: $service"
-            brew services start "$service"
+        if [[ -n "$service" ]]; then
+            local service_status=$(brew services list | grep "$service" | awk '{print $2}')
+            if [[ "$service_status" == "none" ]]; then
+                print_info "Starting service: $service"
+                brew services start "$service"
+            fi
         fi
     done
 }

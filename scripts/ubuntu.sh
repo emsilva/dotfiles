@@ -22,42 +22,35 @@ update_packages() {
 install_packages() {
     print_info "Installing Ubuntu packages..."
     
-    local packages=(
-        python3
-        python3-tk
-        python3-pip
-        coreutils
-        cmake
-        wget
-        curl
-        git
-        ruby
-        ruby-dev
-        shellcheck
-        graphviz
-        jq
-        grep
-        ansible
-        ripgrep
-        fd-find
-        openjdk-11-jdk
-        plantuml
-        syncthing
-        build-essential
-        libssl-dev
-        zsh
-        vim
-        meld
-        zsh-syntax-highlighting
-        zsh-autosuggestions
-    )
+    # Install common packages
+    print_info "Installing common packages..."
+    local common_packages
+    mapfile -t common_packages < <(awk '/^common:/,/^macos:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
     
-    for package in "${packages[@]}"; do
-        if ! dpkg -l | grep -q "^ii  $package "; then
-            print_info "Installing $package..."
-            sudo apt install -y "$package" || print_warn "Failed to install $package"
-        else
-            print_info "$package is already installed"
+    for package in "${common_packages[@]}"; do
+        if [[ -n "$package" ]]; then
+            if ! dpkg -l | grep -q "^ii  $package "; then
+                print_info "Installing common package: $package..."
+                sudo apt install -y "$package" || print_warn "Failed to install $package"
+            else
+                print_info "$package is already installed"
+            fi
+        fi
+    done
+    
+    # Install Ubuntu-specific packages from packages.yml
+    print_info "Installing Ubuntu-specific packages..."
+    local ubuntu_packages
+    mapfile -t ubuntu_packages < <(awk '/^ubuntu:/,/^ruby_gems:/ {if ($0 ~ /^  apt:/,/^ruby_gems:/) {if ($0 ~ /^    - /) print $2}}' packages.yml)
+    
+    for package in "${ubuntu_packages[@]}"; do
+        if [[ -n "$package" ]]; then
+            if ! dpkg -l | grep -q "^ii  $package "; then
+                print_info "Installing Ubuntu package: $package..."
+                sudo apt install -y "$package" || print_warn "Failed to install $package"
+            else
+                print_info "$package is already installed"
+            fi
         fi
     done
 }
@@ -66,14 +59,15 @@ install_packages() {
 install_ruby_gems() {
     print_info "Installing Ruby gems..."
     
-    local gems=(
-        video_transcoding
-    )
+    local gems
+    mapfile -t gems < <(awk '/^ruby_gems:/,/^services:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
     
     for gem in "${gems[@]}"; do
-        if ! gem list | grep "$gem" &> /dev/null; then
-            print_info "Installing gem: $gem"
-            gem install "$gem" || print_warn "Failed to install $gem"
+        if [[ -n "$gem" ]]; then
+            if ! gem list | grep "$gem" &> /dev/null; then
+                print_info "Installing gem: $gem"
+                gem install "$gem" || print_warn "Failed to install $gem"
+            fi
         fi
     done
 }
@@ -107,36 +101,22 @@ install_ls_colors() {
 configure_services() {
     print_info "Configuring services..."
     
-    # Enable and start syncthing
-    if ! systemctl --user is-enabled syncthing &> /dev/null; then
-        print_info "Enabling syncthing service..."
-        systemctl --user enable syncthing
-        systemctl --user start syncthing
-    else
-        print_info "Syncthing service already enabled"
-    fi
+    local services
+    mapfile -t services < <(awk '/^services:/,/^[a-z]/ {if ($0 ~ /^  ubuntu:/,/^  [a-z]/) {if ($0 ~ /^    - /) print $2}}' packages.yml)
+    
+    for service in "${services[@]}"; do
+        if [[ -n "$service" ]]; then
+            if ! systemctl --user is-enabled "$service" &> /dev/null; then
+                print_info "Enabling $service service..."
+                systemctl --user enable "$service"
+                systemctl --user start "$service"
+            else
+                print_info "$service service already enabled"
+            fi
+        fi
+    done
 }
 
-# Install Visual Studio Code (if not already installed)
-install_vscode() {
-    if ! command -v code &> /dev/null; then
-        print_info "Installing Visual Studio Code..."
-        
-        # Add Microsoft GPG key and repository
-        wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-        sudo install -o root -g root -m 644 packages.microsoft.gpg /etc/apt/trusted.gpg.d/
-        sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
-        
-        # Update package list and install
-        sudo apt update
-        sudo apt install -y code
-        
-        # Clean up
-        rm packages.microsoft.gpg
-    else
-        print_info "Visual Studio Code already installed"
-    fi
-}
 
 # Configure git to use fd instead of fd-find
 configure_fd() {
@@ -163,7 +143,6 @@ main() {
     install_ruby_gems
     install_zplug
     install_ls_colors
-    install_vscode
     configure_fd
     configure_services
     

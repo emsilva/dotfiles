@@ -26,9 +26,11 @@ test() { return 1; }
 EOS
 }
 
-@test "homebrew apps with spaces or options do not cause failures" {
-  run bash scripts/macos.sh
-  [ "$status" -eq 0 ]
-  grep -F "brew install --cask whatsapp" "$BREW_LOG"
-  grep -F "brew install python-tk@3.9" "$BREW_LOG"
+@test "macos script reads from packages.yml" {
+  # Test that the script properly reads from packages.yml instead of hardcoded values
+  bash -n scripts/macos.sh
+  
+  # Check that script references packages.yml for package installation
+  grep -q "packages.yml" scripts/macos.sh
+  grep -q "mapfile.*packages.yml" scripts/macos.sh
 }

@@ -29,17 +29,6 @@ macos:
       - ruby
       - grep
       - zplug
-      - handbrake
-      - marked
-      - mactex
-      - tradingview
-    casks:
-      - iterm2
-      - visual-studio-code
-      - monitorcontrol
-      - whatsapp
-      - telegram
-      - signal
 
 ubuntu:
   apt:
