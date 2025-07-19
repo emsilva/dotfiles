@@ -1,6 +1,6 @@
 [user]
 	name = Mannu Silva
-	email = {{ (index (onepassword "hx4ktyi3rx4lxr5jw7i7eh7s2q").fields 3).value }}
+	email = $GIT_EMAIL_PERSONAL
 [color]
 	ui = true
 [merge]
@@ -15,5 +15,5 @@
 [init]
 	defaultBranch = main
 
-[includeIf "gitdir:work/"]
+[includeIf "gitdir:~/work/"]
   	path = ~/.gitconfig-work

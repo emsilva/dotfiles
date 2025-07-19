@@ -1,0 +1,67 @@
+common:
+  - git
+  - vim
+  - zsh
+  - curl
+  - wget
+  - python3
+  - ripgrep
+  - jq
+  - shellcheck
+  - graphviz
+  - ansible
+  - plantuml
+  - syncthing
+  - cmake
+
+macos:
+  homebrew:
+    taps:
+      - trapd00r/LS_COLORS
+    formulas:
+      - python-tk@3.9
+      - coreutils
+      - dockutil
+      - mysides
+      - mosh
+      - fd
+      - openjdk
+      - ruby
+      - grep
+      - zplug
+      - handbrake
+      - marked
+      - mactex
+      - tradingview
+    casks:
+      - iterm2
+      - visual-studio-code
+      - monitorcontrol
+      - whatsapp
+      - telegram
+      - signal
+
+ubuntu:
+  apt:
+    - python3-tk
+    - python3-pip
+    - coreutils
+    - build-essential
+    - libssl-dev
+    - meld
+    - openjdk-11-jdk
+    - ruby
+    - ruby-dev
+    - fd-find
+    - grep
+    - zsh-syntax-highlighting
+    - zsh-autosuggestions
+
+ruby_gems:
+  - video_transcoding
+
+services:
+  macos:
+    - syncthing
+  ubuntu:
+    - syncthing

@@ -1,55 +1,110 @@
-# Dotfiles
+# Cross-Platform Dotfiles
 
-This repository contains my personal configuration files managed by [chezmoi](https://www.chezmoi.io/). Chezmoi applies the files to a host system so that everything from the shell environment to editor settings can be reproduced quickly.
+> 🔧 Simplified dotfiles that work on both macOS and Ubuntu with no external dependencies.
 
-## Overview
+## Features
 
-The dotfiles cover two major areas:
+- **Cross-platform**: Works on macOS and Ubuntu
+- **Simple**: No complex templating or external tools required
+- **Environment-based**: Use environment variables for sensitive configuration
+- **Package management**: Unified package definitions with platform-specific installation
+- **Symlink-based**: Easy to understand and modify
 
-1. **Shell and system configuration** – Zsh setup, Git settings, and macOS defaults.
-2. **Editor configuration** – Vim and Doom Emacs settings.
+## Quick Setup
 
-Scripts in `bin/` automate installing packages and customising macOS.
-
-## Repository structure
-
-```
-.
-├── bin/                       # setup scripts
-├── dot_config/chezmoi/        # chezmoi configuration
-├── dot_doom.d/                # Doom Emacs configuration
-├── dot_local/share/iterm2/    # iTerm2 preferences
-├── dot_p10k.zsh               # Powerlevel10k prompt configuration
-├── dot_vimrc                  # Vim configuration
-└── dot_zshrc                  # Zsh configuration
+```bash
+git clone https://github.com/emsilva/dotfiles.git ~/dotfiles
+cd ~/dotfiles
+./install.sh
 ```
 
-## Key components
+## Configuration
 
-### Chezmoi configuration
-`dot_config/chezmoi/chezmoi.toml` defines commands used by chezmoi when editing and diffing files.
+### Environment Variables
 
-### Shell environment
-`dot_zshrc` loads oh‑my‑zsh, sets `PATH`, and manages plugins with zplug. The prompt style is configured in `dot_p10k.zsh`.
+Copy the example environment file and set your values:
 
-### Git configuration templates
-`dot_gitconfig.tmpl` and `dot_gitconfig-work.tmpl` include placeholders that pull email addresses from 1Password when chezmoi applies them.
+```bash
+cp .env.example .env.local
+# Edit .env.local with your email addresses
+```
 
-### Doom Emacs
-`dot_doom.d/` contains Doom Emacs modules in `init.el` and personal tweaks in `config.el`.
+Then source it in your shell:
 
-### macOS setup scripts
-`bin/executable_set-me-up.sh` installs Homebrew packages and clones additional repositories. `bin/executable_macos-sane-defaults.sh` configures macOS defaults such as Finder and Dock behaviour.
+```bash
+# Add to your .bashrc or .zshrc
+source ~/dotfiles/.env.local
+```
 
-### iTerm2 settings
-Settings for iTerm2 live under `dot_local/share/iterm2/com.googlecode.iterm2.plist` so they can be linked on a new machine.
+### Git Configuration
 
-## Running tests
+The git configuration uses environment variables:
+- `GIT_EMAIL_PERSONAL`: Your personal email address
+- `GIT_EMAIL_WORK`: Your work email address
 
-Install [bats](https://bats-core.readthedocs.io/) and run:
+If not set, it defaults to GitHub noreply emails.
+
+## Package Management
+
+Packages are defined in `packages.yml` with platform-specific sections:
+
+- **common**: Packages available on both platforms
+- **macos**: macOS-specific Homebrew packages
+- **ubuntu**: Ubuntu-specific apt packages
+
+## Directory Structure
+
+```
+~/dotfiles/
+├── install.sh           # Main installation script
+├── packages.yml         # Package definitions
+├── .env.example         # Environment variable template
+├── dotfiles/            # Actual dotfiles
+│   ├── .vimrc
+│   ├── .zshrc
+│   ├── .gitconfig
+│   └── .config/
+├── scripts/             # Platform-specific scripts
+│   ├── macos.sh        # macOS setup
+│   └── ubuntu.sh       # Ubuntu setup
+└── README.md
+```
+
+## Platform-Specific Features
+
+### macOS
+- Homebrew package installation
+- macOS defaults configuration
+- iTerm2 setup
+- Dock configuration
+- Hot corners setup
+
+### Ubuntu
+- APT package installation
+- Visual Studio Code installation
+- Service configuration (systemd)
+- fd symlink creation
+
+## Testing
+
+Run tests to ensure setup scripts work correctly:
 
 ```bash
 make test
 ```
 
-This runs the Bats tests located in the `test/` directory.
+## Migration from Chezmoi
+
+If you're migrating from the old chezmoi-based setup:
+
+1. Backup your current dotfiles
+2. Run the new installation script
+3. Set your environment variables
+4. Review and adjust any custom configurations
+
+## Notes
+
+- The installation is idempotent - you can run it multiple times safely
+- Platform detection is automatic
+- Services are configured appropriately for each platform
+- All symlinks point to the repository, making it easy to track changes
