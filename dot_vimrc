@@ -159,7 +159,7 @@ set incsearch
 """""""""""""""""""""""""""""""""""""
 " Mix
 """""""""""""""""""""""""""""""""""""
-" show the mathing brackets
+" show the matching brackets
 set showmatch
 set clipboard=unnamed
 
