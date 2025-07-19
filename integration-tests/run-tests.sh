@@ -30,26 +30,26 @@ run_integration_test() {
     
     print_section "$description"
     
-    # Build the Docker image
-    print_info "Building Docker image for $test_name..."
-    if ! docker build -f "integration-tests/$dockerfile" -t "dotfiles-test-$test_name" .; then
-        print_error "Failed to build Docker image for $test_name"
+    # Build the Podman image
+    print_info "Building Podman image for $test_name..."
+    if ! podman build -f "integration-tests/$dockerfile" -t "dotfiles-test-$test_name" .; then
+        print_error "Failed to build Podman image for $test_name"
         return 1
     fi
     
     # Run the test
     print_info "Running integration test for $test_name..."
     local container_id
-    container_id=$(docker run -d "dotfiles-test-$test_name")
+    container_id=$(podman run -d "dotfiles-test-$test_name")
     
     # Wait for container to finish and get the exit code
     local exit_code
-    docker wait "$container_id" > /dev/null
-    exit_code=$(docker inspect "$container_id" --format='{{.State.ExitCode}}')
+    podman wait "$container_id" > /dev/null
+    exit_code=$(podman inspect "$container_id" --format='{{.State.ExitCode}}')
     
     # Get the logs
     print_info "Container output for $test_name:"
-    docker logs "$container_id"
+    podman logs "$container_id"
     
     # Check exit code and report result
     if [ "$exit_code" -eq 0 ]; then
@@ -59,12 +59,12 @@ run_integration_test() {
         
         # For debugging, let's also check what files were created
         print_info "Checking container filesystem for debugging..."
-        docker exec "$container_id" ls -la /home/testuser/ || true
-        docker exec "$container_id" ls -la /home/testuser/.config/ || true
+        podman exec "$container_id" ls -la /home/testuser/ || true
+        podman exec "$container_id" ls -la /home/testuser/.config/ || true
     fi
     
     # Clean up container
-    docker rm "$container_id" > /dev/null
+    podman rm "$container_id" > /dev/null
     
     return "$exit_code"
 }
@@ -78,11 +78,11 @@ validate_installation() {
     
     # Create a new container from the image and run validation commands
     local container_id
-    container_id=$(docker run -d "dotfiles-test-$test_name" sleep 3600)
+    container_id=$(podman run -d "dotfiles-test-$test_name" sleep 3600)
     
     # Check that symlinks were created
     print_info "Validating symlinks..."
-    docker exec "$container_id" bash -c "
+    podman exec "$container_id" bash -c "
         ls -la /home/testuser/.vimrc && echo '✅ .vimrc symlink created' || echo '❌ .vimrc symlink missing'
         ls -la /home/testuser/.zshrc && echo '✅ .zshrc symlink created' || echo '❌ .zshrc symlink missing'
         ls -la /home/testuser/.gitconfig && echo '✅ .gitconfig symlink created' || echo '❌ .gitconfig symlink missing'
@@ -90,35 +90,35 @@ validate_installation() {
     
     # Check that git config was properly substituted
     print_info "Validating git configuration..."
-    docker exec "$container_id" bash -c "
+    podman exec "$container_id" bash -c "
         grep 'test.personal@example.com' /home/testuser/.gitconfig && echo '✅ Personal email substituted' || echo '❌ Personal email not found'
         grep 'test.work@example.com' /home/testuser/.gitconfig-work && echo '✅ Work email substituted' || echo '❌ Work email not found'
     "
     
     # Check that directories were created
     print_info "Validating directories..."
-    docker exec "$container_id" bash -c "
+    podman exec "$container_id" bash -c "
         [ -d /home/testuser/org ] && echo '✅ org directory created' || echo '❌ org directory missing'
         [ -d /home/testuser/code/work ] && echo '✅ code/work directory created' || echo '❌ code/work directory missing'
     "
     
     # Clean up
-    docker rm -f "$container_id" > /dev/null
+    podman rm -f "$container_id" > /dev/null
 }
 
 # Main test runner
 main() {
     print_section "Dotfiles Integration Test Suite"
     
-    # Check if Docker is available
-    if ! command -v docker &> /dev/null; then
-        print_error "Docker is not installed or not in PATH"
+    # Check if Podman is available
+    if ! command -v podman &> /dev/null; then
+        print_error "Podman is not installed or not in PATH"
         exit 1
     fi
     
-    # Check if Docker daemon is running
-    if ! docker info &> /dev/null; then
-        print_error "Docker daemon is not running"
+    # Check if Podman is running
+    if ! podman info &> /dev/null; then
+        print_error "Podman is not running or not configured properly"
         exit 1
     fi
     
@@ -162,8 +162,8 @@ main() {
 
 # Cleanup function
 cleanup() {
-    print_info "Cleaning up Docker images..."
-    docker rmi -f $(docker images "dotfiles-test-*" -q) 2>/dev/null || true
+    print_info "Cleaning up Podman images..."
+    podman rmi -f $(podman images "dotfiles-test-*" -q) 2>/dev/null || true
 }
 
 # Set trap for cleanup
@@ -177,7 +177,7 @@ case "${1:-}" in
         ;;
     "help"|"-h"|"--help")
         echo "Usage: $0 [clean|help]"
-        echo "  clean: Remove all test Docker images"
+        echo "  clean: Remove all test Podman images"
         echo "  help:  Show this help message"
         exit 0
         ;;

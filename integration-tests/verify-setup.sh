@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Verify integration test setup without requiring Docker
+# Verify integration test setup without requiring Podman
 set -e
 
 # Colors for output
@@ -41,7 +41,7 @@ check "Dockerfile.macos-sim exists" "[ -f integration-tests/Dockerfile.macos-sim
 check "Dockerfile.alpine exists" "[ -f integration-tests/Dockerfile.alpine ]"
 check "run-tests.sh exists and is executable" "[ -x integration-tests/run-tests.sh ]"
 check "validate.sh exists and is executable" "[ -x integration-tests/validate.sh ]"
-check ".dockerignore exists" "[ -f .dockerignore ]"
+check ".containerignore exists" "[ -f .containerignore ]"
 
 # Check main dotfiles structure
 print_info "Checking dotfiles structure..."
@@ -57,15 +57,15 @@ check "dotfiles/.gitconfig-work exists" "[ -f dotfiles/.gitconfig-work ]"
 print_info "Validating Dockerfile syntax..."
 for dockerfile in integration-tests/Dockerfile.*; do
     filename=$(basename "$dockerfile")
-    if command -v docker &> /dev/null; then
-        if docker build -f "$dockerfile" -t "test-$filename" . --dry-run &> /dev/null; then
+    if command -v podman &> /dev/null; then
+        if podman build -f "$dockerfile" -t "test-$filename" . --dry-run &> /dev/null; then
             print_pass "$filename syntax is valid"
         else
             print_fail "$filename has syntax errors"
             ((FAILED_CHECKS++))
         fi
     else
-        # Basic syntax check without Docker
+        # Basic syntax check without Podman
         if grep -q "FROM" "$dockerfile" && grep -q "CMD" "$dockerfile"; then
             print_pass "$filename has basic Dockerfile structure"
         else
@@ -91,17 +91,17 @@ check "Makefile has integration-test-clean target" "grep -q '^integration-test-c
 
 # Check environment dependencies
 print_info "Checking environment..."
-if command -v docker &> /dev/null; then
-    print_pass "Docker is installed"
-    if docker info &> /dev/null 2>&1; then
-        print_pass "Docker daemon is running"
+if command -v podman &> /dev/null; then
+    print_pass "Podman is installed"
+    if podman info &> /dev/null 2>&1; then
+        print_pass "Podman is running and configured"
         print_info "Ready to run: make integration-test"
     else
-        print_warn "Docker daemon is not running (start with: sudo systemctl start docker)"
+        print_warn "Podman is not configured properly (run: podman machine init && podman machine start)"
     fi
 else
-    print_warn "Docker not installed - integration tests will not work"
-    print_info "Install Docker to run integration tests"
+    print_warn "Podman not installed - integration tests will not work"
+    print_info "Install Podman to run integration tests"
 fi
 
 # Check if unit tests pass
@@ -127,7 +127,7 @@ if [ $FAILED_CHECKS -eq 0 ]; then
     print_pass "Integration test setup is complete! ($PASSED_CHECKS checks passed)"
     echo
     print_info "Next steps:"
-    echo "  1. Ensure Docker is running: sudo systemctl start docker"
+    echo "  1. Ensure Podman is configured: podman machine init && podman machine start"
     echo "  2. Run integration tests: make integration-test"
     echo "  3. Or run individual tests: make integration-test-ubuntu"
     exit 0

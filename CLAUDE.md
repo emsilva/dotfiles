@@ -9,11 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Unit tests
 make test
 
-# Integration tests (requires Docker)
+# Integration tests (requires Podman)
 make integration-test
 ./integration-tests/verify-setup.sh  # Check setup first
 ```
-Unit tests use Bats framework in the `test/` directory. Integration tests use Docker containers to simulate real OS environments (Ubuntu, macOS simulation, Alpine).
+Unit tests use Bats framework in the `test/` directory. Integration tests use Podman containers to simulate real OS environments (Ubuntu, macOS simulation, Alpine).
 
 ### Setup
 ```bash
@@ -61,7 +61,7 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 
 **Testing Framework**:
 - Unit tests: Bats tests in `test/` verify script functionality and structure
-- Integration tests: Docker containers in `integration-tests/` validate complete installation on real OS environments
+- Integration tests: Podman containers in `integration-tests/` validate complete installation on real OS environments
 
 ### Cross-Platform Support
 
@@ -108,7 +108,7 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 
 ### Testing Requirements
 - Unit tests must pass: `make test` (28 Bats tests)
-- Integration tests recommended: `make integration-test` (requires Docker)
+- Integration tests recommended: `make integration-test` (requires Podman)
 - Update tests when modifying package lists or script logic
 
 ### File Organization
@@ -119,7 +119,7 @@ scripts/macos.sh     # Homebrew, macOS defaults, iTerm2 setup
 scripts/ubuntu.sh    # APT packages, systemd services, Ubuntu-specific
 dotfiles/           # Actual config files (symlinked to ~/)
 test/               # Unit tests (Bats framework)
-integration-tests/  # Docker-based real environment tests
+integration-tests/  # Podman-based real environment tests
 ```
 
 ### Common Tasks

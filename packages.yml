@@ -30,6 +30,7 @@ macos:
       - ruby
       - grep
       - zplug
+      - podman
 
 ubuntu:
   apt:
@@ -46,6 +47,7 @@ ubuntu:
     - grep
     - zsh-syntax-highlighting
     - zsh-autosuggestions
+    - podman
 
 ruby_gems:
   - video_transcoding

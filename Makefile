@@ -10,27 +10,27 @@ integration-test:
 
 integration-test-ubuntu:
 	@echo "Running Ubuntu integration test..."
-	docker build -f integration-tests/Dockerfile.ubuntu -t dotfiles-test-ubuntu .
-	docker run --rm dotfiles-test-ubuntu
+	podman build -f integration-tests/Dockerfile.ubuntu -t dotfiles-test-ubuntu .
+	podman run --rm dotfiles-test-ubuntu
 
 integration-test-ubuntu-minimal:
 	@echo "Running Ubuntu minimal integration test..."
-	docker build -f integration-tests/Dockerfile.ubuntu-minimal -t dotfiles-test-ubuntu-minimal .
-	docker run --rm dotfiles-test-ubuntu-minimal
+	podman build -f integration-tests/Dockerfile.ubuntu-minimal -t dotfiles-test-ubuntu-minimal .
+	podman run --rm dotfiles-test-ubuntu-minimal
 
 integration-test-macos-sim:
 	@echo "Running macOS simulation integration test..."
-	docker build -f integration-tests/Dockerfile.macos-sim -t dotfiles-test-macos-sim .
-	docker run --rm dotfiles-test-macos-sim
+	podman build -f integration-tests/Dockerfile.macos-sim -t dotfiles-test-macos-sim .
+	podman run --rm dotfiles-test-macos-sim
 
 integration-test-alpine:
 	@echo "Running Alpine (unsupported OS) integration test..."
-	docker build -f integration-tests/Dockerfile.alpine -t dotfiles-test-alpine .
-	docker run --rm dotfiles-test-alpine || echo "Expected failure for unsupported OS"
+	podman build -f integration-tests/Dockerfile.alpine -t dotfiles-test-alpine .
+	podman run --rm dotfiles-test-alpine || echo "Expected failure for unsupported OS"
 
 integration-test-clean:
-	@echo "Cleaning up integration test Docker images..."
-	docker rmi -f $$(docker images "dotfiles-test-*" -q) 2>/dev/null || true
+	@echo "Cleaning up integration test Podman images..."
+	podman rmi -f $$(podman images "dotfiles-test-*" -q) 2>/dev/null || true
 
 help:
 	@echo "Available targets:"
@@ -40,9 +40,9 @@ help:
 	@echo "  integration-test-ubuntu-minimal - Run Ubuntu minimal test only"
 	@echo "  integration-test-macos-sim - Run macOS simulation test only"
 	@echo "  integration-test-alpine    - Run Alpine (unsupported) test only"
-	@echo "  integration-test-clean     - Clean up Docker images"
+	@echo "  integration-test-clean     - Clean up Podman images"
 	@echo "  help                       - Show this help message"
 	@echo ""
 	@echo "Prerequisites for integration tests:"
-	@echo "  - Docker installed and running"
+	@echo "  - Podman installed and running"
 	@echo "  - Run './integration-tests/verify-setup.sh' to check setup"

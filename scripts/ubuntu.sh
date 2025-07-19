@@ -134,6 +134,31 @@ configure_fd() {
     fi
 }
 
+# Configure Podman for rootless operation
+configure_podman() {
+    if command -v podman &> /dev/null; then
+        print_info "Configuring Podman for rootless operation..."
+        
+        # Enable and start podman socket for user
+        systemctl --user enable podman.socket || print_warn "Failed to enable podman socket"
+        systemctl --user start podman.socket || print_warn "Failed to start podman socket"
+        
+        # Configure subuid and subgid if not already configured
+        local username=$(whoami)
+        if ! grep -q "^${username}:" /etc/subuid 2>/dev/null; then
+            print_info "Configuring subuid and subgid for rootless Podman..."
+            echo "${username}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
+            echo "${username}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
+        fi
+        
+        # Initialize Podman if needed
+        if ! podman info &> /dev/null; then
+            print_info "Initializing Podman..."
+            podman system migrate || print_warn "Podman migration failed"
+        fi
+    fi
+}
+
 # Main function
 main() {
     print_info "Setting up Ubuntu environment..."
@@ -144,6 +169,7 @@ main() {
     install_zplug
     install_ls_colors
     configure_fd
+    configure_podman
     configure_services
     
     print_info "Ubuntu setup complete!"

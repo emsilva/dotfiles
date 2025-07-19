@@ -22,7 +22,9 @@
       "Bash(rm:*)",
       "Bash(chmod:*)",
       "Bash(./integration-tests/verify-setup.sh:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }
