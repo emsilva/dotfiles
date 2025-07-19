@@ -17,35 +17,69 @@ Unit tests use Bats framework in the `test/` directory. Integration tests use Do
 
 ### Setup
 ```bash
-# Apply dotfiles to system
-chezmoi apply
+# Install dotfiles (cross-platform)
+./install.sh
 
-# Run macOS setup (installs Homebrew packages, clones repos)
-bin/executable_set-me-up.sh
+# Set environment variables first (optional)
+export GIT_EMAIL_PERSONAL="your.personal@email.com"
+export GIT_EMAIL_WORK="your.work@email.com"
 
-# Configure macOS system defaults
-bin/executable_macos-sane-defaults.sh
+# Or create .env.local file
+cp .env.example .env.local
+# Edit .env.local with your values
 ```
 
 ## Architecture
 
-This is a dotfiles repository managed by **chezmoi**. Files prefixed with `dot_` become dotfiles when applied (e.g., `dot_vimrc` becomes `.vimrc`).
+This is a **simplified cross-platform dotfiles repository** using symlinks. No external dependencies like chezmoi or 1Password required.
 
 ### Key Components
 
-**Chezmoi Management**: Configuration in `dot_config/chezmoi/chezmoi.toml` defines editor and diff tools.
+**Installation**: `install.sh` is the main entry point that:
+- Detects OS (macOS or Ubuntu)
+- Runs platform-specific setup scripts
+- Creates symlinks from `dotfiles/` to home directory
+- Substitutes environment variables in git configs
 
-**Shell Environment**: `dot_zshrc` configures Zsh with oh-my-zsh and zplug plugin management. Prompt styling in `dot_p10k.zsh` (Powerlevel10k theme).
+**Platform Scripts**:
+- `scripts/macos.sh` - Homebrew packages, macOS defaults, iTerm2 setup
+- `scripts/ubuntu.sh` - APT packages, Visual Studio Code, service configuration
 
-**Git Templates**: `dot_gitconfig.tmpl` and `dot_gitconfig-work.tmpl` use template variables that pull email addresses from 1Password during chezmoi application.
+**Package Management**: `packages.yml` defines packages for each platform in unified YAML format.
 
-**Editor Configurations**: 
-- `dot_vimrc` for Vim settings
-- `dot_doom.d/` contains Doom Emacs configuration with modules (`init.el`) and personal tweaks (`config.el`)
+**Dotfiles Structure**: `dotfiles/` directory contains actual configuration files:
+- `.gitconfig` and `.gitconfig-work` - Git configuration with environment variable substitution
+- `.vimrc` - Vim settings
+- `.zshrc` - Zsh configuration with oh-my-zsh and plugin management
+- `.p10k.zsh` - Powerlevel10k prompt configuration
+- `.config/` and `.local/` - Application configuration directories
 
-**macOS Integration**: 
-- `bin/executable_set-me-up.sh` automates Homebrew package installation
-- `bin/executable_macos-sane-defaults.sh` sets system preferences
-- `dot_local/share/iterm2/` contains iTerm2 preference files
+**Environment Configuration**: Uses environment variables instead of templates:
+- `GIT_EMAIL_PERSONAL` - Personal git email
+- `GIT_EMAIL_WORK` - Work git email
+- Defaults to GitHub noreply emails if not set
 
-**Testing**: Bats tests in `test/` verify setup script behavior, particularly Homebrew command handling with complex package names and options.
+**Testing Framework**:
+- Unit tests: Bats tests in `test/` verify script functionality and structure
+- Integration tests: Docker containers in `integration-tests/` validate complete installation on real OS environments
+
+### Cross-Platform Support
+
+**macOS Features**:
+- Homebrew package installation with taps and casks
+- macOS system defaults configuration (Finder, Dock, trackpad, etc.)
+- iTerm2 preference management
+- Hot corners and UI behavior customization
+
+**Ubuntu Features**:
+- APT package installation
+- Visual Studio Code installation from Microsoft repository
+- Systemd service management
+- fd symlink creation (fd-find → fd)
+
+**Shared Features**:
+- Oh-my-zsh installation
+- Git configuration with environment variables
+- Directory structure creation (~/org, ~/code/work)
+- Ruby gem installation
+- Symlink management
