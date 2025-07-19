@@ -1,0 +1,27 @@
+# Git files
+.git
+.gitignore
+
+# Test artifacts
+test/*.log
+test/bats-*
+
+# Temporary files
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!README.md
+
+# Don't exclude integration tests - we need them
+# Don't exclude dotfiles - we need them
+# Don't exclude scripts - we need them

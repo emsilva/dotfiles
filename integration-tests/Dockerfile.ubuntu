@@ -1,0 +1,39 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic packages needed for our dotfiles
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    zsh \
+    vim \
+    gpg \
+    wget \
+    gettext-base \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a test user with sudo privileges
+RUN useradd -m -s /bin/bash testuser && \
+    echo 'testuser:testpass' | chpasswd && \
+    usermod -aG sudo testuser && \
+    echo 'testuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Copy dotfiles into container
+COPY --chown=testuser:testuser . /home/testuser/dotfiles
+
+# Set environment variables for testing
+ENV GIT_EMAIL_PERSONAL=test.personal@example.com
+ENV GIT_EMAIL_WORK=test.work@example.com
+
+# Set the working directory
+WORKDIR /home/testuser/dotfiles
+
+# Default command runs installation and validation
+CMD ["bash", "-c", "./install.sh && ./integration-tests/validate.sh"]

@@ -87,11 +87,41 @@ Packages are defined in `packages.yml` with platform-specific sections:
 
 ## Testing
 
-Run tests to ensure setup scripts work correctly:
+### Unit Tests
+
+Run unit tests to ensure setup scripts work correctly:
 
 ```bash
 make test
 ```
+
+### Integration Tests
+
+Run comprehensive integration tests using Docker containers that simulate real OS environments:
+
+```bash
+# Verify setup first
+./integration-tests/verify-setup.sh
+
+# Run all integration tests
+make integration-test
+
+# Or run specific tests
+make integration-test-ubuntu          # Ubuntu 22.04
+make integration-test-ubuntu-minimal  # Ubuntu 20.04 minimal
+make integration-test-macos-sim       # macOS simulation
+make integration-test-alpine          # Unsupported OS test
+```
+
+**Prerequisites**: Docker installed and running
+
+Integration tests validate:
+- ✅ Complete installation process
+- ✅ Cross-platform compatibility  
+- ✅ Symlink creation and management
+- ✅ Git configuration substitution
+- ✅ Package installation workflows
+- ✅ Error handling for unsupported systems
 
 ## Migration from Chezmoi
 

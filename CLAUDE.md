@@ -6,9 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Testing
 ```bash
+# Unit tests
 make test
+
+# Integration tests (requires Docker)
+make integration-test
+./integration-tests/verify-setup.sh  # Check setup first
 ```
-Runs Bats tests in the `test/` directory. Tests verify setup scripts handle Homebrew installations correctly.
+Unit tests use Bats framework in the `test/` directory. Integration tests use Docker containers to simulate real OS environments (Ubuntu, macOS simulation, Alpine).
 
 ### Setup
 ```bash

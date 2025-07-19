@@ -19,7 +19,9 @@
       "Bash(bats:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(chmod:*)",
+      "Bash(./integration-tests/verify-setup.sh:*)"
     ],
     "deny": []
   }

@@ -1,0 +1,103 @@
+# Simulate macOS environment using Ubuntu with mocked macOS commands
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    zsh \
+    vim \
+    wget \
+    gettext-base \
+    ruby \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a test user with sudo privileges
+RUN useradd -m -s /bin/bash testuser && \
+    echo 'testuser:testpass' | chpasswd && \
+    usermod -aG sudo testuser && \
+    echo 'testuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Create mock macOS commands to simulate Homebrew environment
+RUN mkdir -p /home/testuser/.local/bin
+
+# Create mock brew command that logs what would be installed
+RUN cat << 'EOF' > /home/testuser/.local/bin/brew
+#!/bin/bash
+echo "[MOCK BREW] $@" >> /tmp/brew-commands.log
+case "$1" in
+    "list")
+        exit 1  # Simulate packages not installed
+        ;;
+    "services")
+        if [ "$2" = "list" ]; then
+            echo "syncthing none"
+        fi
+        ;;
+    "tap")
+        echo "Tapping $2"
+        ;;
+    "install")
+        echo "Installing: ${@:2}"
+        ;;
+    *)
+        echo "Homebrew command: $@"
+        ;;
+esac
+exit 0
+EOF
+
+# Create mock defaults command (macOS system preferences)
+RUN cat << 'EOF' > /home/testuser/.local/bin/defaults
+#!/bin/bash
+echo "[MOCK DEFAULTS] $@" >> /tmp/defaults-commands.log
+echo "Setting default: $@"
+exit 0
+EOF
+
+# Create mock dockutil command
+RUN cat << 'EOF' > /home/testuser/.local/bin/dockutil
+#!/bin/bash
+echo "[MOCK DOCKUTIL] $@" >> /tmp/dockutil-commands.log
+echo "Dock utility: $@"
+exit 0
+EOF
+
+# Create mock chflags command
+RUN cat << 'EOF' > /home/testuser/.local/bin/chflags
+#!/bin/bash
+echo "[MOCK CHFLAGS] $@" >> /tmp/chflags-commands.log
+echo "chflags: $@"
+exit 0
+EOF
+
+# Make mock commands executable
+RUN chmod +x /home/testuser/.local/bin/*
+
+# Add to PATH
+ENV PATH="/home/testuser/.local/bin:$PATH"
+
+# Set OSTYPE to simulate macOS
+ENV OSTYPE="darwin21"
+
+# Copy dotfiles into container
+COPY --chown=testuser:testuser . /home/testuser/dotfiles
+
+# Set environment variables for testing
+ENV GIT_EMAIL_PERSONAL=test.personal@example.com
+ENV GIT_EMAIL_WORK=test.work@example.com
+
+# Set the working directory
+WORKDIR /home/testuser/dotfiles
+
+# Default command runs installation and validation
+CMD ["bash", "-c", "./install.sh && ./integration-tests/validate.sh"]
