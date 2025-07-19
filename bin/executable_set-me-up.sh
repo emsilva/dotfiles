@@ -58,9 +58,20 @@ homebrew_apps=(
 
 for homebrew_app in "${homebrew_apps[@]}"
 do
-  if ! brew ls $homebrew_app &> /dev/null
-  then
-    brew install $homebrew_app
+  # Split arguments from the array entry
+  read -r -a args <<< "$homebrew_app"
+  if [[ "${args[0]}" == "--cask" ]]; then
+    pkg="${args[1]}"
+    if ! brew list --cask "$pkg" &> /dev/null
+    then
+      brew install $homebrew_app
+    fi
+  else
+    pkg="${args[0]}"
+    if ! brew list --formula "$pkg" &> /dev/null
+    then
+      brew install $homebrew_app
+    fi
   fi
 done
 
