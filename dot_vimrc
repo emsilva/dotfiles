@@ -123,7 +123,7 @@ set smartindent
 set autoindent
 
 
-set splitbelow  " open a new vertical split below
+set splitbelow  " open a new horizontal split below
 set splitright  " open a new horizontal split on the right
 
 
