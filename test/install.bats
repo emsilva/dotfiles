@@ -61,20 +61,24 @@ teardown() {
     [ -x install.sh ]
 }
 
-@test "detect_os function works" {
-    # Source the install script to access functions
+@test "detect_os function detects macOS" {
     source install.sh
-    
-    # Test macOS detection
     export OSTYPE="darwin20"
     run detect_os
     [ "$status" -eq 0 ]
     [ "$output" = "macos" ]
-    
-    # Test Ubuntu detection (mock apt command)
+}
+
+@test "detect_os function detects Ubuntu" {
+    source install.sh
     export OSTYPE="linux-gnu"
-    export BASH_ENV="$TEST_TEMP_DIR/stub_apt.sh"
-    echo 'command() { [ "$2" = "apt" ] && return 0 || return 1; }' > "$BASH_ENV"
+    # Mock command function
+    command() { 
+        if [ "$1" = "-v" ] && [ "$2" = "apt" ]; then
+            return 0
+        fi
+        builtin command "$@"
+    }
     run detect_os
     [ "$status" -eq 0 ]
     [ "$output" = "ubuntu" ]

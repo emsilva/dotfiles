@@ -13,6 +13,7 @@ common:
   - plantuml
   - syncthing
   - cmake
+  - gettext
 
 macos:
   homebrew:
