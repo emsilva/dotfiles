@@ -83,3 +83,84 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - Directory structure creation (~/org, ~/code/work)
 - Ruby gem installation
 - Symlink management
+
+## Known Issues & TODOs
+
+### Current Technical Debt
+- **Legacy Chezmoi Artifacts**: Remove `dotfiles/.config/chezmoi/` directory and vim autocmd references
+- **Plugin Management**: Consolidate zsh plugins (currently uses both oh-my-zsh and zplug)
+- **Hardcoded Paths**: Ruby gem paths in .zshrc need dynamic detection
+- **Mixed Indentation**: .vimrc uses both 2-space and 4-space indentation
+
+### Key Improvement Areas
+- **Error Recovery**: Add backup/rollback mechanisms for failed installations
+- **User Experience**: Interactive installation mode, progress indicators
+- **Performance**: Package caching, parallel installations
+- **Security**: GPG verification for downloads, checksum validation
+
+## Development Guidelines
+
+### Code Standards
+- Use `set -e` for error handling in all scripts
+- Implement colored output for user feedback (`print_info`, `print_warn`, `print_error`)
+- Make operations idempotent where possible
+- Parse packages.yml using awk patterns (avoid hardcoded package lists)
+
+### Testing Requirements
+- Unit tests must pass: `make test` (28 Bats tests)
+- Integration tests recommended: `make integration-test` (requires Docker)
+- Update tests when modifying package lists or script logic
+
+### File Organization
+```
+install.sh           # Main entry point - OS detection, symlinks, git config
+packages.yml         # Single source of truth for all packages
+scripts/macos.sh     # Homebrew, macOS defaults, iTerm2 setup
+scripts/ubuntu.sh    # APT packages, systemd services, Ubuntu-specific
+dotfiles/           # Actual config files (symlinked to ~/)
+test/               # Unit tests (Bats framework)
+integration-tests/  # Docker-based real environment tests
+```
+
+### Common Tasks
+
+**Adding New Packages:**
+1. Edit `packages.yml` only (scripts auto-parse)
+2. Add to appropriate section: common, macos.homebrew.formulas, ubuntu.apt
+3. Run tests to verify parsing works
+
+**Modifying Scripts:**
+1. Update the relevant platform script (macos.sh or ubuntu.sh)
+2. Ensure awk parsing patterns match packages.yml structure
+3. Test locally and run full test suite
+
+**Environment Variables:**
+- `GIT_EMAIL_PERSONAL` - Personal git email
+- `GIT_EMAIL_WORK` - Work git email
+- Defaults to GitHub noreply emails if unset
+
+### Platform-Specific Notes
+
+**macOS Limitations:**
+- Requires Homebrew for package management
+- macOS defaults only apply after restart/logout
+- iTerm2 preferences require manual import
+
+**Ubuntu Limitations:**
+- APT packages only (no snap support currently)
+- systemd user services may need manual start
+- fd-find symlinked to fd for compatibility
+
+### Architecture Decisions
+
+**Why Symlinks vs Templates:**
+- Simplicity: No templating engine required
+- Transparency: Easy to see actual file contents
+- Git Integration: Changes tracked in repository
+- Cross-platform: Works identically on macOS/Ubuntu
+
+**Why AWK vs YAML Parser:**
+- Dependency Reduction: AWK available everywhere
+- Performance: Faster than Python/Ruby YAML libs
+- Reliability: Simple parsing patterns less error-prone
+- Maintainability: Easy to understand and modify patterns

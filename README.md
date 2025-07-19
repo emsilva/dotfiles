@@ -132,6 +132,60 @@ If you're migrating from the old chezmoi-based setup:
 3. Set your environment variables
 4. Review and adjust any custom configurations
 
+## TODOs / Improvement Opportunities
+
+### 🔴 High Priority (Cleanup)
+- [ ] **Remove Legacy Chezmoi Artifacts**
+  - [ ] Delete `dotfiles/.config/chezmoi/` directory (no longer needed)
+  - [ ] Remove chezmoi autocmd from `.vimrc` (line 194)
+  - [ ] Audit for any remaining chezmoi references
+
+### 🟡 Medium Priority (Enhancements)
+- [ ] **Standardize Plugin Management**
+  - [ ] Consolidate all zsh plugins through zplug (remove oh-my-zsh redundancy)
+  - [ ] Review plugin conflicts and dependencies
+  
+- [ ] **Fix Hardcoded Paths**
+  - [ ] Replace hardcoded Ruby gem paths in `.zshrc` with dynamic detection
+  - [ ] Make Python/Node paths more flexible across versions
+  
+- [ ] **Improve Error Recovery**
+  - [ ] Add backup mechanism for existing dotfiles before overwriting
+  - [ ] Implement rollback functionality for failed installations
+  - [ ] Better handling of partial installation failures
+
+- [ ] **Enhanced User Experience**
+  - [ ] Add interactive mode for selective component installation  
+  - [ ] Implement progress bars for long-running operations
+  - [ ] Add shell reload functionality post-installation
+
+### 🟢 Low Priority (Nice to Have)
+- [ ] **Advanced Features**
+  - [ ] Profile management (work vs personal environments)
+  - [ ] Update checker for dotfiles repository
+  - [ ] Plugin architecture for extensibility
+  - [ ] GUI configuration interface
+
+- [ ] **Code Quality**
+  - [ ] Standardize indentation in `.vimrc` (currently mixed 2/4 spaces)
+  - [ ] Add package caching for faster reinstalls
+  - [ ] Implement parallel package installation where safe
+
+- [ ] **Security Enhancements**
+  - [ ] Add GPG verification for downloaded packages
+  - [ ] Implement checksum validation for critical downloads
+  - [ ] Add security scanning for installed packages
+
+- [ ] **Documentation**
+  - [ ] Add troubleshooting guide for common issues
+  - [ ] Create video walkthrough for setup process
+  - [ ] Document advanced customization options
+
+- [ ] **Testing**
+  - [ ] Add performance benchmarks for installation time
+  - [ ] Create tests for different Ubuntu versions (18.04, 20.04, 22.04)
+  - [ ] Add macOS version compatibility testing
+
 ## Notes
 
 - The installation is idempotent - you can run it multiple times safely
