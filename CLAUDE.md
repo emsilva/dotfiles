@@ -134,7 +134,9 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
   Co-Authored-By: Claude <noreply@anthropic.com>
   ```
 
-**Always run tests before committing**: `make test` must pass
+**CRITICAL: Always run tests before committing**: `make test` must pass
+
+**NEVER commit without running tests first**
 
 ### Testing Requirements
 
