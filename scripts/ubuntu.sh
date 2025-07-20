@@ -93,15 +93,6 @@ install_ruby_gems() {
     fi
 }
 
-# Install zplug (zsh plugin manager)
-install_zplug() {
-    if ! test -d ~/.local/share/zplug; then
-        print_info "Installing zplug..."
-        git clone https://github.com/zplug/zplug ~/.local/share/zplug
-    else
-        print_info "zplug already installed"
-    fi
-}
 
 # Install LS_COLORS
 install_ls_colors() {
@@ -229,7 +220,6 @@ main() {
     update_packages
     install_packages
     install_ruby_gems
-    install_zplug
     install_ls_colors
     configure_fd
     configure_podman

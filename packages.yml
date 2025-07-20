@@ -29,7 +29,6 @@ macos:
       - openjdk
       - ruby
       - grep
-      - zplug
       - podman
 
 ubuntu:

@@ -24,7 +24,16 @@
       "Bash(./integration-tests/verify-setup.sh:*)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(git rm:*)",
+      "Bash(podman build:*)",
+      "Bash(podman ps:*)",
+      "Bash(podman logs:*)",
+      "Bash(podman wait:*)",
+      "Bash(echo:*)",
+      "Bash(podman stop:*)",
+      "Bash(podman rm:*)"
     ],
     "deny": []
   }

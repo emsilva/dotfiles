@@ -87,10 +87,13 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 ## Known Issues & TODOs
 
 ### Current Technical Debt
-- **Legacy Chezmoi Artifacts**: Remove `dotfiles/.config/chezmoi/` directory and vim autocmd references
-- **Plugin Management**: Consolidate zsh plugins (currently uses both oh-my-zsh and zplug)
-- **Hardcoded Paths**: Ruby gem paths in .zshrc need dynamic detection
-- **Mixed Indentation**: .vimrc uses both 2-space and 4-space indentation
+- ~~**Legacy Chezmoi Artifacts**: Remove `dotfiles/.config/chezmoi/` directory and vim autocmd references~~ ✅ **COMPLETED**
+- ~~**Plugin Management**: Consolidate zsh plugins (currently uses both oh-my-zsh and zplug)~~ ✅ **COMPLETED**  
+- ~~**Hardcoded Paths**: Ruby gem paths in .zshrc need dynamic detection~~ ✅ **COMPLETED**
+- ~~**Mixed Indentation**: .vimrc uses both 2-space and 4-space indentation~~ ✅ **COMPLETED**
+- **AWK Parsing Errors**: Fix syntax errors in packages.yml processing (identified via integration tests)
+- **Shell Change Failures**: Handle `chsh` authentication failures gracefully in container environments
+- **Ruby Gem Failures**: Improve error handling for gem installation failures (video_transcoding gem)
 
 ### Key Improvement Areas
 - **Error Recovery**: Add backup/rollback mechanisms for failed installations
@@ -154,6 +157,38 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - **Integration validation**: Add checks to `integration-tests/validate.sh` for user-facing features
 
 **Current Test Count:** 30 unit tests, 24+ integration validation checks
+
+### Integration Test Learnings
+
+**Successfully Validated:**
+- Container timezone configuration (fixed with `ENV TZ=UTC` + proper timezone setup)
+- Package installation process works correctly in Ubuntu 22.04/20.04 environments
+- Symlink creation and git configuration substitution mechanisms
+- LS_COLORS installation processes
+- Overall script execution flow and error handling
+
+**Identified Failure Points:**
+1. **`chsh` Authentication Failures**
+   - Issue: `chsh -s /usr/bin/zsh` fails with "PAM: Authentication failure" in containers
+   - Impact: Default shell cannot be changed in containerized environments
+   - Solution needed: Graceful fallback or container-specific handling
+
+2. **Ruby Gem Installation Failures**
+   - Issue: `video_transcoding` gem fails to install (network/dependency issues)
+   - Impact: Ruby gem installation step fails, potentially stopping installation
+   - Solution needed: Better error handling and optional gem installation
+
+3. **AWK Parsing Syntax Errors**
+   - Issue: `awk: line 1: syntax error at or near ,` and `awk: line 1: syntax error at or near }`
+   - Impact: packages.yml parsing fails in some contexts
+   - Solution needed: Review and fix AWK parsing patterns in platform scripts
+
+**Backup/Rollback Priority Areas:**
+- Package installation state (before/after package installs)
+- Symlink creation/removal (track created symlinks for cleanup)
+- Git configuration changes (backup existing configs)
+- Shell change operations (revert to original shell on failure)
+- File system state (track created directories and files)
 
 ### File Organization
 ```

@@ -140,7 +140,6 @@ grep() {
 update_packages() { echo "update_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_packages() { echo "install_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_ruby_gems() { echo "install_ruby_gems called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
-install_zplug() { echo "install_zplug called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_ls_colors() { echo "install_ls_colors called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 configure_services() { echo "configure_services called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_vscode() { echo "install_vscode called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
