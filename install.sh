@@ -110,10 +110,37 @@ install_oh_my_zsh() {
 
 # Function to set default shell
 set_default_shell() {
-    if [ "$SHELL" != "$(which zsh)" ]; then
-        print_info "Setting zsh as default shell..."
-        chsh -s "$(which zsh)"
-        print_warn "Please log out and log back in for shell changes to take effect"
+    local zsh_path
+    zsh_path="$(which zsh)"
+    
+    if [[ -z "$zsh_path" ]]; then
+        print_error "zsh not found in PATH"
+        return 1
+    fi
+    
+    if [[ "$SHELL" == "$zsh_path" ]]; then
+        print_info "zsh is already the default shell"
+        return 0
+    fi
+    
+    print_info "Setting zsh as default shell..."
+    
+    # Check if we're in a container environment
+    if [[ -f /.dockerenv ]] || [[ -n "${container:-}" ]] || [[ "$(systemd-detect-virt 2>/dev/null || echo 'none')" != "none" ]]; then
+        print_warn "Container environment detected. Cannot change default shell with chsh."
+        print_info "To use zsh, run: exec zsh"
+        return 0
+    fi
+    
+    # Change default shell
+    if chsh -s "$zsh_path" 2>/dev/null; then
+        print_info "Default shell changed to zsh"
+        print_warn "Please restart your terminal or log out/in for the change to take effect"
+    else
+        print_warn "Failed to change default shell to zsh (possibly due to authentication requirements)"
+        print_info "You can manually change your shell by running: chsh -s $zsh_path"
+        print_info "Or start zsh directly with: exec zsh"
+        return 0  # Don't fail the entire setup for this
     fi
 }
 

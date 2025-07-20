@@ -31,54 +31,46 @@ WORKDIR /home/testuser
 RUN mkdir -p /home/testuser/.local/bin
 
 # Create mock brew command that logs what would be installed
-RUN cat << 'EOF' > /home/testuser/.local/bin/brew
-#!/bin/bash
-echo "[MOCK BREW] $@" >> /tmp/brew-commands.log
-case "$1" in
-    "list")
-        exit 1  # Simulate packages not installed
-        ;;
-    "services")
-        if [ "$2" = "list" ]; then
-            echo "syncthing none"
-        fi
-        ;;
-    "tap")
-        echo "Tapping $2"
-        ;;
-    "install")
-        echo "Installing: ${@:2}"
-        ;;
-    *)
-        echo "Homebrew command: $@"
-        ;;
-esac
-exit 0
-EOF
+RUN echo '#!/bin/bash' > /home/testuser/.local/bin/brew && \
+    echo 'echo "[MOCK BREW] $@" >> /tmp/brew-commands.log' >> /home/testuser/.local/bin/brew && \
+    echo 'case "$1" in' >> /home/testuser/.local/bin/brew && \
+    echo '    "list")' >> /home/testuser/.local/bin/brew && \
+    echo '        exit 1  # Simulate packages not installed' >> /home/testuser/.local/bin/brew && \
+    echo '        ;;' >> /home/testuser/.local/bin/brew && \
+    echo '    "services")' >> /home/testuser/.local/bin/brew && \
+    echo '        if [ "$2" = "list" ]; then' >> /home/testuser/.local/bin/brew && \
+    echo '            echo "syncthing none"' >> /home/testuser/.local/bin/brew && \
+    echo '        fi' >> /home/testuser/.local/bin/brew && \
+    echo '        ;;' >> /home/testuser/.local/bin/brew && \
+    echo '    "tap")' >> /home/testuser/.local/bin/brew && \
+    echo '        echo "Tapping $2"' >> /home/testuser/.local/bin/brew && \
+    echo '        ;;' >> /home/testuser/.local/bin/brew && \
+    echo '    "install")' >> /home/testuser/.local/bin/brew && \
+    echo '        echo "Installing: ${@:2}"' >> /home/testuser/.local/bin/brew && \
+    echo '        ;;' >> /home/testuser/.local/bin/brew && \
+    echo '    *)' >> /home/testuser/.local/bin/brew && \
+    echo '        echo "Homebrew command: $@"' >> /home/testuser/.local/bin/brew && \
+    echo '        ;;' >> /home/testuser/.local/bin/brew && \
+    echo 'esac' >> /home/testuser/.local/bin/brew && \
+    echo 'exit 0' >> /home/testuser/.local/bin/brew
 
 # Create mock defaults command (macOS system preferences)
-RUN cat << 'EOF' > /home/testuser/.local/bin/defaults
-#!/bin/bash
-echo "[MOCK DEFAULTS] $@" >> /tmp/defaults-commands.log
-echo "Setting default: $@"
-exit 0
-EOF
+RUN echo '#!/bin/bash' > /home/testuser/.local/bin/defaults && \
+    echo 'echo "[MOCK DEFAULTS] $@" >> /tmp/defaults-commands.log' >> /home/testuser/.local/bin/defaults && \
+    echo 'echo "Setting default: $@"' >> /home/testuser/.local/bin/defaults && \
+    echo 'exit 0' >> /home/testuser/.local/bin/defaults
 
 # Create mock dockutil command
-RUN cat << 'EOF' > /home/testuser/.local/bin/dockutil
-#!/bin/bash
-echo "[MOCK DOCKUTIL] $@" >> /tmp/dockutil-commands.log
-echo "Dock utility: $@"
-exit 0
-EOF
+RUN echo '#!/bin/bash' > /home/testuser/.local/bin/dockutil && \
+    echo 'echo "[MOCK DOCKUTIL] $@" >> /tmp/dockutil-commands.log' >> /home/testuser/.local/bin/dockutil && \
+    echo 'echo "Dock utility: $@"' >> /home/testuser/.local/bin/dockutil && \
+    echo 'exit 0' >> /home/testuser/.local/bin/dockutil
 
 # Create mock chflags command
-RUN cat << 'EOF' > /home/testuser/.local/bin/chflags
-#!/bin/bash
-echo "[MOCK CHFLAGS] $@" >> /tmp/chflags-commands.log
-echo "chflags: $@"
-exit 0
-EOF
+RUN echo '#!/bin/bash' > /home/testuser/.local/bin/chflags && \
+    echo 'echo "[MOCK CHFLAGS] $@" >> /tmp/chflags-commands.log' >> /home/testuser/.local/bin/chflags && \
+    echo 'echo "chflags: $@"' >> /home/testuser/.local/bin/chflags && \
+    echo 'exit 0' >> /home/testuser/.local/bin/chflags
 
 # Make mock commands executable
 RUN chmod +x /home/testuser/.local/bin/*
