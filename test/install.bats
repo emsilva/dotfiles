@@ -85,21 +85,23 @@ teardown() {
 }
 
 @test "create_symlinks function creates proper symlinks" {
-    # Override HOME before sourcing
-    export HOME="$TEST_HOME"
-    source install.sh
+    # Source the script with overridden HOME
+    (
+        export HOME="$TEST_HOME"
+        cd "$TEST_TEMP_DIR"
+        source install.sh
+        
+        # Create some test dotfiles
+        mkdir -p dotfiles
+        echo "test content" > dotfiles/.testfile
+        mkdir -p dotfiles/.config
+        echo "config content" > dotfiles/.config/testconfig
+        
+        # Run the function in subshell to contain HOME override
+        create_symlinks
+    )
     
-    # Create some test dotfiles
-    mkdir -p dotfiles
-    echo "test content" > dotfiles/.testfile
-    mkdir -p dotfiles/.config
-    echo "config content" > dotfiles/.config/testconfig
-    
-    # Run the function
-    run create_symlinks
-    [ "$status" -eq 0 ]
-    
-    # Check that symlinks were created
+    # Check that symlinks were created in test home
     [ -L "$TEST_HOME/.testfile" ]
     [ -L "$TEST_HOME/.config" ]
     
@@ -109,30 +111,32 @@ teardown() {
 }
 
 @test "setup_git_config substitutes environment variables" {
-    # Override HOME before sourcing
-    export HOME="$TEST_HOME"
-    source install.sh
-    
-    # Set environment variables
-    export GIT_EMAIL_PERSONAL="personal@test.com"
-    export GIT_EMAIL_WORK="work@test.com"
-    
-    # Create test git config files with environment variable syntax
-    cat > "$TEST_HOME/.gitconfig" <<'EOF'
+    # Run in subshell to contain HOME override
+    (
+        export HOME="$TEST_HOME"
+        cd "$TEST_TEMP_DIR"
+        source install.sh
+        
+        # Set environment variables
+        export GIT_EMAIL_PERSONAL="personal@test.com"
+        export GIT_EMAIL_WORK="work@test.com"
+        
+        # Create test git config files with environment variable syntax
+        cat > "$TEST_HOME/.gitconfig" <<'EOF'
 [user]
     name = Test User
     email = $GIT_EMAIL_PERSONAL
 EOF
-    
-    cat > "$TEST_HOME/.gitconfig-work" <<'EOF'
+        
+        cat > "$TEST_HOME/.gitconfig-work" <<'EOF'
 [user]
     name = Test User
     email = $GIT_EMAIL_WORK
 EOF
-    
-    # Run the function
-    run setup_git_config
-    [ "$status" -eq 0 ]
+        
+        # Run the function
+        setup_git_config
+    )
     
     # Check that environment variables were substituted
     grep "personal@test.com" "$TEST_HOME/.gitconfig"
@@ -140,12 +144,14 @@ EOF
 }
 
 @test "create_folders creates required directories" {
-    # Override HOME before sourcing
-    export HOME="$TEST_HOME"
-    source install.sh
-    
-    run create_folders
-    [ "$status" -eq 0 ]
+    # Run in subshell to contain HOME override
+    (
+        export HOME="$TEST_HOME"
+        cd "$TEST_TEMP_DIR"
+        source install.sh
+        
+        create_folders
+    )
     
     # Check that directories were created
     [ -d "$TEST_HOME/org" ]
