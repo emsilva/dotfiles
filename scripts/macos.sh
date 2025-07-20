@@ -29,7 +29,7 @@ install_packages() {
     # Install common packages
     print_info "Installing common packages..."
     local common_packages
-    mapfile -t common_packages < <(awk '/^common:/,/^macos:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
+    mapfile -t common_packages < <(awk '/^common:$/,/^macos:$/ {if ($0 ~ /^  - /) {gsub(/^  - /, ""); print}}' packages.yml)
     
     for package in "${common_packages[@]}"; do
         if [[ -n "$package" ]]; then
@@ -43,7 +43,7 @@ install_packages() {
     # Tap repositories from packages.yml
     print_info "Adding Homebrew taps..."
     local taps
-    mapfile -t taps < <(awk '/^macos:/,/^[a-z]/ {if ($0 ~ /^    taps:/,/^    [a-z]/) {if ($0 ~ /^      - /) print $2}}' packages.yml)
+    mapfile -t taps < <(awk '/^    taps:$/,/^    [a-z]/ {if ($0 ~ /^      - /) {gsub(/^      - /, ""); print}}' packages.yml)
     
     for tap in "${taps[@]}"; do
         if [[ -n "$tap" ]]; then
@@ -55,7 +55,7 @@ install_packages() {
     # Install macOS-specific formulas from packages.yml
     print_info "Installing macOS-specific packages..."
     local formulas
-    mapfile -t formulas < <(awk '/^macos:/,/^[a-z]/ {if ($0 ~ /^    formulas:/,/^    [a-z]/) {if ($0 ~ /^      - /) print $2}}' packages.yml)
+    mapfile -t formulas < <(awk '/^    formulas:$/,/^    [a-z]/ {if ($0 ~ /^      - /) {gsub(/^      - /, ""); print}}' packages.yml)
     
     for formula in "${formulas[@]}"; do
         if [[ -n "$formula" ]]; then
@@ -71,17 +71,38 @@ install_packages() {
 install_ruby_gems() {
     print_info "Installing Ruby gems..."
     
+    # Check if Ruby and gem are available
+    if ! command -v gem &> /dev/null; then
+        print_warn "gem command not found. Skipping Ruby gem installation."
+        return 0
+    fi
+    
     local gems
-    mapfile -t gems < <(awk '/^ruby_gems:/,/^services:/ {if ($0 ~ /^  - /) print $2}' packages.yml)
+    mapfile -t gems < <(awk '/^ruby_gems:$/,/^services:$/ {if ($0 ~ /^  - /) {gsub(/^  - /, ""); print}}' packages.yml)
+    
+    local failed_gems=()
     
     for gem in "${gems[@]}"; do
         if [[ -n "$gem" ]]; then
             if ! gem list | grep "$gem" &> /dev/null; then
                 print_info "Installing gem: $gem"
-                gem install "$gem" || print_warn "Failed to install $gem"
+                if gem install "$gem" 2>/dev/null; then
+                    print_info "Successfully installed gem: $gem"
+                else
+                    print_warn "Failed to install gem: $gem (continuing with other gems)"
+                    failed_gems+=("$gem")
+                fi
+            else
+                print_info "Gem $gem is already installed"
             fi
         fi
     done
+    
+    # Report failed gems at the end
+    if [[ ${#failed_gems[@]} -gt 0 ]]; then
+        print_warn "The following gems failed to install: ${failed_gems[*]}"
+        print_info "You can try installing them manually later with: gem install <gem_name>"
+    fi
 }
 
 # Start services
@@ -89,7 +110,7 @@ start_services() {
     print_info "Starting services..."
     
     local services
-    mapfile -t services < <(awk '/^services:/,/^[a-z]/ {if ($0 ~ /^  macos:/,/^  [a-z]/) {if ($0 ~ /^    - /) print $2}}' packages.yml)
+    mapfile -t services < <(awk '/^  macos:$/,/^  [a-z]/ {if ($0 ~ /^    - /) {gsub(/^    - /, ""); print}}' packages.yml)
     
     for service in "${services[@]}"; do
         if [[ -n "$service" ]]; then
@@ -186,13 +207,22 @@ set_default_shell() {
         echo "$zsh_path" | sudo tee -a /etc/shells > /dev/null
     fi
     
+    # Check if we're in a container environment
+    if [[ -f /.dockerenv ]] || [[ -n "${container:-}" ]] || [[ "$(systemd-detect-virt 2>/dev/null || echo 'none')" != "none" ]]; then
+        print_warn "Container environment detected. Cannot change default shell with chsh."
+        print_info "To use zsh, run: exec zsh"
+        return 0
+    fi
+    
     # Change default shell
-    if chsh -s "$zsh_path"; then
+    if chsh -s "$zsh_path" 2>/dev/null; then
         print_info "Default shell changed to zsh"
         print_warn "Please restart your terminal or log out/in for the change to take effect"
     else
-        print_error "Failed to change default shell to zsh"
-        return 1
+        print_warn "Failed to change default shell to zsh (possibly due to authentication requirements)"
+        print_info "You can manually change your shell by running: chsh -s $zsh_path"
+        print_info "Or start zsh directly with: exec zsh"
+        return 0  # Don't fail the entire setup for this
     fi
 }
 
