@@ -82,7 +82,7 @@ gpg() { echo "gpg $@" >> "$TEST_TEMP_DIR/gpg.log"; return 0; }
 tee() { cat > "$1"; }
 command() {
     case "$2" in
-        "brew"|"code"|"op"|"chezmoi")
+        "brew"|"code")
             return 1  # Simulate not found
             ;;
         "fd-find"|"which")

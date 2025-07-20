@@ -15,7 +15,6 @@ curl() { :; }
 git() { :; }
 defaults() { :; }
 mas() { :; }
-chezmoi() { :; }
 gem() { if [ "$1" = "list" ]; then return 1; else return 0; fi }
 rm() { :; }
 mkdir() { :; }

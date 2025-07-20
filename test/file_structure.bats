@@ -68,7 +68,7 @@
     grep -q "^\[user\]" dotfiles/.gitconfig-work
 }
 
-@test "no chezmoi template files remain" {
+@test "no template files remain" {
     # Ensure no .tmpl files exist
     ! find . -name "*.tmpl" -type f | grep -q .
     
@@ -94,8 +94,8 @@
     grep -q "./install.sh" README.md
     grep -q "packages.yml" README.md
     
-    # Should not contain old chezmoi references
-    ! grep -q "chezmoi init" README.md || true
+    # Should not contain old migration references
+    ! grep -q "Migration from" README.md || true
     ! grep -q "1password" README.md || true
 }
 
@@ -130,7 +130,7 @@
     [ -f dotfiles/.gitconfig ]
     [ -f dotfiles/.p10k.zsh ]
     
-    # Should not have old chezmoi naming
+    # Should not have old template naming
     ! [ -f dotfiles/dot_vimrc ] || true
     ! [ -f dotfiles/dot_zshrc ] || true
 }

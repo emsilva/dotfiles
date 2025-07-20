@@ -97,7 +97,7 @@ make test
 
 ### Integration Tests
 
-Run comprehensive integration tests using Docker containers that simulate real OS environments:
+Run comprehensive integration tests using Podman containers that simulate real OS environments:
 
 ```bash
 # Verify setup first
@@ -110,10 +110,9 @@ make integration-test
 make integration-test-ubuntu          # Ubuntu 22.04
 make integration-test-ubuntu-minimal  # Ubuntu 20.04 minimal
 make integration-test-macos-sim       # macOS simulation
-make integration-test-alpine          # Unsupported OS test
 ```
 
-**Prerequisites**: Docker installed and running
+**Prerequisites**: Podman installed and running
 
 Integration tests validate:
 - ✅ Complete installation process
@@ -123,30 +122,17 @@ Integration tests validate:
 - ✅ Package installation workflows
 - ✅ Error handling for unsupported systems
 
-## Migration from Chezmoi
-
-If you're migrating from the old chezmoi-based setup:
-
-1. Backup your current dotfiles
-2. Run the new installation script
-3. Set your environment variables
-4. Review and adjust any custom configurations
 
 ## TODOs / Improvement Opportunities
 
-### 🔴 High Priority (Cleanup)
-- [ ] **Remove Legacy Chezmoi Artifacts**
-  - [ ] Delete `dotfiles/.config/chezmoi/` directory (no longer needed)
-  - [ ] Remove chezmoi autocmd from `.vimrc` (line 194)
-  - [ ] Audit for any remaining chezmoi references
 
 ### 🟡 Medium Priority (Enhancements)
 - [ ] **Standardize Plugin Management**
   - [x] Consolidate all zsh plugins through oh-my-zsh (removed zplug dependency)
   - [ ] Review plugin conflicts and dependencies
   
-- [ ] **Fix Hardcoded Paths**
-  - [ ] Replace hardcoded Ruby gem paths in `.zshrc` with dynamic detection
+- [x] **Fix Hardcoded Paths**
+  - [x] Replace hardcoded Ruby gem paths in `.zshrc` with dynamic detection
   - [ ] Make Python/Node paths more flexible across versions
   
 - [ ] **Improve Error Recovery**
@@ -167,7 +153,7 @@ If you're migrating from the old chezmoi-based setup:
   - [ ] GUI configuration interface
 
 - [ ] **Code Quality**
-  - [ ] Standardize indentation in `.vimrc` (currently mixed 2/4 spaces)
+  - [x] Standardize indentation in `.vimrc` (completed)
   - [ ] Add package caching for faster reinstalls
   - [ ] Implement parallel package installation where safe
 

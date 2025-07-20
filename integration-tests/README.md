@@ -1,11 +1,11 @@
 # Integration Tests
 
-This directory contains Docker-based integration tests that simulate real OS environments to test the dotfiles installation.
+This directory contains Podman-based integration tests that simulate real OS environments to test the dotfiles installation.
 
 ## Prerequisites
 
-- Docker installed and running
-- At least 2GB of free disk space for Docker images
+- Podman installed and running
+- At least 2GB of free disk space for Podman images
 
 ## Quick Start
 
@@ -19,10 +19,9 @@ Or run individual tests:
 make integration-test-ubuntu          # Ubuntu 22.04 full test
 make integration-test-ubuntu-minimal  # Ubuntu 20.04 minimal test  
 make integration-test-macos-sim       # macOS simulation test
-make integration-test-alpine          # Alpine (unsupported OS) test
 ```
 
-Clean up Docker images:
+Clean up Podman images:
 ```bash
 make integration-test-clean
 ```
@@ -44,15 +43,11 @@ make integration-test-clean
 - **Expected**: Should pass with mock brew/defaults commands
 - **Validates**: OS detection, macOS-specific script logic
 
-### Alpine Linux (Dockerfile.alpine)
-- **Purpose**: Test unsupported OS handling
-- **Expected**: Should fail gracefully with proper error message
-- **Validates**: Error handling, OS detection edge cases
 
 ## Test Process
 
 Each test:
-1. **Builds** a Docker image with the target OS
+1. **Builds** a Podman image with the target OS
 2. **Copies** the dotfiles repository into the container
 3. **Runs** `./install.sh` to perform installation
 4. **Executes** `./integration-tests/validate.sh` for post-installation validation
@@ -77,10 +72,10 @@ To run a test manually and inspect the container:
 
 ```bash
 # Build the image
-docker build -f integration-tests/Dockerfile.ubuntu -t dotfiles-test-ubuntu .
+podman build -f integration-tests/Dockerfile.ubuntu -t dotfiles-test-ubuntu .
 
 # Run interactively
-docker run -it dotfiles-test-ubuntu bash
+podman run -it dotfiles-test-ubuntu bash
 
 # Inside the container, run:
 ./install.sh
@@ -94,16 +89,16 @@ cat ~/.gitconfig
 ## Troubleshooting
 
 **Build fails with permission errors:**
-- Ensure Docker daemon is running
-- Try: `sudo usermod -aG docker $USER` (then log out/in)
+- Ensure Podman is properly configured for rootless operation
+- Try: `podman system migrate` to update configuration
 
 **Tests timeout:**
 - Increase timeout: `make integration-test TIMEOUT=600`
-- Check Docker resources (CPU/memory limits)
+- Check Podman resources (CPU/memory limits)
 
 **Validation fails:**
-- Check container logs: `docker logs <container_id>`
-- Run interactively to debug: `docker run -it dotfiles-test-ubuntu bash`
+- Check container logs: `podman logs <container_id>`
+- Run interactively to debug: `podman run -it dotfiles-test-ubuntu bash
 
 ## Adding New Tests
 
@@ -129,6 +124,6 @@ These tests can be integrated into CI/CD pipelines:
 integration-test:
   script:
     - make integration-test
-  services:
-    - docker:dind
+  variables:
+    CONTAINER_ENGINE: podman
 ```

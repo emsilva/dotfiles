@@ -13,7 +13,7 @@ make test
 make integration-test
 ./integration-tests/verify-setup.sh  # Check setup first
 ```
-Unit tests use Bats framework in the `test/` directory. Integration tests use Podman containers to simulate real OS environments (Ubuntu, macOS simulation, Alpine).
+Unit tests use Bats framework in the `test/` directory. Integration tests use Podman containers to simulate real OS environments (Ubuntu, macOS simulation).
 
 ### Setup
 ```bash
@@ -147,7 +147,7 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
   
 - **Integration tests recommended**: `make integration-test` (requires Podman)
   - Test complete installation in real container environments
-  - Validates Ubuntu, macOS simulation, Alpine environments
+  - Validates Ubuntu, macOS simulation environments
   - Update `integration-tests/validate.sh` when adding new features
 
 **Test Coverage Requirements:**
