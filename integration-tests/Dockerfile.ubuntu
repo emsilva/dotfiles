@@ -2,6 +2,10 @@ FROM ubuntu:22.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Configure timezone to prevent tzdata prompts
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install basic packages needed for our dotfiles
 RUN apt-get update && apt-get install -y \
@@ -13,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     gpg \
     wget \
     gettext-base \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a test user with sudo privileges

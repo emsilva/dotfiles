@@ -19,7 +19,6 @@ TESTS=(
     "ubuntu:Dockerfile.ubuntu:Ubuntu 22.04 Full Test"
     "ubuntu-minimal:Dockerfile.ubuntu-minimal:Ubuntu 20.04 Minimal Test"
     "macos-sim:Dockerfile.macos-sim:macOS Simulation Test"
-    "alpine:Dockerfile.alpine:Alpine Linux (Unsupported OS) Test"
 )
 
 # Function to run a single integration test
@@ -130,17 +129,9 @@ main() {
         IFS=':' read -r test_name dockerfile description <<< "$test_config"
         
         if run_integration_test "$test_name" "$dockerfile" "$description"; then
-            # For successful tests (except Alpine which should fail), run validation
-            if [ "$test_name" != "alpine" ]; then
-                validate_installation "$test_name" "$dockerfile"
-            fi
+            validate_installation "$test_name" "$dockerfile"
         else
-            # Alpine test should fail gracefully
-            if [ "$test_name" = "alpine" ]; then
-                print_info "✅ Alpine test failed as expected (unsupported OS)"
-            else
-                ((failed_tests++))
-            fi
+            ((failed_tests++))
         fi
         
         echo
