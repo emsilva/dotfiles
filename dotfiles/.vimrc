@@ -39,8 +39,6 @@ Plug 'tpope/vim-surround'
 Plug 'tpope/vim-repeat'
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
-let g:airline_left_sep  = ''
-let g:airline_right_sep = ''
 
 Plug 'tpope/vim-rails'
 Plug 'tpope/vim-fugitive'
@@ -48,15 +46,11 @@ Plug 'vim-ruby/vim-ruby'
 Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
 Plug 'junegunn/fzf.vim'
 Plug 'tweekmonster/fzf-filemru'
-nnoremap <silent> <C-p> :FilesMru<CR>
 
 Plug 'tpope/vim-endwise'
 Plug 'rhysd/vim-fixjson'
 Plug 'Shougo/neosnippet.vim'
 Plug 'Shougo/neosnippet-snippets'
-imap <C-k>     <Plug>(neosnippet_expand_or_jump)
-smap <C-k>     <Plug>(neosnippet_expand_or_jump)
-xmap <C-k>     <Plug>(neosnippet_expand_target)
 Plug 'preservim/nerdcommenter'
 nmap <C-_> <leader>c<Space>
 Plug 'machakann/vim-highlightedyank'
@@ -65,6 +59,28 @@ Plug 'ap/vim-css-color'
 
 call plug#end()
 
+""""""""""""""""""""""""""""""""""""
+" Plugin Configuration
+""""""""""""""""""""""""""""""""""""
+" Airline
+if exists('g:loaded_airline')
+  let g:airline_left_sep  = ''
+  let g:airline_right_sep = ''
+endif
+
+" NeoSnippet
+if exists('g:loaded_neosnippet')
+  imap <C-k> <Plug>(neosnippet_expand_or_jump)
+  smap <C-k> <Plug>(neosnippet_expand_or_jump)
+  xmap <C-k> <Plug>(neosnippet_expand_target)
+endif
+
+" FZF
+nnoremap <silent> <C-p> :FilesMru<CR>
+nnoremap <leader>f :Files<CR>
+nnoremap <leader>b :Buffers<CR>
+nnoremap <leader>g :Rg<CR>
+nnoremap <leader>h :History<CR>
 
 """"""""""""""""""""""""""""""""""""
 "   How it looks
@@ -80,6 +96,12 @@ set lazyredraw
 set ruler
 set laststatus=2
 set visualbell
+set wildmenu
+set wildmode=list:longest,full
+set scrolloff=3
+set sidescrolloff=5
+set history=1000
+set undolevels=1000
 set textwidth=79
 set backspace=indent,eol,start
 set showtabline=2
@@ -89,6 +111,17 @@ if (has("termguicolors"))
   set t_8f=[38;2;%lu;%lu;%lum
   set t_8b=[48;2;%lu;%lu;%lum
 endif
+
+" Security & Performance
+set modelines=0
+set secure
+set updatetime=250
+set timeoutlen=500
+
+" Backup/Swap file handling
+set nobackup
+set nowritebackup
+set noswapfile
 
 """"""""""""""""""""""""""""""""""""
 " Line
@@ -103,7 +136,6 @@ nnoremap j gj
 nnoremap k gk
 set hidden
 set ttyfast
-set laststatus=2
 set showmode
 set showcmd
 """""""""""""""""""""""""""""""""""""
@@ -138,9 +170,8 @@ nnoremap <C-l> <C-w>l " Ctrl + l to move to the right one
 set ignorecase
 set smartcase
 set incsearch
-set hls
 set hlsearch
-nnoremap <CR> :nohlsearch<CR><CR>
+nnoremap <leader><space> :nohlsearch<CR>
 set grepprg=rg\ --vimgrep\ --smart-case\ --follow
 command! -bang -nargs=* Rg call fzf#vim#grep("rg --column --line-number --no-heading --color=always --smart-case ".shellescape(<q-args>), 1, {'options': '--delimiter : --nth 4..'}, <bang>0)
 
@@ -148,13 +179,6 @@ if has('nvim')
   " Enable live substitution
   set inccommand=split
 endif
-
-
-" highlight search results (after pressing Enter)
-set hlsearch
-
-" highlight all pattern matches WHILE typing the pattern
-set incsearch
 
 """""""""""""""""""""""""""""""""""""
 " Mix
@@ -183,8 +207,6 @@ else
 endif
 
 
-"This unsets the "last search pattern" register by hitting return
-nnoremap <CR> :noh<CR><CR>
 " edit vimrc/zshrc and load vimrc bindings
 nnoremap <leader>ev :vsp ~/.vimrc<CR>
 nnoremap <leader>ez :vsp ~/.zshrc<CR>
