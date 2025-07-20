@@ -163,6 +163,39 @@ configure_iterm2() {
     defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
 }
 
+# Set zsh as default shell
+set_default_shell() {
+    local zsh_path
+    zsh_path="$(which zsh)"
+    
+    if [[ -z "$zsh_path" ]]; then
+        print_error "zsh not found in PATH"
+        return 1
+    fi
+    
+    if [[ "$SHELL" == "$zsh_path" ]]; then
+        print_info "zsh is already the default shell"
+        return 0
+    fi
+    
+    print_info "Setting zsh as default shell..."
+    
+    # Add zsh to /etc/shells if not present
+    if ! grep -Fxq "$zsh_path" /etc/shells; then
+        print_info "Adding $zsh_path to /etc/shells"
+        echo "$zsh_path" | sudo tee -a /etc/shells > /dev/null
+    fi
+    
+    # Change default shell
+    if chsh -s "$zsh_path"; then
+        print_info "Default shell changed to zsh"
+        print_warn "Please restart your terminal or log out/in for the change to take effect"
+    else
+        print_error "Failed to change default shell to zsh"
+        return 1
+    fi
+}
+
 # Main function
 main() {
     print_info "Setting up macOS environment..."
@@ -173,6 +206,7 @@ main() {
     start_services
     configure_macos_defaults
     configure_iterm2
+    set_default_shell
     
     print_info "macOS setup complete!"
     print_warn "Please restart your computer for all changes to take effect"

@@ -127,6 +127,15 @@ which() {
 mkdir() { echo "mkdir $@" >> "$TEST_TEMP_DIR/mkdir.log"; /bin/mkdir -p "$@"; }
 ln() { echo "ln $@" >> "$TEST_TEMP_DIR/ln.log"; return 0; }
 rm() { echo "rm $@" >> "$TEST_TEMP_DIR/rm.log"; return 0; }
+chsh() { echo "chsh $@" >> "$TEST_TEMP_DIR/chsh.log"; return 0; }
+grep() { 
+    # Mock grep for /etc/shells check
+    if [[ "$*" == *"/etc/shells"* ]]; then
+        return 1  # Simulate zsh not in /etc/shells to test the add logic
+    fi
+    # For other grep calls, use real grep
+    /bin/grep "$@"
+}
 # Mock script functions that might be called
 update_packages() { echo "update_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_packages() { echo "install_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
@@ -237,4 +246,26 @@ teardown() {
     grep -q "ruby_gems" scripts/ubuntu.sh
     grep -q "gem install" scripts/macos.sh
     grep -q "gem install" scripts/ubuntu.sh
+}
+
+@test "zsh is set as default shell on both platforms" {
+    # Test that both scripts contain set_default_shell function
+    bash -n scripts/macos.sh
+    bash -n scripts/ubuntu.sh
+    
+    # Check that both scripts have set_default_shell function
+    grep -q "set_default_shell" scripts/macos.sh
+    grep -q "set_default_shell" scripts/ubuntu.sh
+    
+    # Check that both scripts call set_default_shell in main
+    grep -A 20 "main()" scripts/macos.sh | grep -q "set_default_shell"
+    grep -A 20 "main()" scripts/ubuntu.sh | grep -q "set_default_shell"
+    
+    # Check that both scripts use chsh command
+    grep -q "chsh" scripts/macos.sh
+    grep -q "chsh" scripts/ubuntu.sh
+    
+    # Check that both scripts add zsh to /etc/shells
+    grep -q "/etc/shells" scripts/macos.sh
+    grep -q "/etc/shells" scripts/ubuntu.sh
 }

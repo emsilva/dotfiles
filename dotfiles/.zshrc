@@ -23,8 +23,18 @@ else
   export MANPATH="/usr/local/opt/coreutils/libexec/gnuman:${MANPATH}"
 fi
 
-export PATH="/usr/local/opt/ruby/bin:$PATH"
-export PATH="/usr/local/lib/ruby/gems/3.1.0/bin:$PATH"
+# Add Ruby paths if Ruby is available
+if command -v ruby >/dev/null 2>&1; then
+  RUBY_VERSION=$(ruby -e 'puts RUBY_VERSION')
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS Homebrew paths
+    export PATH="/usr/local/opt/ruby/bin:$PATH"
+    export PATH="/usr/local/lib/ruby/gems/${RUBY_VERSION}/bin:$PATH"
+  else
+    # Linux gem user install path
+    export PATH="$(ruby -e 'puts Gem.user_dir')/bin:$PATH"
+  fi
+fi
 export PATH="/usr/local/opt/openjdk/bin:$PATH"
 
 
@@ -79,25 +89,8 @@ export PKG_CONFIG_PATH="/usr/local/opt/ruby/lib/pkgconfig"
 
 source $ZSH/oh-my-zsh.sh
 
-source ~/.local/share/zplug/init.zsh
-
-zplug "woefe/wbase.zsh"
-zplug romkatv/powerlevel10k, as:theme, depth:1
-zplug "zsh-users/zsh-completions"
-zplug "zsh-users/zsh-autosuggestions"
-zplug "zsh-users/zsh-syntax-highlighting", defer:2
-zplug "zsh-users/zsh-history-substring-search", defer:3
-
-# Install plugins if there are plugins that have not been installed
-if ! zplug check --verbose; then
-    printf "Install? [y/N]: "
-    if read -q; then
-        echo; zplug install
-    fi
-fi
-
-zplug load
-
+# Set theme
+ZSH_THEME="powerlevel10k/powerlevel10k"
 
 
 # Which plugins would you like to load?
@@ -105,7 +98,12 @@ zplug load
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git)
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-history-substring-search
+)
 
 # User configuration
 

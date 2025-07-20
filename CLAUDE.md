@@ -106,10 +106,54 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - Make operations idempotent where possible
 - Parse packages.yml using awk patterns (avoid hardcoded package lists)
 
+### Git Workflow Requirements
+
+**MANDATORY: Commit important changes immediately**
+
+- **Commit after completing each logical feature or fix**
+  - Don't bundle multiple unrelated changes into one commit
+  - Each commit should represent a single, complete change
+  - Use descriptive commit messages explaining the "why"
+
+- **When to commit:**
+  - After adding new functionality (with tests)
+  - After fixing bugs or issues
+  - After refactoring code sections
+  - After updating documentation
+  - Before starting work on the next feature
+
+- **Commit message format:**
+  ```
+  Brief description of what was changed
+  
+  🤖 Generated with [Claude Code](https://claude.ai/code)
+  
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  ```
+
+**Always run tests before committing**: `make test` must pass
+
 ### Testing Requirements
-- Unit tests must pass: `make test` (28 Bats tests)
-- Integration tests recommended: `make integration-test` (requires Podman)
-- Update tests when modifying package lists or script logic
+
+**MANDATORY: Always run tests when making changes**
+
+- **Unit tests must pass**: `make test` (30 Bats tests)
+  - Run before committing any changes
+  - Add new test cases when adding functionality
+  - Update existing tests when modifying script behavior
+  
+- **Integration tests recommended**: `make integration-test` (requires Podman)
+  - Test complete installation in real container environments
+  - Validates Ubuntu, macOS simulation, Alpine environments
+  - Update `integration-tests/validate.sh` when adding new features
+
+**Test Coverage Requirements:**
+- **New functionality**: Must have corresponding unit tests in `test/` directory
+- **Script changes**: Update platform script tests in `test/platform_scripts.bats`
+- **Package additions**: Verify parsing tests in `test/file_structure.bats`
+- **Integration validation**: Add checks to `integration-tests/validate.sh` for user-facing features
+
+**Current Test Count:** 30 unit tests, 24+ integration validation checks
 
 ### File Organization
 ```

@@ -3,7 +3,7 @@
 """""""""""""""""""""""""""""""""""""
 if empty(glob('~/.vim/autoload/plug.vim'))
   silent !curl -fLo ~/.vim/autoload/plug.vim --create-dirs
-        \ https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+    \ https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
   autocmd VimEnter * PlugInstall
 endif
 
@@ -14,9 +14,9 @@ Plug 'preservim/nerdtree'
 nmap <silent> <F1> :call NERDTreeToggleInCurDir()<cr>
 function! NERDTreeToggleInCurDir()
   if (exists("t:NERDTreeBufName") && bufwinnr(t:NERDTreeBufName) != -1)
-    exe ":NERDTreeClose"
+  exe ":NERDTreeClose"
   else
-    exe ":NERDTreeFind"
+  exe ":NERDTreeFind"
   endif
 endfunction
 
@@ -191,4 +191,3 @@ nnoremap <leader>ez :vsp ~/.zshrc<CR>
 nnoremap <leader>sv :source $MYVIMRC<CR>
 noremap <F3> :Autoformat<CR>
 
-autocmd BufWritePost ~/.local/share/chezmoi/* ! chezmoi apply --source-path %

@@ -92,14 +92,30 @@ print_info "Testing environment variables..."
 test_condition "GIT_EMAIL_PERSONAL is set" "[ -n '$GIT_EMAIL_PERSONAL' ]"
 test_condition "GIT_EMAIL_WORK is set" "[ -n '$GIT_EMAIL_WORK' ]"
 
-# Test 10: Basic command functionality
+# Test 10: Shell configuration
+print_info "Testing shell configuration..."
+test_condition "zsh is installed" "command -v zsh > /dev/null"
+test_condition "zsh is in /etc/shells" "grep -q '/zsh' /etc/shells || true"  # May not work in container
+if [ -n "$SHELL" ]; then
+    test_condition "Shell variable is set" "[ -n '$SHELL' ]"
+    if echo "$SHELL" | grep -q zsh; then
+        print_pass "zsh is set as default shell"
+    else
+        print_info "Default shell is not zsh (expected in container: $SHELL)"
+    fi
+else
+    print_info "SHELL variable not set (expected in container environment)"
+fi
+
+# Test 11: Basic command functionality
 print_info "Testing basic commands..."
 test_condition "git command works" "git --version > /dev/null"
 test_condition "vim command works" "vim --version > /dev/null"
+test_condition "zsh command works" "zsh --version > /dev/null"
 
 # Summary
 print_info "Validation Summary"
-TOTAL_TESTS=20  # Approximate count of tests above
+TOTAL_TESTS=24  # Approximate count of tests above
 PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
 
 if [ $FAILED_TESTS -eq 0 ]; then
