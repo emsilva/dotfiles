@@ -87,7 +87,6 @@ create_symlinks() {
                 local current_target
                 current_target=$(readlink "$target_path")
                 if [[ "$current_target" == "$dotfiles_path" ]]; then
-                    print_debug "Symlink already correct: $rel_path"
                     ((skipped_count++))
                     continue
                 fi
