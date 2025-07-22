@@ -115,13 +115,6 @@ dotfiles-status --fix
 ./dotfiles-status.sh
 ```
 
-# Fix any symlink issues
-./dotfiles-status.sh --fix
-
-# Or using global commands
-dotfiles-status --fix
-```
-
 ### Migration from Old System
 
 If upgrading from the previous version:
@@ -132,7 +125,6 @@ If upgrading from the previous version:
 
 # Or run globally (if already installed)
 dotfiles-migrate
-```
 
 # Preview migration changes
 ./dotfiles-migrate.sh --dry-run
@@ -176,10 +168,15 @@ Packages are defined in `packages.yml` with platform-specific sections:
 
 ```
 ~/dotfiles/
-├── install.sh           # Main installation script
-├── update.sh            # Update and commit script
+├── dotfiles-install.sh  # Main installation script
+├── dotfiles-sync.sh     # Sync and commit script
+├── dotfiles-add.sh      # Add files to management
+├── dotfiles-remove.sh   # Remove files from management
+├── dotfiles-list.sh     # List managed files
+├── dotfiles-status.sh   # Check symlink status
 ├── packages.yml         # Package definitions
 ├── .env.example         # Environment variable template
+├── .dotfiles-manifest   # Tracks managed files
 ├── dotfiles/            # Actual dotfiles
 │   ├── .vimrc
 │   ├── .zshrc
@@ -188,7 +185,8 @@ Packages are defined in `packages.yml` with platform-specific sections:
 ├── scripts/             # Platform-specific scripts
 │   ├── macos.sh        # macOS setup
 │   └── ubuntu.sh       # Ubuntu setup
-└── README.md
+├── test/               # Unit tests
+└── integration-tests/  # Container-based tests
 ```
 
 ## Platform-Specific Features
