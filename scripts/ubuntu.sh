@@ -90,6 +90,9 @@ install_custom_packages() {
         if [[ -n "$install_info" ]]; then
             IFS='|' read -r name command description <<< "$install_info"
             
+            # Clean up any stdin redirection artifacts that might have been added
+            command=$(echo "$command" | sed 's/ < \/dev\/null//g')
+            
             # Check if the program is already installed
             if command -v "$name" &> /dev/null; then
                 print_info "$name is already installed"
@@ -99,10 +102,14 @@ install_custom_packages() {
             print_info "Installing $name ($description)..."
             print_info "Running: $command"
             
-            # Execute the installation command
-            # Use bash -c to properly handle pipes and redirections
-            if bash -c "$command"; then
-                print_info "Successfully installed $name"
+            # Execute the installation command in a clean shell environment
+            if /bin/sh -c "$command"; then
+                # Verify installation worked by checking if command exists
+                if command -v "$name" &> /dev/null; then
+                    print_info "Successfully installed $name"
+                else
+                    print_warn "Installation appeared to succeed but $name command not found"
+                fi
             else
                 print_warn "Failed to install $name (continuing with other packages)"
             fi
