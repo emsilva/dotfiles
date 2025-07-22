@@ -48,7 +48,16 @@ generate_commit_message() {
     local files_changed=$(git diff --cached --name-only | wc -l)
     local files_list=$(git diff --cached --name-only | head -5)
     
-    # Simple heuristics based on changed files
+    # Try AI analysis first if API key is available
+    if command -v curl >/dev/null 2>&1 && [ -n "$OPENAI_API_KEY" ]; then
+        local ai_message=$(generate_ai_commit_message)
+        if [ -n "$ai_message" ] && [ "$ai_message" != "Update dotfiles configuration" ]; then
+            echo "$ai_message"
+            return
+        fi
+    fi
+    
+    # Fallback to local heuristics based on changed files
     if echo "$files_list" | grep -q "^dotfiles/\..*rc$\|^dotfiles/\..*sh$"; then
         local config_files=$(echo "$files_list" | grep "^dotfiles/\." | sed 's/^dotfiles\///' | head -3 | paste -sd, -)
         if [ $files_changed -eq 1 ]; then
@@ -68,34 +77,38 @@ generate_commit_message() {
     elif echo "$files_list" | grep -q "install\.sh\|update\.sh"; then
         echo "Improve installation and update scripts"
     else
-        # Fallback: try to use API if available
-        if command -v curl >/dev/null 2>&1 && [ -n "$OPENAI_API_KEY" ]; then
-            generate_ai_commit_message
-        else
-            echo "Update dotfiles configuration"
-        fi
+        echo "Update dotfiles configuration"
     fi
 }
 
 # Function to generate commit message using AI (optional)
 generate_ai_commit_message() {
     local diff_content=$(git diff --cached)
-    local prompt="Analyze these git changes and generate a concise commit message (max 50 chars) following the pattern: 'Fix X for Y' or 'Add X to Y' or 'Update X configuration'. Changes:\n\n$diff_content"
+    # Escape quotes and newlines for JSON
+    local escaped_content=$(echo "$diff_content" | sed 's/"/\\"/g' | tr '\n' '\\' | sed 's/\\/\\n/g')
+    local prompt="Analyze these git changes and generate a concise commit message (max 50 chars) following the pattern: 'Fix X for Y' or 'Add X to Y' or 'Update X configuration'. Changes:\\n\\n$escaped_content"
     
-    local response=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
+    local json_payload=$(cat <<EOF
+{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "$prompt"}],
+    "max_tokens": 30,
+    "temperature": 0.3
+}
+EOF
+)
+    
+    local response=$(echo "$json_payload" | curl -s -X POST "https://api.openai.com/v1/chat/completions" \
         -H "Authorization: Bearer $OPENAI_API_KEY" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"model\": \"gpt-3.5-turbo\",
-            \"messages\": [{\"role\": \"user\", \"content\": \"$prompt\"}],
-            \"max_tokens\": 20,
-            \"temperature\": 0.3
-        }" 2>/dev/null)
+        -d @- 2>/dev/null)
     
-    if [ $? -eq 0 ] && echo "$response" | grep -q "content"; then
-        echo "$response" | grep -o '"content":"[^"]*"' | cut -d'"' -f4 | head -1
+    if [ $? -eq 0 ] && echo "$response" | jq -e '.choices[0].message.content' >/dev/null 2>&1; then
+        echo "$response" | jq -r '.choices[0].message.content' 2>/dev/null | head -1
     else
-        echo "Update dotfiles configuration"
+        # Debug: uncomment next line to see API response
+        # echo "API Error: $response" >&2
+        echo ""
     fi
 }
 

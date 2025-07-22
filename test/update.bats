@@ -45,6 +45,26 @@
     grep -q "OPENAI_API_KEY" update.sh
 }
 
+@test "update.sh prioritizes AI over local heuristics when API key is available" {
+    # Check that AI analysis is tried first
+    grep -A 10 "generate_commit_message()" update.sh | grep -q "Try AI analysis first"
+    # Check that the function structure prioritizes AI
+    grep -A 20 "generate_commit_message()" update.sh | grep -B 5 -A 5 "generate_ai_commit_message" | grep -q "if.*OPENAI_API_KEY"
+}
+
+@test "update.sh has improved JSON handling for AI requests" {
+    grep -q "jq -r" update.sh
+    grep -q "escaped_content" update.sh
+    grep -q "json_payload" update.sh
+}
+
+@test "update.sh has proper AI fallback behavior" {
+    # Check that it returns empty string on AI failure
+    grep -A 5 "API Error" update.sh | grep -q 'echo ""'
+    # Check that main function handles empty AI response
+    grep -A 3 "ai_message.*generate_ai_commit_message" update.sh | grep -q "Update dotfiles configuration"
+}
+
 @test "update.sh has fallback commit message" {
     grep -q "Update dotfiles configuration" update.sh
 }
