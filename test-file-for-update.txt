@@ -1,2 +1,3 @@
-# Test file to trigger update.sh
+# Test file to trigger update.sh  
 This is a test change to see if AI commit message generation works.
+Adding another line to test the API functionality.
