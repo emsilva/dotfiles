@@ -73,3 +73,21 @@
     grep -q "git remote get-url origin" update.sh
     grep -q "No remote repository configured" update.sh
 }
+
+@test "update.sh has confirmation functionality" {
+    grep -q "confirm_action()" update.sh
+    grep -q "show_update_preview()" update.sh
+    grep -q "skip_confirmation" update.sh
+}
+
+@test "update.sh supports bypass flags" {
+    grep -q "\-y.*skip.confirmation" update.sh
+    grep -q "\-\-yes.*skip.confirmation" update.sh
+    grep -q "\-\-skip.confirmation" update.sh
+}
+
+@test "update.sh has help functionality" {
+    grep -q "\-h.*help" update.sh
+    grep -q "Usage:" update.sh
+    grep -q "Environment Variables:" update.sh
+}

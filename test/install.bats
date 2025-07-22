@@ -193,3 +193,20 @@ EOF
     [ -d "$TEST_HOME/org" ]
     [ -d "$TEST_HOME/code/work" ]
 }
+
+@test "install.sh has confirmation functionality" {
+    grep -q "confirm_action()" install.sh
+    grep -q "show_installation_preview()" install.sh
+    grep -q "skip_confirmation" install.sh
+}
+
+@test "install.sh supports bypass flags" {
+    grep -q "\-y.*skip.confirmation" install.sh
+    grep -q "\-\-yes.*skip.confirmation" install.sh
+    grep -q "\-\-skip.confirmation" install.sh
+}
+
+@test "install.sh has help functionality" {
+    grep -q "\-h.*help" install.sh
+    grep -q "Usage:" install.sh
+}

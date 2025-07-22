@@ -13,6 +13,22 @@ print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Function to ask for user confirmation
+confirm_action() {
+    local message="$1"
+    echo -e "${YELLOW}[CONFIRM]${NC} $message"
+    read -r -p "Do you want to proceed? (y/N): " response
+    case "$response" in
+        [yY][eE][sS]|[yY]) 
+            return 0
+            ;;
+        *)
+            print_info "Operation cancelled by user."
+            exit 0
+            ;;
+    esac
+}
+
 # Detect operating system
 detect_os() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -157,13 +173,64 @@ set_default_shell() {
     fi
 }
 
+# Function to show installation preview
+show_installation_preview() {
+    local os="$1"
+    
+    echo -e "\n${GREEN}=== DOTFILES INSTALLATION PREVIEW ===${NC}"
+    echo -e "This script will perform the following actions:"
+    echo -e ""
+    echo -e "  ${YELLOW}1. Install packages${NC} for $os (via ./scripts/$os.sh)"
+    echo -e "  ${YELLOW}2. Create symlinks${NC} for dotfiles in your home directory"
+    echo -e "  ${YELLOW}3. Setup git configuration${NC} with environment variables"
+    echo -e "  ${YELLOW}4. Create standard directories${NC} (~/org, ~/code/work)"
+    echo -e "  ${YELLOW}5. Install oh-my-zsh${NC} (if not already installed)"
+    echo -e "  ${YELLOW}6. Set zsh as default shell${NC}"
+    echo -e ""
+    echo -e "${YELLOW}WARNING:${NC} This will modify your system and home directory."
+    echo -e "Existing files may be backed up or replaced."
+    echo -e ""
+}
+
 # Main installation function
 main() {
+    # Parse command line arguments
+    local skip_confirmation=false
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -y|--yes|--skip-confirmation)
+                skip_confirmation=true
+                shift
+                ;;
+            -h|--help)
+                echo "Usage: $0 [OPTIONS]"
+                echo "Options:"
+                echo "  -y, --yes, --skip-confirmation    Skip confirmation prompts"
+                echo "  -h, --help                        Show this help message"
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Use -h or --help for usage information."
+                exit 1
+                ;;
+        esac
+    done
+    
     print_info "Starting dotfiles installation..."
     
     # Detect OS
     OS=$(detect_os)
     print_info "Detected OS: $OS"
+    
+    # Show preview and get confirmation
+    show_installation_preview "$OS"
+    
+    if [[ "$skip_confirmation" != true ]]; then
+        confirm_action "The above actions will be performed on your system."
+    fi
+    
+    print_info "Proceeding with installation..."
     
     # Install packages for the detected OS
     print_info "Installing packages for $OS..."

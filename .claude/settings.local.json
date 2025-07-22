@@ -33,7 +33,10 @@
       "Bash(podman wait:*)",
       "Bash(echo:*)",
       "Bash(podman stop:*)",
-      "Bash(podman rm:*)"
+      "Bash(podman rm:*)",
+      "Bash(./install.sh:*)",
+      "Bash(./update.sh:*)",
+      "Bash(git pull:*)"
     ],
     "deny": []
   }

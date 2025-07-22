@@ -13,35 +13,146 @@ print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Check if we're in a git repository
-if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    print_error "Not in a git repository!"
-    exit 1
-fi
+# Function to ask for user confirmation
+confirm_action() {
+    local message="$1"
+    echo -e "${YELLOW}[CONFIRM]${NC} $message"
+    read -r -p "Do you want to proceed? (y/N): " response
+    case "$response" in
+        [yY][eE][sS]|[yY]) 
+            return 0
+            ;;
+        *)
+            print_info "Operation cancelled by user."
+            exit 0
+            ;;
+    esac
+}
 
-# Check if there are any changes to commit
-if git diff --quiet && git diff --cached --quiet; then
-    print_info "No changes to commit. Repository is clean."
-    exit 0
-fi
-
-print_info "Checking git status..."
-git status --short
-
-# Show what changes will be committed
-if ! git diff --cached --quiet; then
-    print_info "Staged changes:"
-    git diff --cached --name-only | sed 's/^/  - /'
-fi
-
-if ! git diff --quiet; then
-    print_info "Unstaged changes:"
-    git diff --name-only | sed 's/^/  - /'
+# Function to show update preview
+show_update_preview() {
+    local staged_files=$(git diff --cached --name-only | wc -l)
+    local unstaged_files=$(git diff --name-only | wc -l)
+    local total_files=$((staged_files + unstaged_files))
     
-    # Stage all changes
-    print_info "Staging all changes..."
-    git add .
-fi
+    echo -e "\n${GREEN}=== DOTFILES UPDATE PREVIEW ===${NC}"
+    echo -e "This script will perform the following actions:"
+    echo -e ""
+    echo -e "  ${YELLOW}1. Stage all changes${NC} ($total_files files)"
+    
+    if ! git diff --cached --quiet; then
+        echo -e "     Staged files:"
+        git diff --cached --name-only | sed 's/^/       - /'
+    fi
+    
+    if ! git diff --quiet; then
+        echo -e "     Unstaged files:"
+        git diff --name-only | sed 's/^/       - /'
+    fi
+    
+    echo -e "  ${YELLOW}2. Generate intelligent commit message${NC}"
+    if [ -n "$OPENAI_API_KEY" ]; then
+        echo -e "     Using AI analysis (OpenAI API)"
+    else
+        echo -e "     Using local file analysis"
+    fi
+    
+    echo -e "  ${YELLOW}3. Create git commit${NC} with generated message"
+    
+    if git remote get-url origin > /dev/null 2>&1; then
+        echo -e "  ${YELLOW}4. Push to remote repository${NC} (origin)"
+    else
+        echo -e "  ${YELLOW}4. Commit locally${NC} (no remote configured)"
+    fi
+    
+    echo -e ""
+    echo -e "${YELLOW}WARNING:${NC} This will commit and push changes to your git repository."
+    echo -e ""
+}
+
+# Main update function  
+main() {
+    # Parse command line arguments
+    local skip_confirmation=false
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -y|--yes|--skip-confirmation)
+                skip_confirmation=true
+                shift
+                ;;
+            -h|--help)
+                echo "Usage: $0 [OPTIONS]"
+                echo "Options:"
+                echo "  -y, --yes, --skip-confirmation    Skip confirmation prompts"
+                echo "  -h, --help                        Show this help message"
+                echo ""
+                echo "Environment Variables:"
+                echo "  OPENAI_API_KEY                    Enable AI-enhanced commit messages"
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Use -h or --help for usage information."
+                exit 1
+                ;;
+        esac
+    done
+
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        print_error "Not in a git repository!"
+        exit 1
+    fi
+
+    # Check if there are any changes to commit
+    if git diff --quiet && git diff --cached --quiet; then
+        print_info "No changes to commit. Repository is clean."
+        exit 0
+    fi
+
+    print_info "Checking git status..."
+    git status --short
+
+    # Show preview and get confirmation
+    show_update_preview
+    
+    if [[ "$skip_confirmation" != true ]]; then
+        confirm_action "The above actions will be performed on your git repository."
+    fi
+    
+    print_info "Proceeding with update..."
+
+    # Show what changes will be committed
+    if ! git diff --cached --quiet; then
+        print_info "Staged changes:"
+        git diff --cached --name-only | sed 's/^/  - /'
+    fi
+
+    if ! git diff --quiet; then
+        print_info "Unstaged changes:"
+        git diff --name-only | sed 's/^/  - /'
+        
+        # Stage all changes
+        print_info "Staging all changes..."
+        git add .
+    fi
+
+    # Generate commit message
+    COMMIT_MSG=$(generate_commit_message)
+
+    # Commit changes
+    print_info "Committing changes..."
+    git commit -m "$COMMIT_MSG"
+
+    # Check if we have a remote to push to
+    if git remote get-url origin > /dev/null 2>&1; then
+        print_info "Pushing to remote repository..."
+        git push
+        print_info "✅ Dotfiles updated and pushed successfully!"
+    else
+        print_warn "No remote repository configured. Changes committed locally only."
+    fi
+}
 
 # Function to analyze changes and generate commit message
 generate_commit_message() {
@@ -112,18 +223,7 @@ EOF
     fi
 }
 
-# Generate commit message
-COMMIT_MSG=$(generate_commit_message)
-
-# Commit changes
-print_info "Committing changes..."
-git commit -m "$COMMIT_MSG"
-
-# Check if we have a remote to push to
-if git remote get-url origin > /dev/null 2>&1; then
-    print_info "Pushing to remote repository..."
-    git push
-    print_info "✅ Dotfiles updated and pushed successfully!"
-else
-    print_warn "No remote repository configured. Changes committed locally only."
+# Run main function if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

@@ -131,6 +131,57 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - Make operations idempotent where possible
 - Parse packages.yml using awk patterns (avoid hardcoded package lists)
 
+### Script Interaction Guidelines
+**MANDATORY: All environment-modifying scripts must be interactive by default**
+
+**Required Behavior:**
+- **Show preview** of all actions before executing
+- **Ask for user confirmation** before proceeding
+- **Provide bypass flag** (`-y`, `--yes`, `--skip-confirmation`) for automation
+- **Include help option** (`-h`, `--help`) with usage information
+
+**Implementation Pattern:**
+```bash
+# Function to show action preview
+show_preview() {
+    echo -e "\n${GREEN}=== SCRIPT PREVIEW ===${NC}"
+    echo -e "This script will perform the following actions:"
+    echo -e "  ${YELLOW}1. Action description${NC}"
+    echo -e "  ${YELLOW}2. Another action${NC}"
+    echo -e "${YELLOW}WARNING:${NC} Description of potential impact"
+}
+
+# Function to ask for confirmation
+confirm_action() {
+    local message="$1"
+    echo -e "${YELLOW}[CONFIRM]${NC} $message"
+    read -r -p "Do you want to proceed? (y/N): " response
+    case "$response" in [yY]*) return 0;; *) exit 0;; esac
+}
+
+# Main function with argument parsing
+main() {
+    local skip_confirmation=false
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -y|--yes|--skip-confirmation) skip_confirmation=true; shift ;;
+            -h|--help) show_help; exit 0 ;;
+            *) print_error "Unknown option: $1"; exit 1 ;;
+        esac
+    done
+    
+    show_preview
+    [[ "$skip_confirmation" != true ]] && confirm_action "Proceed with actions?"
+    # ... perform actions
+}
+```
+
+**Scripts that MUST follow this pattern:**
+- `install.sh` - System and environment modifications
+- `update.sh` - Git operations and pushes
+- Any `scripts/*.sh` that modify system state
+- All future scripts that change files, install packages, or modify configuration
+
 ### AI/Claude Attribution Policy
 **IMPORTANT: No Claude or Anthropic attribution in commits or code**
 - Do NOT add Claude Code attribution to commit messages
