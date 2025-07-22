@@ -33,13 +33,11 @@ if command -v ruby >/dev/null 2>&1; then
 fi
 export PATH="/usr/local/opt/openjdk/bin:$PATH"
 
-
 # Sets up environment variables
 export HOMEBREW_NO_ENV_HINTS=TRUE
 export LDFLAGS="-L/usr/local/opt/ruby/lib"
 export CPPFLAGS="-I/usr/local/opt/ruby/include"
 export PKG_CONFIG_PATH="/usr/local/opt/ruby/lib/pkgconfig"
-
 
 # Uncomment one of the following lines to change the auto-update behavior
 # zstyle ':omz:update' mode disabled  # disable automatic updates
