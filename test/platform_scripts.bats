@@ -355,3 +355,61 @@ EOF
     grep -q "clean_install_info=" scripts/ubuntu.sh
     grep -q 'name="${clean_install_info%%§§§\*}"' scripts/ubuntu.sh
 }
+
+@test "macos.sh has install_custom_packages function" {
+    # Test that macos.sh contains the install_custom_packages function
+    bash -n scripts/macos.sh
+    
+    # Check that script contains install_custom_packages function
+    grep -q "install_custom_packages" scripts/macos.sh
+    grep -q "custom_install:" scripts/macos.sh
+}
+
+@test "ubuntu.sh has install_custom_packages function" {
+    # Test that ubuntu.sh contains the install_custom_packages function (already exists)
+    bash -n scripts/ubuntu.sh
+    
+    # Check that script contains install_custom_packages function
+    grep -q "install_custom_packages" scripts/ubuntu.sh
+    grep -q "custom_install:" scripts/ubuntu.sh
+}
+
+@test "macos.sh calls install_custom_packages in main function" {
+    # Check that main function calls install_custom_packages
+    grep -A 30 "main()" scripts/macos.sh | grep -q "install_custom_packages"
+}
+
+@test "packages.yml contains neovim entries" {
+    # Check that packages.yml contains neovim github_releases entries for both platforms
+    local packages_file="$BATS_TEST_DIRNAME/../packages.yml"
+    # Check for macos github_releases nvim entry
+    grep -A 30 "^macos:" "$packages_file" | grep -A 20 "^  github_releases:" | grep -q "name: nvim"
+    # Check for ubuntu github_releases nvim entry  
+    grep -A 30 "^ubuntu:" "$packages_file" | grep -A 20 "^  github_releases:" | grep -q "name: nvim"
+}
+
+@test "macos.sh has brew update/upgrade functionality" {
+    # Check that macos.sh updates/upgrades brew packages
+    grep -q "brew update" scripts/macos.sh
+    grep -q "brew upgrade" scripts/macos.sh
+}
+
+@test "ubuntu.sh has install_from_github_releases function" {
+    # Test that ubuntu.sh contains the install_from_github_releases function
+    bash -n scripts/ubuntu.sh
+    
+    # Check that script contains install_from_github_releases function
+    grep -q "install_from_github_releases" scripts/ubuntu.sh
+    grep -q "github_releases" scripts/ubuntu.sh
+}
+
+@test "ubuntu.sh calls install_from_github_releases in main function" {
+    # Check that main function calls install_from_github_releases
+    grep -A 30 "main()" scripts/ubuntu.sh | grep -q "install_from_github_releases"
+}
+
+@test "neovim installation creates vim symlink" {
+    # Test that packages.yml neovim installation creates vim symlink
+    local packages_file="$BATS_TEST_DIRNAME/../packages.yml"
+    grep -A 15 "name: nvim" "$packages_file" | grep -q "vim"
+}

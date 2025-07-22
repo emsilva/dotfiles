@@ -78,6 +78,159 @@ ensure_local_bin_in_path() {
     fi
 }
 
+# Install packages from GitHub releases
+process_github_releases() {
+    print_info "Processing GitHub releases from packages.yml..."
+    
+    # Parse github_releases section from packages.yml using a simpler approach
+    local temp_file="/tmp/github_releases_$$.yml"
+    awk '/^ubuntu:/,/^ruby_gems:/ { if (/^  github_releases:/) found=1; if (found && !/^ruby_gems:/) print }' packages.yml > "$temp_file"
+    
+    # Process each package in the github_releases section
+    local current_name=""
+    local current_repo=""
+    local current_pattern=""
+    local current_dir=""
+    local current_desc=""
+    local current_executables=""
+    
+    while IFS= read -r line; do
+        case "$line" in
+            "    - name: "*)
+                # Process previous package if we have one
+                if [[ -n "$current_name" ]]; then
+                    install_github_release "$current_name" "$current_repo" "$current_pattern" "$current_dir" "$current_executables" "$current_desc"
+                fi
+                
+                # Start new package
+                current_name="${line#*: }"
+                current_repo=""
+                current_pattern=""
+                current_dir=""
+                current_desc=""
+                current_executables=""
+                ;;
+            "      repo: "*)
+                current_repo="${line#*: }"
+                ;;
+            "      asset_pattern: "*)
+                current_pattern="${line#*: }"
+                ;;
+            "      install_dir: "*)
+                current_dir="${line#*: }"
+                ;;
+            "      description: "*)
+                current_desc="${line#*: }"
+                current_desc="${current_desc%\"}"
+                current_desc="${current_desc#\"}"
+                ;;
+            "        - src: "*)
+                src="${line#*: }"
+                ;;
+            "          dest: "*)
+                dest="${line#*: }"
+                if [[ -n "$current_executables" ]]; then
+                    current_executables="$current_executables|$src:$dest"
+                else
+                    current_executables="$src:$dest"
+                fi
+                ;;
+        esac
+    done < "$temp_file"
+    
+    # Process the last package
+    if [[ -n "$current_name" ]]; then
+        install_github_release "$current_name" "$current_repo" "$current_pattern" "$current_dir" "$current_executables" "$current_desc"
+    fi
+    
+    rm -f "$temp_file"
+}
+
+# Helper function to install a single GitHub release
+install_github_release() {
+    local name="$1"
+    local repo="$2"
+    local asset_pattern="$3"
+    local install_dir="$4"
+    local executables="$5"
+    local description="$6"
+    
+    # Check if already installed
+    if [[ -n "$executables" ]]; then
+        IFS='|' read -ra EXEC_ARRAY <<< "$executables"
+        first_exec="${EXEC_ARRAY[0]}"
+        IFS=':' read -r src_path dest_path <<< "$first_exec"
+        dest_path=$(eval echo "$dest_path")  # Expand ~ and variables
+        
+        if [[ -x "$dest_path" ]]; then
+            print_info "$name is already installed"
+            return 0
+        fi
+    fi
+    
+    print_info "Installing $name ($description)..."
+    
+    # Expand install directory
+    install_dir=$(eval echo "$install_dir")
+    mkdir -p "$install_dir" ~/.local/bin
+    
+    # Get download URL
+    local download_url
+    download_url=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | \
+                  grep -o "https://github.com/$repo/releases/download/[^\"]*$asset_pattern" | \
+                  head -n1)
+    
+    if [[ -z "$download_url" ]]; then
+        print_error "Failed to find download URL for $name with pattern $asset_pattern"
+        return 1
+    fi
+    
+    print_info "Downloading from: $download_url"
+    
+    # Download and extract
+    local temp_file="/tmp/${name}.tar.gz"
+    if curl -L "$download_url" -o "$temp_file"; then
+        # Clear install directory and extract
+        rm -rf "$install_dir"/*
+        tar -xzf "$temp_file" -C "$install_dir" --strip-components=1
+        rm "$temp_file"
+        
+        # Create executable symlinks
+        if [[ -n "$executables" ]]; then
+            IFS='|' read -ra EXEC_ARRAY <<< "$executables"
+            for exec_mapping in "${EXEC_ARRAY[@]}"; do
+                IFS=':' read -r src_path dest_path <<< "$exec_mapping"
+                src_full="$install_dir/$src_path"
+                dest_full=$(eval echo "$dest_path")  # Expand ~ and variables
+                
+                if [[ -f "$src_full" ]]; then
+                    ln -sf "$src_full" "$dest_full"
+                    print_info "Created symlink: $dest_full -> $src_full"
+                else
+                    print_warn "Source executable not found: $src_full"
+                fi
+            done
+        fi
+        
+        print_info "Successfully installed $name"
+        return 0
+    else
+        print_error "Failed to download $name"
+        return 1
+    fi
+}
+
+# Main GitHub releases installer function  
+install_from_github_releases() {
+    print_info "Installing packages from GitHub releases..."
+    
+    # Ensure ~/.local/bin is set up properly
+    ensure_local_bin_in_path
+    
+    # Process releases using the helper function
+    process_github_releases
+}
+
 # Install custom packages via script
 install_custom_packages() {
     print_info "Installing custom packages..."
@@ -85,32 +238,32 @@ install_custom_packages() {
     # Ensure ~/.local/bin is set up properly
     ensure_local_bin_in_path
     
-    # Parse custom_install section from packages.yml
+    # Parse custom_install section from packages.yml (Ubuntu section only)
     local custom_installs
     mapfile -t custom_installs < <(awk '
-        /^  custom_install:$/ { in_section = 1; next }
-        /^ruby_gems:$/ { in_section = 0; next }
-        /^[a-zA-Z]/ { if (match($0, /^  /)) {} else { in_section = 0 } }
-        in_section && /^    - name: / { 
-            gsub(/^    - name: /, ""); 
-            name = $0;
+/^ubuntu:/,/^ruby_gems:/ {
+    if (/^  custom_install:/) { in_custom = 1; next }
+    if (/^ruby_gems:/) { in_custom = 0 }
+    if (in_custom && /^    - name:/) {
+        gsub(/^    - name: /, "");
+        name = $0;
+        getline;
+        if (/^      command:/) {
+            gsub(/^      command: /, "");
+            gsub(/^"/, ""); gsub(/"$/, "");
+            command = $0;
             getline;
-            if (/^      command: /) {
-                gsub(/^      command: /, "");
+            if (/^      description:/) {
+                gsub(/^      description: /, "");
                 gsub(/^"/, ""); gsub(/"$/, "");
-                command = $0;
-                getline;
-                if (/^      description: /) {
-                    gsub(/^      description: /, "");
-                    gsub(/^"/, ""); gsub(/"$/, "");
-                    description = $0;
-                } else {
-                    description = "";
-                }
-                print name "§§§" command "§§§" description;
+                description = $0;
+            } else {
+                description = "";
             }
+            print name "§§§" command "§§§" description;
         }
-    ' packages.yml)
+    }
+}' packages.yml)
     
     for install_info in "${custom_installs[@]}"; do
         if [[ -n "$install_info" ]]; then
@@ -140,17 +293,19 @@ install_custom_packages() {
             
             # Execute the installation command in a clean shell environment
             if /bin/sh -c "$command"; then
-                # Verify installation worked by checking if command exists
-                # Check both system PATH and ~/.local/bin
-                if command -v "$name" &> /dev/null || [ -x "$HOME/.local/bin/$name" ]; then
-                    print_info "Successfully installed $name"
-                    
-                    # If installed to ~/.local/bin but not in PATH, add a note
-                    if [ -x "$HOME/.local/bin/$name" ] && ! command -v "$name" &> /dev/null; then
-                        print_info "$name installed to ~/.local/bin (may need PATH update)"
-                    fi
+                # Update PATH in current session for immediate use
+                export PATH="$HOME/.local/bin:$PATH"
+                
+                # Verify installation worked by checking if executable exists in expected locations
+                # Use a small delay to ensure file system operations are complete
+                sleep 0.1
+                
+                if [ -x "$HOME/.local/bin/$name" ]; then
+                    print_info "Successfully installed $name to ~/.local/bin"
+                elif command -v "$name" &> /dev/null; then
+                    print_info "Successfully installed $name (found in PATH)"
                 else
-                    print_warn "Installation appeared to succeed but $name command not found"
+                    print_warn "Installation appeared to succeed but $name executable not found at $HOME/.local/bin/$name"
                 fi
             else
                 print_warn "Failed to install $name (continuing with other packages)"
@@ -324,6 +479,7 @@ main() {
     update_packages
     install_packages
     install_custom_packages
+    install_from_github_releases
     install_ruby_gems
     install_ls_colors
     configure_fd

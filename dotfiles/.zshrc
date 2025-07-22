@@ -9,7 +9,7 @@ export ZSH="$HOME/.oh-my-zsh"
 
 # Sets up default paths
 export PATH="$HOME/bin:$PATH"
-export PATH="$HOME/.emacs.d/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 if [[ "$(uname)" == "Darwin" ]] && [[ "$(sysctl -n machdep.cpu.brand_string)" == *"Apple M1"* ]]; then
   export PATH="/opt/homebrew/opt/coreutils/libexec/gnubin:${PATH}"
@@ -127,6 +127,7 @@ plugins=(
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias ls='ls -hF --group-directories-first --color=auto'
 alias e='emacsclient -n'
+alias claude="/home/mannu/.claude/local/claude"
 
 #functions
 vterm_printf() {
@@ -148,3 +149,4 @@ test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors
 
 # Initialize Starship prompt
 eval "$(starship init zsh)"
+export PATH="$HOME/.local/bin:$PATH"

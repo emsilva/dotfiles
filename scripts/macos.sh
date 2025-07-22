@@ -22,6 +22,15 @@ install_homebrew() {
     fi
 }
 
+# Update Homebrew and upgrade packages
+update_homebrew() {
+    print_info "Updating Homebrew..."
+    brew update || print_warn "Failed to update Homebrew"
+    
+    print_info "Upgrading Homebrew packages..."
+    brew upgrade || print_warn "Failed to upgrade packages"
+}
+
 # Install packages from packages.yml
 install_packages() {
     print_info "Installing Homebrew packages..."
@@ -170,6 +179,93 @@ configure_macos_defaults() {
     defaults write com.apple.dock wvous-br-modifier -int 0
 }
 
+# Install custom packages via script
+install_custom_packages() {
+    print_info "Installing custom packages..."
+    
+    # Create ~/.local/bin if it doesn't exist and ensure it's in PATH
+    mkdir -p ~/.local/bin
+    if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+        print_info "Adding ~/.local/bin to PATH in ~/.zshrc"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+    fi
+    
+    # Parse custom_install section from packages.yml (macOS section only)
+    local custom_installs
+    mapfile -t custom_installs < <(awk '
+/^macos:/,/^ubuntu:/ {
+    if (/^  custom_install:/) { in_custom = 1; next }
+    if (/^ubuntu:/) { in_custom = 0 }
+    if (in_custom && /^    - name:/) {
+        gsub(/^    - name: /, "");
+        name = $0;
+        getline;
+        if (/^      command:/) {
+            gsub(/^      command: /, "");
+            gsub(/^"/, ""); gsub(/"$/, "");
+            command = $0;
+            getline;
+            if (/^      description:/) {
+                gsub(/^      description: /, "");
+                gsub(/^"/, ""); gsub(/"$/, "");
+                description = $0;
+            } else {
+                description = "";
+            }
+            print name "§§§" command "§§§" description;
+        }
+    }
+}' packages.yml)
+    
+    for install_info in "${custom_installs[@]}"; do
+        if [[ -n "$install_info" ]]; then
+            # Clean up any stdin redirection artifacts in the entire string first
+            clean_install_info=$(echo "$install_info" | sed 's/ < \/dev\/null//g')
+            
+            # Parse the three fields using parameter expansion
+            name="${clean_install_info%%§§§*}"
+            rest="${clean_install_info#*§§§}"
+            command="${rest%%§§§*}"
+            description="${rest#*§§§}"
+            
+            # Trim whitespace from all fields
+            name=$(echo "$name" | sed 's/^[ \t]*//;s/[ \t]*$//')
+            command=$(echo "$command" | sed 's/^[ \t]*//;s/[ \t]*$//')
+            description=$(echo "$description" | sed 's/^[ \t]*//;s/[ \t]*$//')
+            
+            # Check if the program is already installed
+            # Check both system PATH and ~/.local/bin
+            if command -v "$name" &> /dev/null || [ -x "$HOME/.local/bin/$name" ]; then
+                print_info "$name is already installed"
+                continue
+            fi
+            
+            print_info "Installing $name ($description)..."
+            print_info "Running: $command"
+            
+            # Execute the installation command in a clean shell environment
+            if /bin/sh -c "$command"; then
+                # Update PATH in current session for immediate use
+                export PATH="$HOME/.local/bin:$PATH"
+                
+                # Verify installation worked by checking if executable exists in expected locations
+                # Use a small delay to ensure file system operations are complete
+                sleep 0.1
+                
+                if [ -x "$HOME/.local/bin/$name" ]; then
+                    print_info "Successfully installed $name to ~/.local/bin"
+                elif command -v "$name" &> /dev/null; then
+                    print_info "Successfully installed $name (found in PATH)"
+                else
+                    print_warn "Installation appeared to succeed but $name executable not found at $HOME/.local/bin/$name"
+                fi
+            else
+                print_warn "Failed to install $name (continuing with other packages)"
+            fi
+        fi
+    done
+}
+
 # Configure iTerm2
 configure_iterm2() {
     print_info "Configuring iTerm2..."
@@ -231,7 +327,9 @@ main() {
     print_info "Setting up macOS environment..."
     
     install_homebrew
+    update_homebrew
     install_packages
+    install_custom_packages
     install_ruby_gems
     start_services
     configure_macos_defaults

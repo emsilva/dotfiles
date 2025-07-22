@@ -30,6 +30,17 @@ macos:
       - grep
       - podman
       - starship
+  github_releases:
+    - name: nvim
+      repo: neovim/neovim
+      asset_pattern: nvim-macos-x86_64.tar.gz
+      install_dir: ~/.local/share/nvim
+      executables:
+        - src: bin/nvim
+          dest: ~/.local/bin/nvim
+        - src: bin/nvim
+          dest: ~/.local/bin/vim
+      description: "Neovim text editor"
 
 ubuntu:
   apt:
@@ -51,6 +62,17 @@ ubuntu:
     - name: starship
       command: "curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir ~/.local/bin"
       description: "Cross-shell prompt"
+  github_releases:
+    - name: nvim
+      repo: neovim/neovim
+      asset_pattern: nvim-linux-x86_64.tar.gz
+      install_dir: ~/.local/share/nvim
+      executables:
+        - src: bin/nvim
+          dest: ~/.local/bin/nvim
+        - src: bin/nvim
+          dest: ~/.local/bin/vim
+      description: "Neovim text editor"
 
 ruby_gems:
   - video_transcoding

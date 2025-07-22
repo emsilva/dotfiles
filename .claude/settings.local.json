@@ -36,7 +36,15 @@
       "Bash(podman rm:*)",
       "Bash(./install.sh:*)",
       "Bash(./update.sh:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(awk:*)",
+      "Bash(command -v:*)",
+      "Bash(source:*)",
+      "Bash(install_custom_packages)",
+      "Bash(curl:*)",
+      "Bash(bash:*)",
+      "Bash(~/.local/bin/nvim:*)",
+      "Bash(ln:*)"
     ],
     "deny": []
   }
