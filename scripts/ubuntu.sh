@@ -41,7 +41,7 @@ install_packages() {
     # Install Ubuntu-specific packages from packages.yml
     print_info "Installing Ubuntu-specific packages..."
     local ubuntu_packages
-    mapfile -t ubuntu_packages < <(awk '/^  apt:$/,/^ruby_gems:$/ {if ($0 ~ /^    - /) {gsub(/^    - /, ""); print}}' packages.yml)
+    mapfile -t ubuntu_packages < <(awk '/^  apt:$/,/^  custom_install:$|^ruby_gems:$/ {if ($0 ~ /^    - /) {gsub(/^    - /, ""); print}}' packages.yml)
     
     for package in "${ubuntu_packages[@]}"; do
         if [[ -n "$package" ]]; then
@@ -63,8 +63,8 @@ install_custom_packages() {
     local custom_installs
     mapfile -t custom_installs < <(awk '
         /^  custom_install:$/ { in_section = 1; next }
-        /^ruby_gems:$/ { in_section = 0 }
-        /^[a-zA-Z]/ && !/^  / { in_section = 0 }
+        /^ruby_gems:$/ { in_section = 0; next }
+        /^[a-zA-Z]/ { if (match($0, /^  /)) {} else { in_section = 0 } }
         in_section && /^    - name: / { 
             gsub(/^    - name: /, ""); 
             name = $0;
