@@ -259,9 +259,8 @@ main() {
   ```
   Brief description of what was changed
   
-  🤖 Generated with [Claude Code](https://claude.ai/code)
-  
-  Co-Authored-By: Claude <noreply@anthropic.com>
+  Optional longer explanation of why the change was needed
+  and what specific problem it solves.
   ```
 
 **CRITICAL: Always run tests before committing**: `make test` must pass
