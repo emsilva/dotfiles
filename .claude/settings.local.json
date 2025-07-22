@@ -44,7 +44,8 @@
       "Bash(curl:*)",
       "Bash(bash:*)",
       "Bash(~/.local/bin/nvim:*)",
-      "Bash(ln:*)"
+      "Bash(ln:*)",
+      "Bash(ssh:*)"
     ],
     "deny": []
   }

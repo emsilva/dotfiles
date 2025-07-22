@@ -147,6 +147,9 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 # Load LS_COLORS if available
 test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
 
+#keychain
+eval $(keychain --eval --agents ssh id_rsa)
+
 # Initialize Starship prompt
 eval "$(starship init zsh)"
 export PATH="$HOME/.local/bin:$PATH"
