@@ -100,7 +100,8 @@ install_custom_packages() {
             print_info "Running: $command"
             
             # Execute the installation command
-            if eval "$command" 2>/dev/null; then
+            # Use bash -c to properly handle pipes and redirections
+            if bash -c "$command"; then
                 print_info "Successfully installed $name"
             else
                 print_warn "Failed to install $name (continuing with other packages)"
