@@ -358,13 +358,28 @@ install_ls_colors() {
     if ! test -d ~/.local/share/LS_COLORS; then
         print_info "Installing LS_COLORS..."
         git clone https://github.com/trapd00r/LS_COLORS ~/.local/share/LS_COLORS
-        # Set up dircolors
+        # Set up the sourcing script
         if test -f ~/.local/share/LS_COLORS/LS_COLORS; then
             print_info "Setting up LS_COLORS..."
-            dircolors -b ~/.local/share/LS_COLORS/LS_COLORS > ~/.dircolors
+            cat > ~/.local/share/LS_COLORS/lscolors.sh << 'EOF'
+# Load LS_COLORS from trapd00r repository
+if [[ -f ~/.local/share/LS_COLORS/LS_COLORS ]]; then
+    eval "$(dircolors -b ~/.local/share/LS_COLORS/LS_COLORS)"
+fi
+EOF
         fi
     else
         print_info "LS_COLORS already installed"
+        # Ensure the sourcing script exists
+        if [[ ! -f ~/.local/share/LS_COLORS/lscolors.sh ]] && [[ -f ~/.local/share/LS_COLORS/LS_COLORS ]]; then
+            print_info "Creating LS_COLORS sourcing script..."
+            cat > ~/.local/share/LS_COLORS/lscolors.sh << 'EOF'
+# Load LS_COLORS from trapd00r repository
+if [[ -f ~/.local/share/LS_COLORS/LS_COLORS ]]; then
+    eval "$(dircolors -b ~/.local/share/LS_COLORS/LS_COLORS)"
+fi
+EOF
+        fi
     fi
 }
 
