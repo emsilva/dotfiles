@@ -18,11 +18,26 @@ cd ~/dotfiles
 ./dotfiles-install.sh
 ```
 
+After installation, dotfiles management commands are available globally. The included `.zshrc` configuration automatically adds `~/.local/bin` to your PATH:
+
+```bash
+# Commands work from anywhere after installation
+dotfiles-add ~/.config/starship.toml
+dotfiles-status
+dotfiles-sync
+```
+
+> **Note**: If you're not using the provided `.zshrc`, make sure `~/.local/bin` is in your PATH to access the global commands.
+
 ## Syncing Your Dotfiles
 
 After making changes to your dotfiles, use the sync script to commit and push changes:
 
 ```bash
+# Can be run from anywhere after installation
+dotfiles-sync
+
+# Or from the dotfiles directory
 cd ~/dotfiles
 ./dotfiles-sync.sh
 ```
@@ -33,7 +48,7 @@ For more intelligent commit messages, set an OpenAI API key:
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
-./dotfiles-sync.sh
+dotfiles-sync  # Can be run from anywhere
 ```
 
 The sync script automatically:
@@ -54,40 +69,57 @@ This system uses a **selective approach** - only files you explicitly add are ma
 ### Adding Files to Management
 
 ```bash
-# Add a single file
-./dotfiles-add.sh ~/.config/starship.toml
+# Add a single file (works from anywhere after installation)
+dotfiles-add ~/.config/starship.toml
 
 # Add a directory 
-./dotfiles-add.sh ~/.config/nvim
+dotfiles-add ~/.config/nvim
 
 # Preview changes without applying
-./dotfiles-add.sh --dry-run ~/.vimrc
+dotfiles-add --dry-run ~/.vimrc
+
+# Or use the full script path from dotfiles directory
+./dotfiles-add.sh ~/.config/starship.toml
 ```
 
 ### Removing Files from Management
 
 ```bash
 # Stop managing a file (restores original)
-./dotfiles-remove.sh .config/starship.toml
+dotfiles-remove .config/starship.toml
 
 # Keep a backup when removing
-./dotfiles-remove.sh --keep-backup .vimrc
+dotfiles-remove --keep-backup .vimrc
+
+# Or from dotfiles directory
+./dotfiles-remove.sh .config/starship.toml
 ```
 
 ### Viewing Managed Files
 
 ```bash
 # List all managed files
-./dotfiles-list.sh
+dotfiles-list
 
 # Show detailed information
-./dotfiles-list.sh --verbose
+dotfiles-list --verbose
 
 # Check status of managed files
+dotfiles-status
+
+# Fix any symlink issues
+dotfiles-status --fix
+
+# Or from dotfiles directory
+./dotfiles-list.sh
 ./dotfiles-status.sh
+```
 
 # Fix any symlink issues
 ./dotfiles-status.sh --fix
+
+# Or using global commands
+dotfiles-status --fix
 ```
 
 ### Migration from Old System
@@ -95,8 +127,12 @@ This system uses a **selective approach** - only files you explicitly add are ma
 If upgrading from the previous version:
 
 ```bash
-# Migrate existing symlinks to new system
+# Migrate existing symlinks to new system (from dotfiles directory)
 ./dotfiles-migrate.sh
+
+# Or run globally (if already installed)
+dotfiles-migrate
+```
 
 # Preview migration changes
 ./dotfiles-migrate.sh --dry-run

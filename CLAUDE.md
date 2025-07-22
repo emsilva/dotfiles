@@ -20,6 +20,9 @@ Unit tests use Bats framework in the `test/` directory. Integration tests use Po
 # Install dotfiles (cross-platform)
 ./dotfiles-install.sh
 
+# After installation, dotfiles commands are globally available
+# (ensure ~/.local/bin is in PATH)
+
 # Set environment variables first (optional)
 export GIT_EMAIL_PERSONAL="your.personal@email.com"
 export GIT_EMAIL_WORK="your.work@email.com"
@@ -32,13 +35,36 @@ cp .env.example .env.local
 ### Syncing Changes
 ```bash
 # Commit and push dotfile changes to repository
+# Can be run from anywhere after installation
+dotfiles-sync
+
+# Or from the dotfiles directory
 ./dotfiles-sync.sh
 
 # Optional: Enable AI-enhanced commit messages
 export OPENAI_API_KEY="your-api-key"
-./dotfiles-sync.sh
+dotfiles-sync
+```
+
+### Managing Dotfiles (Global Commands)
+```bash
+# Add files to management (after installation, works from anywhere)
+dotfiles-add ~/.config/starship.toml
+dotfiles-add ~/.config/nvim
+
+# Remove files from management
+dotfiles-remove .config/starship.toml
+
+# List and check status
+dotfiles-list
+dotfiles-status
+dotfiles-status --fix
+
+# Migrate from old system
+dotfiles-migrate
 ```
 The sync script will automatically:
+- Change to the dotfiles directory (works from anywhere)
 - Stage all changes
 - Analyze changed files to generate intelligent commit messages
 - Use AI (OpenAI) for complex changes if API key is provided
@@ -62,13 +88,15 @@ This is a **simplified cross-platform dotfiles repository** using **selective sy
 - Runs platform-specific setup scripts
 - Creates symlinks based on `.dotfiles-manifest` file
 - Substitutes environment variables in git configs
+- Sets up global dotfiles management commands in `~/.local/bin`
 
-**Dotfiles Management System**:
-- `dotfiles-add.sh` - Add files/directories to management
-- `dotfiles-remove.sh` - Remove from management and restore originals
-- `dotfiles-list.sh` - List all managed files with status
-- `dotfiles-status.sh` - Check and fix symlink issues
-- `dotfiles-migrate.sh` - Migrate from old system
+**Dotfiles Management System** (available globally after installation):
+- `dotfiles-add` (`dotfiles-add.sh`) - Add files/directories to management
+- `dotfiles-remove` (`dotfiles-remove.sh`) - Remove from management and restore originals
+- `dotfiles-list` (`dotfiles-list.sh`) - List all managed files with status
+- `dotfiles-status` (`dotfiles-status.sh`) - Check and fix symlink issues
+- `dotfiles-sync` (`dotfiles-sync.sh`) - Sync changes to git repository
+- `dotfiles-migrate` (`dotfiles-migrate.sh`) - Migrate from old system
 
 **Platform Scripts**:
 - `scripts/macos.sh` - Homebrew packages, macOS defaults, iTerm2 setup
@@ -86,7 +114,7 @@ This is a **simplified cross-platform dotfiles repository** using **selective sy
 - `.vimrc` - Vim settings  
 - `.zshrc` - Zsh configuration with oh-my-zsh and plugin management
 - `.config/starship.toml` - Starship prompt configuration
-- Other files **only** when explicitly added via `dotfiles-add.sh`
+- Other files **only** when explicitly added via `dotfiles-add` command
 
 **Environment Configuration**: Uses environment variables instead of templates:
 - `GIT_EMAIL_PERSONAL` - Personal git email

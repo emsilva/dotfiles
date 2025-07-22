@@ -1,3 +1,4 @@
+.config/starship.toml
 .gitconfig
 .gitconfig-work
 .local/share/iterm2/com.googlecode.iterm2.plist

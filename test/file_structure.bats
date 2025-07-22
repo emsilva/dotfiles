@@ -98,17 +98,16 @@
 @test "README.md updated for new approach" {
     grep -q "Cross-Platform Dotfiles" README.md
     grep -q "Environment Variables" README.md
-    grep -q "./install.sh" README.md
+    grep -q "./dotfiles-install.sh" README.md
     grep -q "packages.yml" README.md
     
     # Should not contain old migration references
-    ! grep -q "Migration from" README.md || true
     ! grep -q "1password" README.md || true
 }
 
 @test "scripts contain proper error handling" {
     # Check that scripts use 'set -e' for error handling
-    grep -q "set -e" install.sh
+    grep -q "set -e" dotfiles-install.sh
     grep -q "set -e" scripts/macos.sh
     grep -q "set -e" scripts/ubuntu.sh
     
@@ -122,12 +121,12 @@
     grep -q "print_error" scripts/ubuntu.sh
 }
 
-@test "install.sh has proper OS detection" {
-    grep -q "detect_os()" install.sh
-    grep -q "darwin" install.sh
-    grep -q "linux-gnu" install.sh
-    grep -q "ubuntu" install.sh
-    grep -q "macos" install.sh
+@test "dotfiles-install.sh has proper OS detection" {
+    grep -q "detect_os()" dotfiles-install.sh
+    grep -q "darwin" dotfiles-install.sh
+    grep -q "linux-gnu" dotfiles-install.sh
+    grep -q "ubuntu" dotfiles-install.sh
+    grep -q "macos" dotfiles-install.sh
 }
 
 @test "dotfiles directory structure is correct" {

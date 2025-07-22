@@ -31,6 +31,8 @@ macos:
       - grep
       - podman
       - starship
+      - zoxide
+      - fzf
   github_releases:
     - name: nvim
       repo: neovim/neovim

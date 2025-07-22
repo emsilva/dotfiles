@@ -11,7 +11,7 @@ setup() {
     
     # Copy our dotfiles to test directory
     cp -r "$BATS_TEST_DIRNAME/../dotfiles" "$TEST_TEMP_DIR/"
-    cp "$BATS_TEST_DIRNAME/../dotfiles-dotfiles-install.sh" "$TEST_TEMP_DIR/"
+    cp "$BATS_TEST_DIRNAME/../dotfiles-install.sh" "$TEST_TEMP_DIR/"
     cp -r "$BATS_TEST_DIRNAME/../scripts" "$TEST_TEMP_DIR/"
     
     # Create stub environment
@@ -56,13 +56,13 @@ teardown() {
     rm -rf "$TEST_TEMP_DIR"
 }
 
-@test "dotfiles-dotfiles-install.sh exists and is executable" {
-    [ -f dotfiles-dotfiles-install.sh ]
-    [ -x dotfiles-dotfiles-install.sh ]
+@test "dotfiles-install.sh exists and is executable" {
+    [ -f dotfiles-install.sh ]
+    [ -x dotfiles-install.sh ]
 }
 
 @test "detect_os function detects macOS" {
-    source dotfiles-dotfiles-install.sh
+    source dotfiles-install.sh
     export OSTYPE="darwin20"
     run detect_os
     [ "$status" -eq 0 ]

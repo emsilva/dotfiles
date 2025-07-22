@@ -165,6 +165,7 @@ create_folders() {
     directories=(
         "$HOME/org"
         "$HOME/code/work"
+        "$HOME/.local/bin"
     )
     
     for dir in "${directories[@]}"; do
@@ -173,6 +174,41 @@ create_folders() {
             print_info "Created directory: $dir"
         fi
     done
+}
+
+# Function to symlink dotfiles management scripts to ~/.local/bin
+setup_dotfiles_scripts() {
+    print_info "Setting up dotfiles management scripts..."
+    
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local bin_dir="$HOME/.local/bin"
+    
+    # List of scripts to symlink
+    local scripts=(
+        "dotfiles-add.sh"
+        "dotfiles-remove.sh"
+        "dotfiles-list.sh"
+        "dotfiles-status.sh"
+        "dotfiles-sync.sh"
+        "dotfiles-migrate.sh"
+    )
+    
+    for script in "${scripts[@]}"; do
+        local script_path="$script_dir/$script"
+        local symlink_name="${script%.sh}"  # Remove .sh extension
+        local symlink_path="$bin_dir/$symlink_name"
+        
+        # Remove existing symlink or file
+        if [[ -e "$symlink_path" ]] || [[ -L "$symlink_path" ]]; then
+            rm "$symlink_path"
+        fi
+        
+        # Create symlink
+        ln -s "$script_path" "$symlink_path"
+        print_info "Linked $symlink_name -> $script"
+    done
+    
+    print_info "Dotfiles scripts are now available globally (ensure ~/.local/bin is in PATH)"
 }
 
 # Function to install oh-my-zsh
@@ -231,9 +267,10 @@ show_installation_preview() {
     echo -e "  ${YELLOW}1. Install packages${NC} for $os (via ./scripts/$os.sh)"
     echo -e "  ${YELLOW}2. Create symlinks${NC} for dotfiles in your home directory"
     echo -e "  ${YELLOW}3. Setup git configuration${NC} with environment variables"
-    echo -e "  ${YELLOW}4. Create standard directories${NC} (~/org, ~/code/work)"
-    echo -e "  ${YELLOW}5. Install oh-my-zsh${NC} (if not already installed)"
-    echo -e "  ${YELLOW}6. Set zsh as default shell${NC}"
+    echo -e "  ${YELLOW}4. Create standard directories${NC} (~/org, ~/code/work, ~/.local/bin)"
+    echo -e "  ${YELLOW}5. Setup dotfiles scripts${NC} in ~/.local/bin (dotfiles-add, etc.)"
+    echo -e "  ${YELLOW}6. Install oh-my-zsh${NC} (if not already installed)"
+    echo -e "  ${YELLOW}7. Set zsh as default shell${NC}"
     echo -e ""
     echo -e "${YELLOW}WARNING:${NC} This will modify your system and home directory."
     echo -e "Existing files may be backed up or replaced."
@@ -293,6 +330,9 @@ main() {
     # Create standard directories
     create_folders
     
+    # Setup dotfiles management scripts
+    setup_dotfiles_scripts
+    
     # Install oh-my-zsh
     install_oh_my_zsh
     
@@ -300,9 +340,18 @@ main() {
     set_default_shell
     
     print_info "Dotfiles installation complete!"
-    print_info "Don't forget to set your environment variables:"
-    print_info "  export GIT_EMAIL_PERSONAL='your.personal@email.com'"
-    print_info "  export GIT_EMAIL_WORK='your.work@email.com'"
+    print_info ""
+    print_info "✅ Dotfiles management commands are now available globally:"
+    print_info "   dotfiles-add, dotfiles-remove, dotfiles-list, dotfiles-status, dotfiles-sync"
+    print_info ""
+    print_info "💡 Don't forget to set your environment variables:"
+    print_info "   export GIT_EMAIL_PERSONAL='your.personal@email.com'"
+    print_info "   export GIT_EMAIL_WORK='your.work@email.com'"
+    print_info ""
+    print_info "📚 Quick start:"
+    print_info "   dotfiles-add ~/.config/starship.toml  # Add a file to management"
+    print_info "   dotfiles-status                       # Check status"
+    print_info "   dotfiles-sync                         # Sync changes to git"
 }
 
 # Check if script is being sourced or executed

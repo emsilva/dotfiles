@@ -72,6 +72,15 @@ show_update_preview() {
 
 # Main update function  
 main() {
+    # Get the directory where this script is located
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Change to the dotfiles directory to ensure git operations work correctly
+    cd "$script_dir" || {
+        print_error "Failed to change to script directory: $script_dir"
+        exit 1
+    }
+    
     # Parse command line arguments
     local skip_confirmation=false
     while [[ $# -gt 0 ]]; do
