@@ -1,5 +1,7 @@
 # Cross-Platform Dotfiles
 
+"Just a test"
+
 > 🔧 Simplified dotfiles that work on both macOS and Ubuntu with no external dependencies.
 
 ## Features
