@@ -38,7 +38,7 @@ test_condition "vimrc symlink exists" "[ -L ~/.vimrc ]"
 test_condition "zshrc symlink exists" "[ -L ~/.zshrc ]"
 test_condition "gitconfig symlink exists" "[ -L ~/.gitconfig ]"
 test_condition "gitconfig-work symlink exists" "[ -L ~/.gitconfig-work ]"
-test_condition "p10k config symlink exists" "[ -L ~/.p10k.zsh ]"
+test_condition "starship config symlink exists" "[ -L ~/.config/starship.toml ]"
 
 # Test 2: Check symlinks point to dotfiles directory
 test_condition "vimrc points to dotfiles" "readlink ~/.vimrc | grep -q 'dotfiles/.vimrc'"

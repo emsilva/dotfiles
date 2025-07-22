@@ -29,6 +29,28 @@ cp .env.example .env.local
 # Edit .env.local with your values
 ```
 
+### Updating
+```bash
+# Commit and push dotfile changes to repository
+./update.sh
+
+# Optional: Enable AI-enhanced commit messages
+export OPENAI_API_KEY="your-api-key"
+./update.sh
+```
+The update script will automatically:
+- Stage all changes
+- Analyze changed files to generate intelligent commit messages
+- Use AI (OpenAI) for complex changes if API key is provided
+- Push to the remote repository
+
+**Commit message patterns:**
+- Config files: "Update .zshrc configuration" 
+- Scripts: "Improve scripts/ubuntu.sh functionality"
+- Tests: "Add test coverage for recent changes"
+- Documentation: "Update documentation and project guidelines"
+- Fallback: "Update dotfiles configuration"
+
 ## Architecture
 
 This is a **simplified cross-platform dotfiles repository** using symlinks. No external dependencies like chezmoi or 1Password required.
@@ -51,7 +73,7 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - `.gitconfig` and `.gitconfig-work` - Git configuration with environment variable substitution
 - `.vimrc` - Vim settings
 - `.zshrc` - Zsh configuration with oh-my-zsh and plugin management
-- `.p10k.zsh` - Powerlevel10k prompt configuration
+- `.config/starship.toml` - Starship prompt configuration
 - `.config/` and `.local/` - Application configuration directories
 
 **Environment Configuration**: Uses environment variables instead of templates:
@@ -108,6 +130,14 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 - Implement colored output for user feedback (`print_info`, `print_warn`, `print_error`)
 - Make operations idempotent where possible
 - Parse packages.yml using awk patterns (avoid hardcoded package lists)
+
+### AI/Claude Attribution Policy
+**IMPORTANT: No Claude or Anthropic attribution in commits or code**
+- Do NOT add Claude Code attribution to commit messages
+- Do NOT add "Co-Authored-By: Claude" to commits
+- Use clean, descriptive commit messages following the existing project style
+- Focus on "what" and "why" rather than "who" created the changes
+- All commits should appear as normal human-authored commits
 
 ### Git Workflow Requirements
 

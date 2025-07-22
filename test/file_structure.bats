@@ -18,7 +18,7 @@
     [ -f dotfiles/.gitconfig-work ]
     [ -f dotfiles/.vimrc ]
     [ -f dotfiles/.zshrc ]
-    [ -f dotfiles/.p10k.zsh ]
+    [ -f dotfiles/.config/starship.toml ]
     
     # Config directories
     [ -d dotfiles/.config ]
@@ -27,6 +27,7 @@
 
 @test "all scripts are executable" {
     [ -x install.sh ]
+    [ -x update.sh ]
     [ -x scripts/macos.sh ]
     [ -x scripts/ubuntu.sh ]
 }
@@ -128,7 +129,7 @@
     [ -f dotfiles/.vimrc ]
     [ -f dotfiles/.zshrc ]
     [ -f dotfiles/.gitconfig ]
-    [ -f dotfiles/.p10k.zsh ]
+    [ -f dotfiles/.config/starship.toml ]
     
     # Should not have old template naming
     ! [ -f dotfiles/dot_vimrc ] || true

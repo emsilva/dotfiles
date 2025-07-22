@@ -18,6 +18,35 @@ cd ~/dotfiles
 ./install.sh
 ```
 
+## Updating Your Dotfiles
+
+After making changes to your dotfiles, use the update script to commit and push changes:
+
+```bash
+cd ~/dotfiles
+./update.sh
+```
+
+### AI-Enhanced Commit Messages
+
+For more intelligent commit messages, set an OpenAI API key:
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+./update.sh
+```
+
+The update script automatically:
+- Stages all changes
+- Analyzes files to generate contextual commit messages
+- Uses AI for complex changes (if API key provided)
+- Pushes to remote repository
+
+**Example commit messages:**
+- Config changes: "Update .zshrc configuration"
+- Script improvements: "Improve scripts/ubuntu.sh functionality"
+- New tests: "Add test coverage for recent changes"
+
 ## Configuration
 
 ### Environment Variables
@@ -57,6 +86,7 @@ Packages are defined in `packages.yml` with platform-specific sections:
 ```
 ~/dotfiles/
 ├── install.sh           # Main installation script
+├── update.sh            # Update and commit script
 ├── packages.yml         # Package definitions
 ├── .env.example         # Environment variable template
 ├── dotfiles/            # Actual dotfiles
