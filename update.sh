@@ -214,8 +214,9 @@ EOF
         -H "Content-Type: application/json" \
         -d @- 2>/dev/null)
     
-    if [ $? -eq 0 ] && echo "$response" | jq -e '.choices[0].message.content' >/dev/null 2>&1; then
-        echo "$response" | jq -r '.choices[0].message.content' 2>/dev/null | head -1
+    if [ $? -eq 0 ] && echo "$response" | grep -q '"content"'; then
+        # Extract content using grep and sed (no jq required)
+        echo "$response" | grep -o '"content":"[^"]*"' | sed 's/"content":"//' | sed 's/"$//' | head -1
     else
         # Debug: uncomment next line to see API response
         # echo "API Error: $response" >&2

@@ -53,7 +53,7 @@
 }
 
 @test "update.sh has improved JSON handling for AI requests" {
-    grep -q "jq -r" update.sh
+    grep -q "grep -o.*content" update.sh
     grep -q "escaped_content" update.sh
     grep -q "json_payload" update.sh
 }
