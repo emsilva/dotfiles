@@ -1,87 +1,60 @@
-# Starship prompt configuration
-# See https://starship.rs/config/ for full documentation
+# ~/.config/starship.toml
 
-# Use custom format
-format = """
-$username\
-$hostname\
-$directory\
-$git_branch\
-$git_state\
-$git_status\
-$cmd_duration\
-$line_break\
-$python\
-$character"""
+# Add an empty line between shell prompts (for readability)
+add_newline = true  # (true by default, ensures a blank line between prompts)
 
-# Disable the blank line at the start of the prompt
-add_newline = false
+# Prompt format: first line modules, then newline, then prompt symbol
+format = """${directory}${git_branch}${git_status}${nodejs}${docker_context}${container}${line_break}${python}${character}"""
 
-# Configure individual modules
-[username]
-style_user = "white bold"
-style_root = "black bold"
-format = "[$user]($style) "
-disabled = false
-show_always = true
+# — Modules Configuration —
 
-[hostname]
-ssh_only = false
-format = "on [$hostname](bold red) "
-disabled = false
-
+# Directory: show current folder (truncated to 3 dirs by default). Colored for visibility.
 [directory]
-truncation_length = 3
-truncation_symbol = "…/"
-style = "cyan bold"
+truncation_length = 3               # default is 3; adjust if you want more/less of the path
+truncate_to_repo = true             # stop truncating at git repo root (so project name shows)
+# You can pick a style color that stands out. E.g. bold blue:
+style = "bold blue"
 
+# Git Branch: show branch name without any prefix.
 [git_branch]
-symbol = "🌱 "
-style = "bold green"
+format = "[$branch]($style) "       # just display branch name in brackets
+style = "bold dimmed white"         # a subtle grey (visible on dark background)
 
+# Git Status: use default symbols (no Nerd Font needed). Just ensure it's enabled.
 [git_status]
-conflicted = "🏳"
-ahead = "🏎💨"
-behind = "😰"
-diverged = "😵"
-up_to_date = "✓"
-untracked = "🤷"
-stashed = "📦"
-modified = "📝"
-staged = "[++($count)](green)"
-renamed = "👅"
-deleted = "🗑"
+disabled = false  # (should be enabled by default; shows symbols like ⇡⇣✚ etc. for repo status)
 
-[cmd_duration]
-min_time = 500
-format = "underwent [$duration](bold yellow)"
-
-[python]
-symbol = "👾 "
-pyenv_version_name = true
-format = 'via [${symbol}python (${version} )(\($virtualenv\) )]($style)'
-style = "bold yellow"
-
-[character]
-success_symbol = "[❯](purple)"
-error_symbol = "[❯](red)"
-vimcmd_symbol = "[❮](green)"
-
-[battery]
-full_symbol = "• "
-charging_symbol = "⇡ "
-discharging_symbol = "⇣ "
-unknown_symbol = "❓ "
-empty_symbol = "❗ "
-
-[erlang]
-symbol = "ⓔ "
-
+# Node.js: show Node version with a green hexagon symbol.
 [nodejs]
-symbol = "[⬢](bold green) "
+format = "[${symbol}${version}]($style) "   # e.g. "⬢ v14.17.6"
+symbol = "⬢ "                               # Unicode hexagon symbol for Node
+style = "bold green"                        # color for Node info (green)
 
-[pulumi]
-symbol = "🧊 "
+# Python: show virtualenv name (if any) with a snake emoji, in a dim color.
+[python]
+format = "[${symbol}${virtualenv}]($style) "  # e.g. "🐍 myenv"
+symbol = "🐍 "                                 # snake emoji to denote Python
+style = "dimmed white"                        # dim white/gray text for venv name
+# (By using $virtualenv, this will only show up if a venv is activated.
+# If you prefer showing Python version in projects, you could use $version here instead.)
 
-[typst]
-symbol = "t "
+# Docker context: show if not default, with a whale emoji.
+[docker_context]
+format = "[${symbol}${context}]($style) "   # e.g. "🐳 docker-desktop"
+symbol = "🐳 "                              # whale emoji for Docker context
+style = "bold blue"                        # blue text
+
+# Container: show container name if inside a container, with a box icon.
+[container]
+format = "[${symbol}${name}]($style) "     # e.g. "📦 ubuntu-container"
+symbol = "📦 "                              # package/box emoji
+style = "bold yellow"                     # yellow text to highlight container
+
+# — Disable unwanted modules —
+[battery]
+disabled = true   # no battery info
+[time]
+disabled = true    # no clock
+
+# (Other modules not explicitly configured here will use Starship’s defaults or appear only when relevant)
+
