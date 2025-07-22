@@ -1,0 +1,2 @@
+# Test file to trigger update.sh
+This is a test change to see if AI commit message generation works.
