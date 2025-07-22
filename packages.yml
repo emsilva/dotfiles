@@ -33,6 +33,7 @@ macos:
       - starship
       - zoxide
       - fzf
+      - ls_colors
   github_releases:
     - name: nvim
       repo: neovim/neovim
