@@ -66,3 +66,22 @@ style = "bold yellow"
 success_symbol = "[❯](purple)"
 error_symbol = "[❯](red)"
 vimcmd_symbol = "[❮](green)"
+
+[battery]
+full_symbol = "• "
+charging_symbol = "⇡ "
+discharging_symbol = "⇣ "
+unknown_symbol = "❓ "
+empty_symbol = "❗ "
+
+[erlang]
+symbol = "ⓔ "
+
+[nodejs]
+symbol = "[⬢](bold green) "
+
+[pulumi]
+symbol = "🧊 "
+
+[typst]
+symbol = "t "
