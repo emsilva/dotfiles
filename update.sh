@@ -197,14 +197,14 @@ generate_ai_commit_message() {
     local diff_content=$(git diff --cached)
     # Escape quotes and newlines for JSON
     local escaped_content=$(echo "$diff_content" | sed 's/"/\\"/g' | tr '\n' '\\' | sed 's/\\/\\n/g')
-    local prompt="Analyze these git changes and generate a concise commit message (max 50 chars) following the pattern: 'Fix X for Y' or 'Add X to Y' or 'Update X configuration'. Changes:\\n\\n$escaped_content"
+    local prompt="Analyze these git changes and generate a clear, descriptive commit message (50-72 characters ideal, max 100). Use conventional commit format when appropriate (feat:, fix:, docs:, etc.). Focus on what changed and why. Changes:\\n\\n$escaped_content"
     
     local json_payload=$(cat <<EOF
 {
-    "model": "gpt-3.5-turbo",
+    "model": "gpt-4o-mini",
     "messages": [{"role": "user", "content": "$prompt"}],
-    "max_tokens": 30,
-    "temperature": 0.3
+    "max_tokens": 80,
+    "temperature": 0.2
 }
 EOF
 )
