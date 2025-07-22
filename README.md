@@ -15,16 +15,16 @@
 ```bash
 git clone https://github.com/emsilva/dotfiles.git ~/dotfiles
 cd ~/dotfiles
-./install.sh
+./dotfiles-install.sh
 ```
 
-## Updating Your Dotfiles
+## Syncing Your Dotfiles
 
-After making changes to your dotfiles, use the update script to commit and push changes:
+After making changes to your dotfiles, use the sync script to commit and push changes:
 
 ```bash
 cd ~/dotfiles
-./update.sh
+./dotfiles-sync.sh
 ```
 
 ### AI-Enhanced Commit Messages
@@ -33,10 +33,10 @@ For more intelligent commit messages, set an OpenAI API key:
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
-./update.sh
+./dotfiles-sync.sh
 ```
 
-The update script automatically:
+The sync script automatically:
 - Stages all changes
 - Analyzes files to generate contextual commit messages
 - Uses AI for complex changes (if API key provided)
@@ -46,6 +46,61 @@ The update script automatically:
 - Config changes: "Update .zshrc configuration"
 - Script improvements: "Improve scripts/ubuntu.sh functionality"
 - New tests: "Add test coverage for recent changes"
+
+## Managing Your Dotfiles
+
+This system uses a **selective approach** - only files you explicitly add are managed.
+
+### Adding Files to Management
+
+```bash
+# Add a single file
+./dotfiles-add.sh ~/.config/starship.toml
+
+# Add a directory 
+./dotfiles-add.sh ~/.config/nvim
+
+# Preview changes without applying
+./dotfiles-add.sh --dry-run ~/.vimrc
+```
+
+### Removing Files from Management
+
+```bash
+# Stop managing a file (restores original)
+./dotfiles-remove.sh .config/starship.toml
+
+# Keep a backup when removing
+./dotfiles-remove.sh --keep-backup .vimrc
+```
+
+### Viewing Managed Files
+
+```bash
+# List all managed files
+./dotfiles-list.sh
+
+# Show detailed information
+./dotfiles-list.sh --verbose
+
+# Check status of managed files
+./dotfiles-status.sh
+
+# Fix any symlink issues
+./dotfiles-status.sh --fix
+```
+
+### Migration from Old System
+
+If upgrading from the previous version:
+
+```bash
+# Migrate existing symlinks to new system
+./dotfiles-migrate.sh
+
+# Preview migration changes
+./dotfiles-migrate.sh --dry-run
+```
 
 ## Configuration
 

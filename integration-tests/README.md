@@ -49,7 +49,7 @@ make integration-test-clean
 Each test:
 1. **Builds** a Podman image with the target OS
 2. **Copies** the dotfiles repository into the container
-3. **Runs** `./install.sh` to perform installation
+3. **Runs** `./dotfiles-install.sh` to perform installation
 4. **Executes** `./integration-tests/validate.sh` for post-installation validation
 5. **Reports** success/failure with detailed logs
 
@@ -78,7 +78,7 @@ podman build -f integration-tests/Dockerfile.ubuntu -t dotfiles-test-ubuntu .
 podman run -it dotfiles-test-ubuntu bash
 
 # Inside the container, run:
-./install.sh
+./dotfiles-install.sh
 ./integration-tests/validate.sh
 
 # Inspect the results

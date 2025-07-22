@@ -2,7 +2,8 @@
 
 @test "required files and directories exist" {
     # Main files
-    [ -f install.sh ]
+    [ -f dotfiles-install.sh ]
+    [ -f dotfiles-sync.sh ]
     [ -f packages.yml ]
     [ -f .env.example ]
     [ -f README.md ]
@@ -22,12 +23,17 @@
     
     # Config directories
     [ -d dotfiles/.config ]
-    [ -d dotfiles/.local ]
+    
+    # Check for specific managed files that might exist
+    # Note: .local directory should only contain explicitly managed files
+    if [ -f dotfiles/.local/share/iterm2/com.googlecode.iterm2.plist ]; then
+        [ -f dotfiles/.local/share/iterm2/com.googlecode.iterm2.plist ]
+    fi
 }
 
 @test "all scripts are executable" {
-    [ -x install.sh ]
-    [ -x update.sh ]
+    [ -x dotfiles-install.sh ]
+    [ -x dotfiles-sync.sh ]
     [ -x scripts/macos.sh ]
     [ -x scripts/ubuntu.sh ]
 }

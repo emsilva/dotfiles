@@ -126,7 +126,6 @@ plugins=(
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias ls='ls -hF --group-directories-first --color=auto'
-alias e='emacsclient -n'
 alias claude="/home/mannu/.claude/local/claude"
 
 #functions
@@ -152,4 +151,5 @@ eval $(keychain --eval --agents ssh id_rsa)
 
 # Initialize Starship prompt
 eval "$(starship init zsh)"
+export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"

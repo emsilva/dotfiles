@@ -11,7 +11,7 @@ setup() {
     
     # Copy our dotfiles to test directory
     cp -r "$BATS_TEST_DIRNAME/../dotfiles" "$TEST_TEMP_DIR/"
-    cp "$BATS_TEST_DIRNAME/../install.sh" "$TEST_TEMP_DIR/"
+    cp "$BATS_TEST_DIRNAME/../dotfiles-dotfiles-install.sh" "$TEST_TEMP_DIR/"
     cp -r "$BATS_TEST_DIRNAME/../scripts" "$TEST_TEMP_DIR/"
     
     # Create stub environment
@@ -56,13 +56,13 @@ teardown() {
     rm -rf "$TEST_TEMP_DIR"
 }
 
-@test "install.sh exists and is executable" {
-    [ -f install.sh ]
-    [ -x install.sh ]
+@test "dotfiles-dotfiles-install.sh exists and is executable" {
+    [ -f dotfiles-dotfiles-install.sh ]
+    [ -x dotfiles-dotfiles-install.sh ]
 }
 
 @test "detect_os function detects macOS" {
-    source install.sh
+    source dotfiles-dotfiles-install.sh
     export OSTYPE="darwin20"
     run detect_os
     [ "$status" -eq 0 ]
@@ -70,7 +70,7 @@ teardown() {
 }
 
 @test "detect_os function detects Ubuntu" {
-    source install.sh
+    source dotfiles-install.sh
     export OSTYPE="linux-gnu"
     # Mock command function
     command() { 
@@ -89,7 +89,7 @@ teardown() {
     (
         export HOME="$TEST_HOME"
         cd "$TEST_TEMP_DIR"
-        source install.sh
+        source dotfiles-install.sh
         
         # Create some test dotfiles
         mkdir -p dotfiles
@@ -115,7 +115,7 @@ teardown() {
     (
         export HOME="$TEST_HOME"
         cd "$TEST_TEMP_DIR"
-        source install.sh
+        source dotfiles-install.sh
         
         # Create test dotfiles directory
         mkdir -p dotfiles
@@ -151,7 +151,7 @@ teardown() {
     (
         export HOME="$TEST_HOME"
         cd "$TEST_TEMP_DIR"
-        source install.sh
+        source dotfiles-install.sh
         
         # Set environment variables
         export GIT_EMAIL_PERSONAL="personal@test.com"
@@ -184,7 +184,7 @@ EOF
     (
         export HOME="$TEST_HOME"
         cd "$TEST_TEMP_DIR"
-        source install.sh
+        source dotfiles-install.sh
         
         create_folders
     )
@@ -194,19 +194,19 @@ EOF
     [ -d "$TEST_HOME/code/work" ]
 }
 
-@test "install.sh has confirmation functionality" {
-    grep -q "confirm_action()" install.sh
-    grep -q "show_installation_preview()" install.sh
-    grep -q "skip_confirmation" install.sh
+@test "dotfiles-install.sh has confirmation functionality" {
+    grep -q "confirm_action()" dotfiles-install.sh
+    grep -q "show_installation_preview()" dotfiles-install.sh
+    grep -q "skip_confirmation" dotfiles-install.sh
 }
 
-@test "install.sh supports bypass flags" {
-    grep -q "\-y.*skip.confirmation" install.sh
-    grep -q "\-\-yes.*skip.confirmation" install.sh
-    grep -q "\-\-skip.confirmation" install.sh
+@test "dotfiles-install.sh supports bypass flags" {
+    grep -q "\-y.*skip.confirmation" dotfiles-install.sh
+    grep -q "\-\-yes.*skip.confirmation" dotfiles-install.sh
+    grep -q "\-\-skip.confirmation" dotfiles-install.sh
 }
 
-@test "install.sh has help functionality" {
-    grep -q "\-h.*help" install.sh
-    grep -q "Usage:" install.sh
+@test "dotfiles-install.sh has help functionality" {
+    grep -q "\-h.*help" dotfiles-install.sh
+    grep -q "Usage:" dotfiles-install.sh
 }

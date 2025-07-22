@@ -18,7 +18,7 @@ Unit tests use Bats framework in the `test/` directory. Integration tests use Po
 ### Setup
 ```bash
 # Install dotfiles (cross-platform)
-./install.sh
+./dotfiles-install.sh
 
 # Set environment variables first (optional)
 export GIT_EMAIL_PERSONAL="your.personal@email.com"
@@ -29,16 +29,16 @@ cp .env.example .env.local
 # Edit .env.local with your values
 ```
 
-### Updating
+### Syncing Changes
 ```bash
 # Commit and push dotfile changes to repository
-./update.sh
+./dotfiles-sync.sh
 
 # Optional: Enable AI-enhanced commit messages
 export OPENAI_API_KEY="your-api-key"
-./update.sh
+./dotfiles-sync.sh
 ```
-The update script will automatically:
+The sync script will automatically:
 - Stage all changes
 - Analyze changed files to generate intelligent commit messages
 - Use AI (OpenAI) for complex changes if API key is provided
@@ -53,15 +53,22 @@ The update script will automatically:
 
 ## Architecture
 
-This is a **simplified cross-platform dotfiles repository** using symlinks. No external dependencies like chezmoi or 1Password required.
+This is a **simplified cross-platform dotfiles repository** using **selective symlink management**. No external dependencies like chezmoi or 1Password required.
 
 ### Key Components
 
-**Installation**: `install.sh` is the main entry point that:
+**Installation**: `dotfiles-install.sh` is the main entry point that:
 - Detects OS (macOS or Ubuntu)
 - Runs platform-specific setup scripts
-- Creates symlinks from `dotfiles/` to home directory
+- Creates symlinks based on `.dotfiles-manifest` file
 - Substitutes environment variables in git configs
+
+**Dotfiles Management System**:
+- `dotfiles-add.sh` - Add files/directories to management
+- `dotfiles-remove.sh` - Remove from management and restore originals
+- `dotfiles-list.sh` - List all managed files with status
+- `dotfiles-status.sh` - Check and fix symlink issues
+- `dotfiles-migrate.sh` - Migrate from old system
 
 **Platform Scripts**:
 - `scripts/macos.sh` - Homebrew packages, macOS defaults, iTerm2 setup
@@ -69,12 +76,17 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 
 **Package Management**: `packages.yml` defines packages for each platform in unified YAML format.
 
-**Dotfiles Structure**: `dotfiles/` directory contains actual configuration files:
+**Selective Tracking**: `.dotfiles-manifest` file tracks which files are managed:
+- Only explicitly added files are symlinked
+- Prevents pollution from runtime data or binary installations
+- Provides audit trail of what's under version control
+
+**Dotfiles Structure**: `dotfiles/` directory contains **only** managed configuration files:
 - `.gitconfig` and `.gitconfig-work` - Git configuration with environment variable substitution
-- `.vimrc` - Vim settings
+- `.vimrc` - Vim settings  
 - `.zshrc` - Zsh configuration with oh-my-zsh and plugin management
 - `.config/starship.toml` - Starship prompt configuration
-- `.config/` and `.local/` - Application configuration directories
+- Other files **only** when explicitly added via `dotfiles-add.sh`
 
 **Environment Configuration**: Uses environment variables instead of templates:
 - `GIT_EMAIL_PERSONAL` - Personal git email
@@ -84,6 +96,7 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 **Testing Framework**:
 - Unit tests: Bats tests in `test/` verify script functionality and structure
 - Integration tests: Podman containers in `integration-tests/` validate complete installation on real OS environments
+- New tests in `test/dotfiles_management.bats` for the management system
 
 ### Cross-Platform Support
 
@@ -119,9 +132,17 @@ This is a **simplified cross-platform dotfiles repository** using symlinks. No e
 
 ### Key Improvement Areas
 - **Error Recovery**: Add backup/rollback mechanisms for failed installations
-- **User Experience**: Interactive installation mode, progress indicators
+- **User Experience**: Interactive installation mode, progress indicators  
 - **Performance**: Package caching, parallel installations
 - **Security**: GPG verification for downloads, checksum validation
+
+### Dotfiles Management Improvements ✅ **COMPLETED**
+- **Selective Management**: Replaced symlink-everything with explicit file tracking
+- **Management Scripts**: Added `dotfiles-add.sh`, `dotfiles-remove.sh`, `dotfiles-list.sh`, `dotfiles-status.sh`
+- **Migration Tool**: `dotfiles-migrate.sh` for transitioning from old system
+- **Manifest System**: `.dotfiles-manifest` tracks managed files
+- **Backup System**: Automatic backups during add/remove operations
+- **Status Checking**: Health checks and automatic repair capabilities
 
 ## Development Guidelines
 
@@ -177,8 +198,8 @@ main() {
 ```
 
 **Scripts that MUST follow this pattern:**
-- `install.sh` - System and environment modifications
-- `update.sh` - Git operations and pushes
+- `dotfiles-install.sh` - System and environment modifications
+- `dotfiles-sync.sh` - Git operations and pushes
 - Any `scripts/*.sh` that modify system state
 - All future scripts that change files, install packages, or modify configuration
 
@@ -275,8 +296,9 @@ main() {
 
 ### File Organization
 ```
-install.sh           # Main entry point - OS detection, symlinks, git config
-packages.yml         # Single source of truth for all packages
+dotfiles-install.sh    # Main entry point - OS detection, symlinks, git config
+dotfiles-sync.sh       # Commit and push changes to repository
+packages.yml           # Single source of truth for all packages
 scripts/macos.sh     # Homebrew, macOS defaults, iTerm2 setup
 scripts/ubuntu.sh    # APT packages, systemd services, Ubuntu-specific
 dotfiles/           # Actual config files (symlinked to ~/)

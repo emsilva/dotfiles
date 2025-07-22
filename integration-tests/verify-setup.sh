@@ -44,7 +44,7 @@ check ".containerignore exists" "[ -f .containerignore ]"
 
 # Check main dotfiles structure
 print_info "Checking dotfiles structure..."
-check "install.sh exists and is executable" "[ -x install.sh ]"
+check "dotfiles-install.sh exists and is executable" "[ -x dotfiles-install.sh ]"
 check "packages.yml exists" "[ -f packages.yml ]"
 check "scripts/macos.sh exists and is executable" "[ -x scripts/macos.sh ]"
 check "scripts/ubuntu.sh exists and is executable" "[ -x scripts/ubuntu.sh ]"
@@ -79,7 +79,7 @@ done
 print_info "Validating script syntax..."
 check "run-tests.sh syntax is valid" "bash -n integration-tests/run-tests.sh"
 check "validate.sh syntax is valid" "bash -n integration-tests/validate.sh"
-check "install.sh syntax is valid" "bash -n install.sh"
+check "dotfiles-install.sh syntax is valid" "bash -n dotfiles-install.sh"
 check "scripts/macos.sh syntax is valid" "bash -n scripts/macos.sh"
 check "scripts/ubuntu.sh syntax is valid" "bash -n scripts/ubuntu.sh"
 
