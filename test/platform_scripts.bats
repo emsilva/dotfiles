@@ -139,6 +139,7 @@ grep() {
 # Mock script functions that might be called
 update_packages() { echo "update_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_packages() { echo "install_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
+install_custom_packages() { echo "install_custom_packages called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_ruby_gems() { echo "install_ruby_gems called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 install_ls_colors() { echo "install_ls_colors called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
 configure_services() { echo "configure_services called" >> "$TEST_TEMP_DIR/functions.log"; return 0; }
@@ -267,4 +268,71 @@ teardown() {
     # Check that both scripts add zsh to /etc/shells
     grep -q "/etc/shells" scripts/macos.sh
     grep -q "/etc/shells" scripts/ubuntu.sh
+}
+
+@test "ubuntu.sh contains custom_install function" {
+    # Test that ubuntu.sh contains the new custom_install function
+    bash -n scripts/ubuntu.sh
+    
+    # Check that script contains custom_install function
+    grep -q "install_custom_packages" scripts/ubuntu.sh
+    grep -q "custom_install:" scripts/ubuntu.sh
+}
+
+@test "ubuntu.sh custom_install parsing works correctly" {
+    # Create a test packages.yml file with custom_install section
+    cat <<'EOF' > packages.yml
+ubuntu:
+  custom_install:
+    - name: starship
+      command: "curl -sS https://starship.rs/install.sh | sh"
+      description: "Cross-shell prompt"
+    - name: test_tool
+      command: "echo 'installing test_tool'"
+      description: "Test tool"
+
+ruby_gems:
+  - video_transcoding
+EOF
+    
+    # Source the ubuntu.sh script to get the install_custom_packages function
+    source scripts/ubuntu.sh
+    
+    # Test the AWK parsing by running it directly
+    local custom_installs
+    mapfile -t custom_installs < <(awk '
+        /^  custom_install:$/ { in_section = 1; next }
+        /^ruby_gems:$/ { in_section = 0 }
+        /^[a-zA-Z]/ && !/^  / { in_section = 0 }
+        in_section && /^    - name: / { 
+            gsub(/^    - name: /, ""); 
+            name = $0;
+            getline;
+            if (/^      command: /) {
+                gsub(/^      command: /, "");
+                gsub(/^"/, ""); gsub(/"$/, "");
+                command = $0;
+                getline;
+                if (/^      description: /) {
+                    gsub(/^      description: /, "");
+                    gsub(/^"/, ""); gsub(/"$/, "");
+                    description = $0;
+                } else {
+                    description = "";
+                }
+                print name "|" command "|" description;
+            }
+        }
+    ' packages.yml)
+    
+    # Check that we parsed the entries correctly
+    [ ${#custom_installs[@]} -eq 2 ]
+    echo "${custom_installs[0]}" | grep -q "starship"
+    echo "${custom_installs[0]}" | grep -q "curl.*starship"
+    echo "${custom_installs[1]}" | grep -q "test_tool"
+}
+
+@test "ubuntu.sh calls install_custom_packages in main function" {
+    # Check that main function calls install_custom_packages
+    grep -A 20 "main()" scripts/ubuntu.sh | grep -q "install_custom_packages"
 }

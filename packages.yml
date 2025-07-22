@@ -14,8 +14,6 @@ common:
   - syncthing
   - cmake
   - gettext
-  - starship
-
 macos:
   homebrew:
     taps:
@@ -31,6 +29,7 @@ macos:
       - ruby
       - grep
       - podman
+      - starship
 
 ubuntu:
   apt:
@@ -48,6 +47,10 @@ ubuntu:
     - zsh-syntax-highlighting
     - zsh-autosuggestions
     - podman
+  custom_install:
+    - name: starship
+      command: "curl -sS https://starship.rs/install.sh | sh"
+      description: "Cross-shell prompt"
 
 ruby_gems:
   - video_transcoding

@@ -55,6 +55,60 @@ install_packages() {
     done
 }
 
+# Install custom packages via script
+install_custom_packages() {
+    print_info "Installing custom packages..."
+    
+    # Parse custom_install section from packages.yml
+    local custom_installs
+    mapfile -t custom_installs < <(awk '
+        /^  custom_install:$/ { in_section = 1; next }
+        /^ruby_gems:$/ { in_section = 0 }
+        /^[a-zA-Z]/ && !/^  / { in_section = 0 }
+        in_section && /^    - name: / { 
+            gsub(/^    - name: /, ""); 
+            name = $0;
+            getline;
+            if (/^      command: /) {
+                gsub(/^      command: /, "");
+                gsub(/^"/, ""); gsub(/"$/, "");
+                command = $0;
+                getline;
+                if (/^      description: /) {
+                    gsub(/^      description: /, "");
+                    gsub(/^"/, ""); gsub(/"$/, "");
+                    description = $0;
+                } else {
+                    description = "";
+                }
+                print name "|" command "|" description;
+            }
+        }
+    ' packages.yml)
+    
+    for install_info in "${custom_installs[@]}"; do
+        if [[ -n "$install_info" ]]; then
+            IFS='|' read -r name command description <<< "$install_info"
+            
+            # Check if the program is already installed
+            if command -v "$name" &> /dev/null; then
+                print_info "$name is already installed"
+                continue
+            fi
+            
+            print_info "Installing $name ($description)..."
+            print_info "Running: $command"
+            
+            # Execute the installation command
+            if eval "$command" 2>/dev/null; then
+                print_info "Successfully installed $name"
+            else
+                print_warn "Failed to install $name (continuing with other packages)"
+            fi
+        fi
+    done
+}
+
 # Install Ruby gems
 install_ruby_gems() {
     print_info "Installing Ruby gems..."
@@ -219,6 +273,7 @@ main() {
     
     update_packages
     install_packages
+    install_custom_packages
     install_ruby_gems
     install_ls_colors
     configure_fd
