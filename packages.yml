@@ -49,7 +49,7 @@ ubuntu:
     - podman
   custom_install:
     - name: starship
-      command: "curl -sS https://starship.rs/install.sh | sh"
+      command: "curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir ~/.local/bin"
       description: "Cross-shell prompt"
 
 ruby_gems:

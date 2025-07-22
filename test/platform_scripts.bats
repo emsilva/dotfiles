@@ -320,7 +320,7 @@ EOF
                 } else {
                     description = "";
                 }
-                print name "|" command "|" description;
+                print name "§§§" command "§§§" description;
             }
         }
     ' packages.yml)
@@ -335,4 +335,23 @@ EOF
 @test "ubuntu.sh calls install_custom_packages in main function" {
     # Check that main function calls install_custom_packages
     grep -A 20 "main()" scripts/ubuntu.sh | grep -q "install_custom_packages"
+}
+
+@test "ubuntu.sh has ensure_local_bin_in_path function" {
+    # Test that ubuntu.sh contains the ensure_local_bin_in_path function
+    bash -n scripts/ubuntu.sh
+    
+    # Check that script contains ensure_local_bin_in_path function
+    grep -q "ensure_local_bin_in_path" scripts/ubuntu.sh
+    grep -q "mkdir -p ~/.local/bin" scripts/ubuntu.sh
+    grep -q 'export PATH.*\.local/bin' scripts/ubuntu.sh
+}
+
+@test "ubuntu.sh custom_install uses improved delimiter parsing" {
+    # Test that the script uses the new § delimiter instead of |
+    grep -q "§§§" scripts/ubuntu.sh
+    
+    # Check that the script has the improved parsing logic
+    grep -q "clean_install_info=" scripts/ubuntu.sh
+    grep -q 'name="${clean_install_info%%§§§\*}"' scripts/ubuntu.sh
 }

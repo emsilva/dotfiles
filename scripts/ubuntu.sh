@@ -55,9 +55,35 @@ install_packages() {
     done
 }
 
+# Ensure ~/.local/bin is in PATH and shell configs
+ensure_local_bin_in_path() {
+    # Create ~/.local/bin if it doesn't exist
+    mkdir -p ~/.local/bin
+    
+    # Add to PATH if not already there
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        print_info "Adding ~/.local/bin to PATH in shell configs..."
+        
+        # Add to .bashrc if it exists
+        if [ -f ~/.bashrc ] && ! grep -q 'PATH.*\.local/bin' ~/.bashrc; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+        fi
+        
+        # Add to .zshrc if it exists
+        if [ -f ~/.zshrc ] && ! grep -q 'PATH.*\.local/bin' ~/.zshrc; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+        fi
+        
+        print_info "PATH updated in shell configs (restart shell to take effect)"
+    fi
+}
+
 # Install custom packages via script
 install_custom_packages() {
     print_info "Installing custom packages..."
+    
+    # Ensure ~/.local/bin is set up properly
+    ensure_local_bin_in_path
     
     # Parse custom_install section from packages.yml
     local custom_installs
@@ -81,20 +107,30 @@ install_custom_packages() {
                 } else {
                     description = "";
                 }
-                print name "|" command "|" description;
+                print name "§§§" command "§§§" description;
             }
         }
     ' packages.yml)
     
     for install_info in "${custom_installs[@]}"; do
         if [[ -n "$install_info" ]]; then
-            IFS='|' read -r name command description <<< "$install_info"
+            # Clean up any stdin redirection artifacts in the entire string first
+            clean_install_info=$(echo "$install_info" | sed 's/ < \/dev\/null//g')
             
-            # Clean up any stdin redirection artifacts that might have been added
-            command=$(echo "$command" | sed 's/ < \/dev\/null//g')
+            # Parse the three fields using parameter expansion
+            name="${clean_install_info%%§§§*}"
+            rest="${clean_install_info#*§§§}"
+            command="${rest%%§§§*}"
+            description="${rest#*§§§}"
+            
+            # Trim whitespace from all fields
+            name=$(echo "$name" | sed 's/^[ \t]*//;s/[ \t]*$//')
+            command=$(echo "$command" | sed 's/^[ \t]*//;s/[ \t]*$//')
+            description=$(echo "$description" | sed 's/^[ \t]*//;s/[ \t]*$//')
             
             # Check if the program is already installed
-            if command -v "$name" &> /dev/null; then
+            # Check both system PATH and ~/.local/bin
+            if command -v "$name" &> /dev/null || [ -x "$HOME/.local/bin/$name" ]; then
                 print_info "$name is already installed"
                 continue
             fi
@@ -105,8 +141,14 @@ install_custom_packages() {
             # Execute the installation command in a clean shell environment
             if /bin/sh -c "$command"; then
                 # Verify installation worked by checking if command exists
-                if command -v "$name" &> /dev/null; then
+                # Check both system PATH and ~/.local/bin
+                if command -v "$name" &> /dev/null || [ -x "$HOME/.local/bin/$name" ]; then
                     print_info "Successfully installed $name"
+                    
+                    # If installed to ~/.local/bin but not in PATH, add a note
+                    if [ -x "$HOME/.local/bin/$name" ] && ! command -v "$name" &> /dev/null; then
+                        print_info "$name installed to ~/.local/bin (may need PATH update)"
+                    fi
                 else
                     print_warn "Installation appeared to succeed but $name command not found"
                 fi
