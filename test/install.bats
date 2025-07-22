@@ -110,6 +110,42 @@ teardown() {
     [ "$(readlink "$TEST_HOME/.config")" = "$TEST_TEMP_DIR/dotfiles/.config" ]
 }
 
+@test "create_symlinks function cleans up orphaned symlinks" {
+    # Source the script with overridden HOME
+    (
+        export HOME="$TEST_HOME"
+        cd "$TEST_TEMP_DIR"
+        source install.sh
+        
+        # Create test dotfiles directory
+        mkdir -p dotfiles
+        echo "test content" > dotfiles/.testfile
+        
+        # Create an orphaned symlink that points to a non-existent file in dotfiles
+        ln -s "$TEST_TEMP_DIR/dotfiles/.nonexistent" "$TEST_HOME/.orphaned"
+        
+        # Create a valid symlink to keep (not pointing to dotfiles)
+        echo "external content" > "$TEST_TEMP_DIR/external"
+        ln -s "$TEST_TEMP_DIR/external" "$TEST_HOME/.external"
+        
+        # Verify the orphaned symlink exists before cleanup
+        [ -L "$TEST_HOME/.orphaned" ]
+        [ -L "$TEST_HOME/.external" ]
+        
+        # Run the function which should clean up orphaned symlinks
+        create_symlinks
+    )
+    
+    # Check that orphaned symlink was removed
+    [ ! -e "$TEST_HOME/.orphaned" ]
+    
+    # Check that external symlink (not pointing to dotfiles) was preserved
+    [ -L "$TEST_HOME/.external" ]
+    
+    # Check that valid dotfiles symlink was created
+    [ -L "$TEST_HOME/.testfile" ]
+}
+
 @test "setup_git_config substitutes environment variables" {
     # Run in subshell to contain HOME override
     (

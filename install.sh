@@ -57,6 +57,19 @@ create_symlinks() {
             print_info "Linked $filename"
         fi
     done
+    
+    # Clean up orphaned symlinks that point to non-existent dotfiles
+    print_info "Cleaning up orphaned symlinks..."
+    for symlink in "$HOME"/.??*; do
+        if [ -L "$symlink" ]; then
+            # Check if it's a symlink pointing to our dotfiles directory
+            target=$(readlink "$symlink")
+            if [[ "$target" == *"/dotfiles/"* ]] && [ ! -e "$target" ]; then
+                print_warn "Removing orphaned symlink: $(basename "$symlink")"
+                rm "$symlink"
+            fi
+        fi
+    done
 }
 
 # Function to substitute environment variables in git config
