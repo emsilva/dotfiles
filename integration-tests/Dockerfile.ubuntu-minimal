@@ -36,4 +36,4 @@ ENV GIT_EMAIL_WORK=test.work@example.com
 WORKDIR /home/testuser/dotfiles
 
 # Default command runs installation and validation
-CMD ["bash", "-c", "./dotfiles-install.sh && ./integration-tests/validate.sh"]
+CMD ["bash", "-c", "./dotfiles-install.sh --skip-confirmation && ./integration-tests/validate.sh"]
