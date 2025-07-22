@@ -45,7 +45,8 @@
       "Bash(bash:*)",
       "Bash(~/.local/bin/nvim:*)",
       "Bash(ln:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(podman run:*)"
     ],
     "deny": []
   }
