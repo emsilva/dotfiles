@@ -266,6 +266,148 @@ install_custom_packages() {
     done
 }
 
+# Install packages from GitHub releases
+process_github_releases() {
+    print_info "Processing GitHub releases from packages.yml..."
+    
+    # Parse github_releases section from packages.yml using a simpler approach
+    local temp_file="/tmp/github_releases_$$.yml"
+    awk '/^macos:/,/^ubuntu:/ { if (/^  github_releases:/) found=1; if (found && !/^ubuntu:/) print }' packages.yml > "$temp_file"
+    
+    # Process each package in the github_releases section
+    local current_name=""
+    local current_repo=""
+    local current_pattern=""
+    local current_dir=""
+    local current_desc=""
+    local current_executables=""
+    
+    while IFS= read -r line; do
+        case "$line" in
+            "    - name: "*)
+                # Process previous package if we have one
+                if [[ -n "$current_name" ]]; then
+                    install_github_release "$current_name" "$current_repo" "$current_pattern" "$current_dir" "$current_executables" "$current_desc"
+                fi
+                
+                # Start new package
+                current_name="${line#*: }"
+                current_repo=""
+                current_pattern=""
+                current_dir=""
+                current_desc=""
+                current_executables=""
+                ;;
+            "      repo: "*)
+                current_repo="${line#*: }"
+                ;;
+            "      asset_pattern: "*)
+                current_pattern="${line#*: }"
+                ;;
+            "      install_dir: "*)
+                current_dir="${line#*: }"
+                ;;
+            "      description: "*)
+                current_desc="${line#*: }"
+                current_desc="${current_desc%\"}"
+                current_desc="${current_desc#\"}"
+                ;;
+            "        - src: "*)
+                src="${line#*: }"
+                ;;
+            "          dest: "*)
+                dest="${line#*: }"
+                if [[ -n "$current_executables" ]]; then
+                    current_executables="$current_executables|$src:$dest"
+                else
+                    current_executables="$src:$dest"
+                fi
+                ;;
+        esac
+    done < "$temp_file"
+    
+    # Process the last package
+    if [[ -n "$current_name" ]]; then
+        install_github_release "$current_name" "$current_repo" "$current_pattern" "$current_dir" "$current_executables" "$current_desc"
+    fi
+    
+    rm -f "$temp_file"
+}
+
+# Helper function to install a single GitHub release
+install_github_release() {
+    local name="$1"
+    local repo="$2"
+    local asset_pattern="$3"
+    local install_dir="$4"
+    local executables="$5"
+    local description="$6"
+    
+    # Check if already installed
+    if [[ -n "$executables" ]]; then
+        IFS='|' read -ra EXEC_ARRAY <<< "$executables"
+        first_exec="${EXEC_ARRAY[0]}"
+        IFS=':' read -r src_path dest_path <<< "$first_exec"
+        dest_path=$(eval echo "$dest_path")  # Expand ~ and variables
+        
+        if [[ -x "$dest_path" ]]; then
+            print_info "$name is already installed"
+            return 0
+        fi
+    fi
+    
+    print_info "Installing $name ($description)..."
+    
+    # Expand install directory
+    install_dir=$(eval echo "$install_dir")
+    mkdir -p "$install_dir" ~/.local/bin
+    
+    # Get download URL
+    local download_url
+    download_url=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | \
+                  grep -o "https://github.com/$repo/releases/download/[^\"]*$asset_pattern" | \
+                  head -n1)
+    
+    if [[ -z "$download_url" ]]; then
+        print_error "Failed to find download URL for $name with pattern $asset_pattern"
+        return 1
+    fi
+    
+    print_info "Downloading from: $download_url"
+    
+    # Download and extract
+    local temp_file="/tmp/${name}.tar.gz"
+    if curl -L "$download_url" -o "$temp_file"; then
+        # Clear install directory and extract
+        rm -rf "$install_dir"/*
+        tar -xzf "$temp_file" -C "$install_dir" --strip-components=1
+        rm "$temp_file"
+        
+        # Create executable symlinks
+        if [[ -n "$executables" ]]; then
+            IFS='|' read -ra EXEC_ARRAY <<< "$executables"
+            for exec_mapping in "${EXEC_ARRAY[@]}"; do
+                IFS=':' read -r src_path dest_path <<< "$exec_mapping"
+                src_full="$install_dir/$src_path"
+                dest_full=$(eval echo "$dest_path")  # Expand ~ and variables
+                
+                if [[ -f "$src_full" ]]; then
+                    ln -sf "$src_full" "$dest_full"
+                    print_info "Created symlink: $dest_full -> $src_full"
+                else
+                    print_warn "Source executable not found: $src_full"
+                fi
+            done
+        fi
+        
+        print_info "Successfully installed $name"
+        return 0
+    else
+        print_error "Failed to download $name"
+        return 1
+    fi
+}
+
 # Configure iTerm2
 configure_iterm2() {
     print_info "Configuring iTerm2..."
@@ -330,6 +472,7 @@ main() {
     update_homebrew
     install_packages
     install_custom_packages
+    process_github_releases
     install_ruby_gems
     start_services
     configure_macos_defaults

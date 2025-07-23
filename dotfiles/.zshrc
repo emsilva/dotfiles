@@ -137,3 +137,5 @@ if command -v starship &>/dev/null; then
 fi
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"
+
+alias claude="/home/mannu/.claude/local/claude"

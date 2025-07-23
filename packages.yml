@@ -69,7 +69,18 @@ ubuntu:
       command: "curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir ~/.local/bin"
       description: "Cross-shell prompt"
     - name: claude-code
-      command: "npm install -g @anthropic-ai/claude-code && claude migrate-installer"
+      command: |
+        if ! command -v claude &> /dev/null && ! [ -x "$HOME/.local/bin/claude" ]; then
+          if command -v npm &> /dev/null; then
+            print_info "Installing claude-code..."
+            # Use official installer without sudo
+            curl -fsSL https://claude.ai/install.sh | sh -s -- --bin-dir "$HOME/.local/bin"
+          else
+            print_warn "npm not available, skipping claude-code installation"
+          fi
+        else
+          print_info "claude-code already installed"
+        fi
       description: "Claude Code AI assistant"
   github_releases:
     - name: nvim

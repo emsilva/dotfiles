@@ -180,6 +180,52 @@ This is a **simplified cross-platform dotfiles repository** using **selective sy
 - Make operations idempotent where possible
 - Parse packages.yml using awk patterns (avoid hardcoded package lists)
 
+### Cross-Platform Feature Parity Requirements
+**CRITICAL: All features must be implemented across ALL supported platforms**
+
+**Root Cause of Past Issues:**
+- `github_releases` was added to packages.yml for both Ubuntu and macOS
+- Implementation was only added to `scripts/ubuntu.sh`, not `scripts/macos.sh`
+- Testing didn't catch this cross-platform gap
+- Result: nvim installation failed silently on macOS
+
+**MANDATORY Development Process:**
+1. **Feature Definition**: When adding features to `packages.yml`, they MUST work on all platforms
+2. **Implementation Requirement**: If a feature is added to packages.yml for multiple platforms, it MUST be implemented in ALL corresponding platform scripts
+3. **Test-First Development**: Write tests that verify feature works on ALL platforms BEFORE considering implementation complete
+4. **Cross-Platform Validation**: Use integration tests to validate actual functionality on each platform
+
+**Current Supported Platforms:** 
+- macOS (`scripts/macos.sh`)
+- Ubuntu (`scripts/ubuntu.sh`)
+
+**Testing Requirements for New Features:**
+- Unit tests must verify parsing works for ALL platforms 
+- Integration tests must validate installation succeeds on ALL platforms
+- Feature parity tests must ensure identical functionality across platforms
+- Tests MUST fail if a feature is defined in packages.yml but not implemented in platform scripts
+
+**Example Failure Pattern to Avoid:**
+```yaml
+# In packages.yml - defined for both platforms
+macos:
+  github_releases: [...] 
+ubuntu:
+  github_releases: [...]
+```
+```bash
+# In scripts/ubuntu.sh - implemented ✅
+process_github_releases() { ... }
+
+# In scripts/macos.sh - missing ❌ 
+# No process_github_releases() function
+```
+
+**Required Implementation Pattern:**
+- If packages.yml defines a section for multiple platforms → ALL platform scripts must implement it
+- If packages.yml adds a new installation method → ALL platforms must support it  
+- If packages.yml references a function → ALL platform scripts must have that function
+
 ### Script Interaction Guidelines
 **MANDATORY: All environment-modifying scripts must be interactive by default**
 
