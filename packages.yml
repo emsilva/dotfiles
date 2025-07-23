@@ -62,10 +62,15 @@ ubuntu:
     - zsh-syntax-highlighting
     - zsh-autosuggestions
     - podman
+    - nodejs
+    - npm
   custom_install:
     - name: starship
       command: "curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir ~/.local/bin"
       description: "Cross-shell prompt"
+    - name: claude-code
+      command: "npm install -g @anthropic-ai/claude-code && claude migrate-installer"
+      description: "Claude Code AI assistant"
   github_releases:
     - name: nvim
       repo: neovim/neovim
