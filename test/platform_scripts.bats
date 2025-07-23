@@ -382,10 +382,10 @@ EOF
 @test "packages.yml contains neovim entries" {
     # Check that packages.yml contains neovim github_releases entries for both platforms
     local packages_file="$BATS_TEST_DIRNAME/../packages.yml"
-    # Check for macos github_releases nvim entry
-    grep -A 30 "^macos:" "$packages_file" | grep -A 20 "^  github_releases:" | grep -q "name: nvim"
-    # Check for ubuntu github_releases nvim entry  
-    grep -A 30 "^ubuntu:" "$packages_file" | grep -A 20 "^  github_releases:" | grep -q "name: nvim"
+    # Check for macos github_releases nvim entry - allow more lines since files are longer now
+    grep -A 50 "^macos:" "$packages_file" | grep -A 30 "^  github_releases:" | grep -q "name: nvim"
+    # Check for ubuntu github_releases nvim entry - allow more lines  
+    grep -A 50 "^ubuntu:" "$packages_file" | grep -A 30 "^  github_releases:" | grep -q "name: nvim"
 }
 
 @test "macos.sh has brew update/upgrade functionality" {

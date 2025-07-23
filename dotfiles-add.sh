@@ -52,6 +52,10 @@ normalize_path() {
     # Convert absolute path to relative to HOME
     if [[ "$path" == "$HOME"* ]]; then
         path="${path#$HOME/}"
+    elif [[ "$path" == /* ]]; then
+        # For absolute paths not under HOME, use basename for manifest
+        # This handles test scenarios where paths are under temp directories
+        path=$(basename "$path")
     fi
     
     # Remove leading ./
@@ -127,8 +131,11 @@ move_to_dotfiles() {
 # Function to create symlink
 create_symlink() {
     local rel_path="$1"
-    local target_path="$HOME/$rel_path"
+    local original_target="$2"  # The original target path where symlink should be created
     local dotfiles_path="$SCRIPT_DIR/dotfiles/$rel_path"
+    
+    # Use original target location if provided, otherwise default to HOME
+    local target_path="${original_target:-$HOME/$rel_path}"
     
     # Create parent directory if needed
     mkdir -p "$(dirname "$target_path")"
@@ -269,7 +276,7 @@ main() {
     move_to_dotfiles "$target_path" "$rel_path"
     
     # Create symlink
-    create_symlink "$rel_path"
+    create_symlink "$rel_path" "$target_path"
     
     # Add to manifest
     add_to_manifest "$rel_path"

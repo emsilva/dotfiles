@@ -97,6 +97,10 @@ teardown() {
         mkdir -p dotfiles/.config
         echo "config content" > dotfiles/.config/testconfig
         
+        # Create manifest for managed files
+        echo ".testfile" > .dotfiles-manifest
+        echo ".config" >> .dotfiles-manifest
+        
         # Run the function in subshell to contain HOME override
         create_symlinks
     )
@@ -120,6 +124,9 @@ teardown() {
         # Create test dotfiles directory
         mkdir -p dotfiles
         echo "test content" > dotfiles/.testfile
+        
+        # Create manifest for the valid file
+        echo ".testfile" > .dotfiles-manifest
         
         # Create an orphaned symlink that points to a non-existent file in dotfiles
         ln -s "$TEST_TEMP_DIR/dotfiles/.nonexistent" "$TEST_HOME/.orphaned"
