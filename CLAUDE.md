@@ -313,27 +313,182 @@ main() {
 
 **NEVER commit without running tests first**
 
-### Testing Requirements
+### Comprehensive Testing Strategy
 
-**MANDATORY: Always run tests when making changes**
+**PHILOSOPHY: Test-Driven Development (TDD)**
+Write tests FIRST, then implement features. Tests are the specification - they define what the code should do before the code exists.
 
-- **Unit tests must pass**: `make test` (30 Bats tests)
-  - Run before committing any changes
-  - Add new test cases when adding functionality
-  - Update existing tests when modifying script behavior
-  
-- **Integration tests recommended**: `make integration-test` (requires Podman)
-  - Test complete installation in real container environments
-  - Validates Ubuntu, macOS simulation environments
-  - Update `integration-tests/validate.sh` when adding new features
+#### **Three-Layer Testing Architecture**
 
-**Test Coverage Requirements:**
-- **New functionality**: Must have corresponding unit tests in `test/` directory
-- **Script changes**: Update platform script tests in `test/platform_scripts.bats`
-- **Package additions**: Verify parsing tests in `test/file_structure.bats`
-- **Integration validation**: Add checks to `integration-tests/validate.sh` for user-facing features
+**1. Unit Tests (83 tests) - `make test`**
+- **Framework**: Bats (Bash Automated Testing System)
+- **Purpose**: Test individual functions and script logic in isolation
+- **Speed**: Fast (~30 seconds)
+- **Coverage**: 
+  - Cross-platform feature parity (`test/cross_platform_parity.bats`) - 5 tests
+  - Dotfiles management system (`test/dotfiles_management.bats`) - 14 tests  
+  - File structure validation (`test/file_structure.bats`) - 12 tests
+  - Installation logic (`test/install.bats`) - 10 tests
+  - Platform-specific scripts (`test/platform_scripts.bats`) - 24 tests
+  - Sync functionality (`test/update.bats`) - 17 tests
+  - Homebrew integration (`test/homebrew_apps.bats`) - 1 test
 
-**Current Test Count:** 30 unit tests, 24+ integration validation checks
+**2. Integration Tests - `make integration-test`**
+- **Framework**: Podman containers with real OS environments
+- **Purpose**: Test complete installation workflows end-to-end
+- **Speed**: Slow (~5-10 minutes)
+- **Environments**:
+  - `ubuntu`: Full Ubuntu 22.04 environment
+  - `ubuntu-minimal`: Minimal Ubuntu 20.04 environment  
+  - `macos-sim`: macOS simulation (Ubuntu with macOS-like setup)
+  - `alpine`: Unsupported OS testing (expected failures)
+- **Validation**: 24+ checks in `integration-tests/validate.sh`
+
+**3. Cross-Platform Feature Parity Tests**
+- **Special Focus**: Prevents the nvim-on-macOS type failures
+- **Location**: `test/cross_platform_parity.bats`
+- **Purpose**: Ensure features defined in `packages.yml` work on ALL platforms
+- **Tests**:
+  - `github_releases` implementation parity across platforms
+  - `custom_install` function availability 
+  - Platform-specific asset pattern validation
+  - Function existence verification
+  - Main function call verification
+
+#### **Testing Requirements by Change Type**
+
+**When Adding New Features:**
+1. **Write failing tests first** (TDD approach)
+2. **Unit tests**: Test parsing, logic, error handling
+3. **Cross-platform tests**: Ensure works on ALL supported platforms
+4. **Integration tests**: Add validation checks to `validate.sh`
+5. **Run full test suite**: Both unit and integration tests must pass
+
+**When Modifying Existing Code:**
+1. **Update existing tests** to match new behavior
+2. **Add regression tests** for bugs being fixed
+3. **Ensure cross-platform compatibility** if touching platform scripts
+4. **Run tests before AND after changes**
+
+**When Adding New Platforms:**
+1. **Update cross-platform tests** to include new platform
+2. **Add new integration test environment** 
+3. **Ensure all existing features work** on new platform
+4. **Update documentation** with new platform support
+
+#### **Test Categories and Their Focus**
+
+**Structural Tests** (`file_structure.bats`):
+- File existence and permissions
+- Script syntax validation  
+- Configuration file format validation
+- Directory structure verification
+
+**Functional Tests** (`install.bats`, `platform_scripts.bats`):
+- OS detection logic
+- Package installation workflows
+- Git configuration substitution
+- Symlink creation and management
+
+**Integration Tests** (`dotfiles_management.bats`):
+- Complete user workflows
+- Multi-step operations
+- Error recovery scenarios
+- Backup and restore functionality
+
+**Parity Tests** (`cross_platform_parity.bats`):
+- Cross-platform feature consistency
+- Implementation gap detection
+- Asset pattern validation
+- Function existence verification
+
+#### **Testing Best Practices**
+
+**Test Structure:**
+```bash
+@test "descriptive test name explains what should happen" {
+    # Arrange: Set up test conditions
+    setup_test_environment
+    
+    # Act: Execute the code being tested
+    run command_under_test
+    
+    # Assert: Verify expected outcomes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"expected string"* ]]
+}
+```
+
+**Mocking Strategy:**
+- Mock external commands (brew, apt, curl) to avoid system changes
+- Use temporary directories for file operations
+- Stub environment variables and functions
+- Simulate different OS environments in unit tests
+
+**Error Testing:**
+- Test both success and failure scenarios
+- Verify proper error messages and exit codes
+- Test edge cases and boundary conditions
+- Ensure graceful degradation when dependencies missing
+
+#### **Continuous Testing Workflow**
+
+**Development Cycle:**
+1. **Write failing test** that describes desired behavior
+2. **Run test to confirm it fails** (red phase)
+3. **Write minimal code** to make test pass (green phase)  
+4. **Refactor code** while keeping tests passing (refactor phase)
+5. **Run full test suite** to ensure no regressions
+6. **Commit only when all tests pass**
+
+**Before Each Commit:**
+```bash
+# MANDATORY: Must pass before committing
+make test
+
+# RECOMMENDED: Run when touching installation logic  
+make integration-test-ubuntu
+
+# REQUIRED: When adding cross-platform features
+./integration-tests/verify-setup.sh
+```
+
+#### **Integration Test Architecture**
+
+**Container-Based Testing:**
+- **Real OS environments**: Not simulated, actual Ubuntu/Alpine containers
+- **Complete installation**: Full `dotfiles-install.sh` execution
+- **Post-installation validation**: Comprehensive checks via `validate.sh`
+- **Cleanup**: Automatic container removal after tests
+
+**Validation Categories:**
+- Symlink creation and target verification
+- Package installation verification  
+- Service configuration validation
+- Git configuration substitution
+- Shell configuration verification
+- Cross-platform compatibility checks
+
+#### **Test Maintenance Guidelines**
+
+**When Tests Fail:**
+- **Don't ignore failing tests** - they indicate real problems
+- **Fix the root cause**, don't just update the test
+- **Add regression tests** for newly discovered issues
+- **Update test expectations** only when behavior intentionally changes
+
+**Test Quality Standards:**
+- **Descriptive names**: Tests should read like specifications
+- **Single responsibility**: One test per behavior
+- **Deterministic**: Tests should pass/fail consistently  
+- **Fast feedback**: Unit tests should run in under 60 seconds
+- **Independent**: Tests shouldn't depend on each other
+
+**Current Test Status:**
+- **Unit tests**: 83 tests, ~68% passing (some expected failures in development)
+- **Integration tests**: 4 environments, 24+ validation checks
+- **Cross-platform tests**: 5 tests, 100% passing (new)
+- **Total coverage**: ~1300 lines of test code, growing with TDD approach
 
 ### Integration Test Learnings
 
