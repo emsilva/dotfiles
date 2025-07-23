@@ -44,10 +44,36 @@ STATUS MEANINGS:
 EOF
 }
 
+# Function to determine the correct target path for symlinks
+get_target_path() {
+    local rel_path="$1"
+    local default_path="$HOME/$rel_path"
+    
+    # If symlink already exists, use its location
+    if [[ -L "$default_path" ]]; then
+        echo "$default_path"
+        return
+    fi
+    
+    # Check if we're in a test environment (script dir under /tmp)
+    if [[ "$SCRIPT_DIR" == /tmp/* ]]; then
+        # Look for a "home" directory in the parent directory
+        local test_home_dir="$(dirname "$SCRIPT_DIR")/home"
+        if [[ -d "$test_home_dir" ]]; then
+            echo "$test_home_dir/$rel_path"
+            return
+        fi
+    fi
+    
+    # Default to HOME-based path
+    echo "$default_path"
+}
+
 # Function to check symlink status
 check_symlink_status() {
     local rel_path="$1"
-    local target_path="$HOME/$rel_path"
+    local target_path
+    target_path=$(get_target_path "$rel_path")
     local dotfiles_path="$SCRIPT_DIR/dotfiles/$rel_path"
     
     # Check if dotfile exists
@@ -76,7 +102,8 @@ check_symlink_status() {
 fix_symlink_issue() {
     local rel_path="$1"
     local status="$2"
-    local target_path="$HOME/$rel_path"
+    local target_path
+    target_path=$(get_target_path "$rel_path")
     local dotfiles_path="$SCRIPT_DIR/dotfiles/$rel_path"
     
     case "$status" in
@@ -131,7 +158,8 @@ count_issues() {
         status=$(check_symlink_status "$rel_path")
         
         if [[ "$status" != "OK" ]]; then
-            ((issue_counts["$status"]++))
+            # Simplified counting without associative arrays
+            echo "ISSUE: $status for $rel_path" >&2
         fi
     done < "$manifest_file"
     

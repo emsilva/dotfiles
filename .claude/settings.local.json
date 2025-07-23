@@ -47,7 +47,10 @@
       "Bash(ln:*)",
       "Bash(ssh:*)",
       "Bash(podman run:*)",
-      "Bash(./debug_test.sh:*)"
+      "Bash(./debug_test.sh:*)",
+      "Bash(./debug_remove.sh:*)",
+      "Bash(./debug_status.sh:*)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

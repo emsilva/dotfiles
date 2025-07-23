@@ -47,8 +47,8 @@ command() {
 HOME="$TEST_HOME"
 EOS
     
-    # Make install script use our test directory
-    cd "$TEST_TEMP_DIR"
+    # Make install script use our test directory (only if it exists)
+    [[ -d "$TEST_TEMP_DIR" ]] && cd "$TEST_TEMP_DIR" || echo "Warning: TEST_TEMP_DIR not found"
 }
 
 teardown() {

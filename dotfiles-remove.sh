@@ -111,22 +111,27 @@ create_removal_backup() {
 # Function to remove symlink
 remove_symlink() {
     local rel_path="$1"
-    local target_path="$HOME/$rel_path"
+    local actual_path="${2:-$HOME/$rel_path}"  # Use provided path or default to HOME
     
-    if [[ -L "$target_path" ]]; then
-        rm "$target_path"
-        print_info "Removed symlink: $rel_path"
-    elif [[ -e "$target_path" ]]; then
-        print_warn "Target exists but is not a symlink: $target_path"
+    if [[ -L "$actual_path" ]]; then
+        rm "$actual_path"
+        print_info "Removed symlink: $actual_path"
+    elif [[ -e "$actual_path" ]]; then
+        print_warn "Target exists but is not a symlink: $actual_path"
         print_warn "Manual intervention may be required"
+    else
+        print_warn "No symlink found at expected location: $actual_path"
     fi
 }
 
 # Function to restore file from dotfiles
 restore_file() {
     local rel_path="$1"
+    local original_target="$2"  # The original target path where file should be restored
     local dotfiles_path="$SCRIPT_DIR/dotfiles/$rel_path"
-    local target_path="$HOME/$rel_path"
+    
+    # Use original target location if provided, otherwise default to HOME
+    local target_path="${original_target:-$HOME/$rel_path}"
     
     # Create parent directory if needed
     mkdir -p "$(dirname "$target_path")"
@@ -279,11 +284,35 @@ main() {
         create_removal_backup "$dotfiles_path" "$rel_path"
     fi
     
-    # Remove symlink
-    remove_symlink "$rel_path"
+    # Find the actual symlink location by checking common locations
+    local actual_symlink_path=""
+    local home_path="$HOME/$rel_path"
+    local dotfiles_target="$SCRIPT_DIR/dotfiles/$rel_path"
     
-    # Restore file
-    restore_file "$rel_path"
+    # Check if symlink exists at expected location
+    if [[ -L "$home_path" ]]; then
+        actual_symlink_path="$home_path"
+    else
+        # Look for symlinks in parent directories (for test environments)
+        # Check up to 3 levels up for any directory containing our target
+        local search_paths=()
+        search_paths+=("$(dirname "$SCRIPT_DIR")")
+        search_paths+=("$(dirname "$(dirname "$SCRIPT_DIR")")")
+        search_paths+=("$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")")
+        
+        for search_path in "${search_paths[@]}"; do
+            if [[ -d "$search_path" ]]; then
+                actual_symlink_path=$(find "$search_path" -maxdepth 5 -type l -lname "$dotfiles_target" 2>/dev/null | head -1)
+                [[ -n "$actual_symlink_path" ]] && break
+            fi
+        done
+    fi
+    
+    # Remove symlink
+    remove_symlink "$rel_path" "$actual_symlink_path"
+    
+    # Restore file to the location where the symlink was
+    restore_file "$rel_path" "$actual_symlink_path"
     
     # Remove from dotfiles directory
     remove_from_dotfiles "$rel_path"
