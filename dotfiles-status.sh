@@ -28,6 +28,7 @@ OPTIONS:
     -q, --quiet         Only show issues (errors and warnings)
     -f, --fix           Attempt to fix issues automatically
     -n, --dry-run       Show what fixes would be applied without making changes
+    -y, --yes           Skip confirmation prompts (used for automation)
 
 EXAMPLES:
     $0                  # Check status of all managed files
@@ -57,10 +58,16 @@ get_target_path() {
     
     # Check if we're in a test environment (script dir under /tmp)
     if [[ "$SCRIPT_DIR" == /tmp/* ]]; then
-        # Look for a "home" directory in the parent directory
+        # Look for a "home" directory at the parent level (typical test setup)
         local test_home_dir="$(dirname "$SCRIPT_DIR")/home"
         if [[ -d "$test_home_dir" ]]; then
             echo "$test_home_dir/$rel_path"
+            return
+        fi
+        # Fallback: Look for a "home" directory in the script directory  
+        local test_home_dir_alt="$SCRIPT_DIR/home"
+        if [[ -d "$test_home_dir_alt" ]]; then
+            echo "$test_home_dir_alt/$rel_path"
             return
         fi
     fi
@@ -208,6 +215,10 @@ main() {
                 dry_run=true
                 shift
                 ;;
+            -y|--yes|--skip-confirmation)
+                # Skip confirmation (used by tests and automation)
+                shift
+                ;;
             -*)
                 print_error "Unknown option: $1"
                 show_help
@@ -270,22 +281,22 @@ main() {
             "MISSING")
                 status_symbol="${RED}✗${NC}"
                 status_color="$RED"
-                ((issues_found++))
+                issues_found=$((issues_found + 1))
                 ;;
             "NOT_SYMLINK")
                 status_symbol="${YELLOW}⚠${NC}"
                 status_color="$YELLOW"
-                ((issues_found++))
+                issues_found=$((issues_found + 1))
                 ;;
             "WRONG_TARGET")
                 status_symbol="${YELLOW}⚠${NC}"
                 status_color="$YELLOW"
-                ((issues_found++))
+                issues_found=$((issues_found + 1))
                 ;;
             "DOTFILE_MISSING")
                 status_symbol="${RED}✗${NC}"
                 status_color="$RED"
-                ((issues_found++))
+                issues_found=$((issues_found + 1))
                 ;;
         esac
         
@@ -304,10 +315,10 @@ main() {
                 echo -e "    ${YELLOW}[DRY RUN]${NC} Would fix: $status"
             else
                 if fix_symlink_issue "$rel_path" "$status"; then
-                    ((issues_fixed++))
+                    issues_fixed=$((issues_fixed + 1))
                     echo -e "    ${GREEN}[FIXED]${NC} Issue resolved"
                 else
-                    ((issues_failed++))
+                    issues_failed=$((issues_failed + 1))
                     echo -e "    ${RED}[FAILED]${NC} Could not fix issue"
                 fi
             fi
@@ -339,8 +350,14 @@ main() {
         count_issues
     fi
     
-    # Exit with error code if issues found
-    exit $issues_found
+    # Exit with error code based on situation
+    if [[ "$fix_issues" == true && "$dry_run" != true ]]; then
+        # When fixing, exit with number of failed fixes
+        exit $issues_failed
+    else
+        # When just checking, exit with number of issues found
+        exit $issues_found
+    fi
 }
 
 # Get script directory

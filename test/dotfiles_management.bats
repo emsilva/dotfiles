@@ -12,8 +12,8 @@ setup() {
     mkdir -p "$TEST_DOTFILES/dotfiles"
     mkdir -p "$TEST_DOTFILES/backups"
     
-    # Copy scripts to test directory
-    cp dotfiles-*.sh "$TEST_DOTFILES/"
+    # Copy scripts to test directory (from parent directory)
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-"*.sh "$TEST_DOTFILES/"
     chmod +x "$TEST_DOTFILES"/dotfiles-*.sh
     
     # Create test files
@@ -114,7 +114,11 @@ teardown() {
     echo ".testrc" > .dotfiles-manifest
     echo "content" > "dotfiles/.testrc"
     
-    run ./dotfiles-status.sh
+    # Copy updated script to ensure we have the latest version
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-status.sh" ./
+    chmod +x dotfiles-status.sh
+    
+    run ./dotfiles-status.sh --verbose
     [ "$status" -eq 1 ]  # Should exit with error code when issues found
     [[ "$output" == *"MISSING"* ]]
 }
@@ -123,6 +127,10 @@ teardown() {
     # Setup manifest but no symlinks
     echo ".testrc" > .dotfiles-manifest
     echo "content" > "dotfiles/.testrc"
+    
+    # Copy updated script to ensure we have the latest version
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-status.sh" ./
+    chmod +x dotfiles-status.sh
     
     run ./dotfiles-status.sh --fix --yes
     [ "$status" -eq 0 ]
@@ -138,7 +146,11 @@ teardown() {
     echo "wrong content" > "$TEST_HOME/.wrong"
     ln -s "$TEST_HOME/.wrong" "$TEST_HOME/.testrc"
     
-    run ./dotfiles-status.sh
+    # Copy updated script to ensure we have the latest version
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-status.sh" ./
+    chmod +x dotfiles-status.sh
+    
+    run ./dotfiles-status.sh --verbose
     [ "$status" -eq 1 ]
     [[ "$output" == *"WRONG_TARGET"* ]]
 }

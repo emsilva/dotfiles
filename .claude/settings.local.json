@@ -50,7 +50,9 @@
       "Bash(./debug_test.sh:*)",
       "Bash(./debug_remove.sh:*)",
       "Bash(./debug_status.sh:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(./dev-status.sh:*)",
+      "Bash(./debug_minimal_status.sh:*)"
     ],
     "deny": []
   }
