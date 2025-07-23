@@ -47,8 +47,11 @@ command() {
 HOME="$TEST_HOME"
 EOS
     
-    # Make install script use our test directory (only if it exists)
-    [[ -d "$TEST_TEMP_DIR" ]] && cd "$TEST_TEMP_DIR" || echo "Warning: TEST_TEMP_DIR not found"
+    # Ensure test directory exists (don't cd here, let tests handle it)
+    if [[ ! -d "$TEST_TEMP_DIR" ]]; then
+        echo "Error: TEST_TEMP_DIR ($TEST_TEMP_DIR) not found, recreating..."
+        mkdir -p "$TEST_TEMP_DIR"
+    fi
 }
 
 teardown() {

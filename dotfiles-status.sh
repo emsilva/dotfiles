@@ -45,6 +45,24 @@ STATUS MEANINGS:
 EOF
 }
 
+# Function to validate manifest entry
+validate_manifest_entry() {
+    local entry="$1"
+    
+    # Check for binary data (non-printable characters except newlines/spaces)
+    if [[ "$entry" =~ [[:cntrl:]] && ! "$entry" =~ ^[[:space:]]*$ ]]; then
+        return 1
+    fi
+    
+    # Check for suspicious patterns
+    if [[ "$entry" =~ \.\./ ]] || [[ "$entry" =~ ^/ ]]; then
+        return 1
+    fi
+    
+    # Entry seems valid
+    return 0
+}
+
 # Function to determine the correct target path for symlinks
 get_target_path() {
     local rel_path="$1"
@@ -240,11 +258,25 @@ main() {
         exit 0
     fi
     
-    # Read managed files using array
+    # Read managed files using array with validation
     local managed_files=()
+    local invalid_entries=0
     while IFS= read -r line; do
-        [[ -n "$line" ]] && managed_files+=("$line")
+        if [[ -n "$line" ]]; then
+            if validate_manifest_entry "$line"; then
+                managed_files+=("$line")
+            else
+                print_warn "Skipping invalid manifest entry: $line"
+                invalid_entries=$((invalid_entries + 1))
+            fi
+        fi
     done < "$manifest_file"
+    
+    # Show warning if invalid entries were found
+    if [[ $invalid_entries -gt 0 ]]; then
+        print_error "Found $invalid_entries invalid entries in manifest file"
+        print_info "Consider cleaning the manifest: ./dotfiles-list.sh"
+    fi
     
     if [[ ${#managed_files[@]} -eq 0 ]]; then
         print_info "No files are currently managed by dotfiles"

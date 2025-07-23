@@ -73,6 +73,13 @@ normalize_path() {
     local home_dir
     home_dir=$(get_home_dir)
     
+    # Check for path traversal attempts
+    if [[ "$path" =~ \.\./  ]]; then
+        print_error "Path traversal detected: $path"
+        print_error "Refusing to add files outside of home directory for security"
+        exit 1
+    fi
+    
     # Convert absolute path to relative to home directory
     if [[ "$path" == "$home_dir"* ]]; then
         path="${path#$home_dir/}"

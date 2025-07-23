@@ -103,7 +103,7 @@ EOS
     
     # Commands should handle this gracefully
     run ./dotfiles-status.sh
-    [[ "$status" -eq 0 ]] || [[ "$output" == *"error"* ]]
+    [[ "$status" -eq 0 ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error"* ]] || [[ "$output" == *"ERROR"* ]]
 }
 
 # Test disk space issues
@@ -169,12 +169,16 @@ EOS
 # Test path traversal attempts
 @test "path normalization prevents directory traversal" {
     # Try to add file with path traversal
-    mkdir -p /tmp/evil
-    echo "evil content" > /tmp/evil/badfile
+    local evil_dir="/tmp/evil_$$"  # Use unique name to avoid conflicts
+    mkdir -p "$evil_dir"
+    echo "evil content" > "$evil_dir/badfile"
     
     # Should not allow traversal outside of home
-    run ./dotfiles-add.sh --yes "../../../../tmp/evil/badfile"
+    run ./dotfiles-add.sh --yes "../../../../$evil_dir/badfile"
     [ "$status" -ne 0 ]
+    
+    # Cleanup
+    rm -rf "$evil_dir"
 }
 
 # Test extremely long paths
