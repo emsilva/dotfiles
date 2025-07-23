@@ -25,14 +25,19 @@ teardown() {
 
 # Test file permission errors
 @test "dotfiles-add handles permission denied gracefully" {
-    # Create a file we can't move
-    echo "content" > "$TEST_HOME/.testfile"
-    chmod 444 "$TEST_HOME/.testfile"
+    # Create a read-only directory with a file we can't move
+    mkdir -p "$TEST_HOME/readonly"
+    echo "content" > "$TEST_HOME/readonly/.testfile"
+    chmod 555 "$TEST_HOME/readonly"  # Remove write permission from directory
     
     # Try to add it (should fail gracefully)
-    run ./dotfiles-add.sh --yes "$TEST_HOME/.testfile"
+    run ./dotfiles-add.sh --yes "$TEST_HOME/readonly/.testfile"
+    echo "Status: $status, Output: $output"  # Debug
     [ "$status" -ne 0 ]
     [[ "$output" == *"error"* ]] || [[ "$output" == *"Error"* ]] || [[ "$output" == *"failed"* ]]
+    
+    # Cleanup
+    chmod 755 "$TEST_HOME/readonly"  # Restore permissions for cleanup
 }
 
 # Test non-existent file handling

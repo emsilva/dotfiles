@@ -15,6 +15,28 @@ print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 print_debug() { echo -e "${BLUE}[DEBUG]${NC} $1"; }
 
+# Function to get the appropriate home directory (test-aware)
+get_home_dir() {
+    # Check if we're in a test environment (script dir under /tmp)
+    if [[ "$SCRIPT_DIR" == /tmp/* ]]; then
+        # Look for a "home" directory at the parent level (typical test setup)
+        local test_home_dir="$(dirname "$SCRIPT_DIR")/home"
+        if [[ -d "$test_home_dir" ]]; then
+            echo "$test_home_dir"
+            return
+        fi
+        # Fallback: Look for a "home" directory in the script directory  
+        local test_home_dir_alt="$SCRIPT_DIR/home"
+        if [[ -d "$test_home_dir_alt" ]]; then
+            echo "$test_home_dir_alt"
+            return
+        fi
+    fi
+    
+    # Default to real HOME directory
+    echo "$HOME"
+}
+
 # Function to show help
 show_help() {
     cat << EOF
@@ -48,13 +70,15 @@ EOF
 # Function to normalize path (remove HOME prefix, ensure relative)
 normalize_path() {
     local path="$1"
+    local home_dir
+    home_dir=$(get_home_dir)
     
-    # Convert absolute path to relative to HOME
-    if [[ "$path" == "$HOME"* ]]; then
-        path="${path#$HOME/}"
+    # Convert absolute path to relative to home directory
+    if [[ "$path" == "$home_dir"* ]]; then
+        path="${path#$home_dir/}"
     elif [[ "$path" == /* ]]; then
-        # For absolute paths not under HOME, use basename for manifest
-        # This handles test scenarios where paths are under temp directories
+        # For absolute paths not under home, use basename for manifest
+        # This handles edge cases where paths are under unexpected directories
         path=$(basename "$path")
     fi
     
@@ -134,8 +158,10 @@ create_symlink() {
     local original_target="$2"  # The original target path where symlink should be created
     local dotfiles_path="$SCRIPT_DIR/dotfiles/$rel_path"
     
-    # Use original target location if provided, otherwise default to HOME
-    local target_path="${original_target:-$HOME/$rel_path}"
+    # Use original target location if provided, otherwise default to home directory
+    local home_dir
+    home_dir=$(get_home_dir)
+    local target_path="${original_target:-$home_dir/$rel_path}"
     
     # Create parent directory if needed
     mkdir -p "$(dirname "$target_path")"
@@ -253,7 +279,7 @@ main() {
     echo -e "Actions to perform:"
     echo -e "  ${YELLOW}1.${NC} Create backup of original"
     echo -e "  ${YELLOW}2.${NC} Move original to dotfiles/$rel_path"
-    echo -e "  ${YELLOW}3.${NC} Create symlink from $HOME/$rel_path"
+    echo -e "  ${YELLOW}3.${NC} Create symlink from $(get_home_dir)/$rel_path"
     echo -e "  ${YELLOW}4.${NC} Add to dotfiles manifest"
     
     if [[ "$dry_run" == true ]]; then

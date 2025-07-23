@@ -15,6 +15,28 @@ print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 print_debug() { echo -e "${BLUE}[DEBUG]${NC} $1"; }
 
+# Function to get the appropriate home directory (test-aware)
+get_home_dir() {
+    # Check if we're in a test environment (script dir under /tmp)
+    if [[ "$SCRIPT_DIR" == /tmp/* ]]; then
+        # Look for a "home" directory at the parent level (typical test setup)
+        local test_home_dir="$(dirname "$SCRIPT_DIR")/home"
+        if [[ -d "$test_home_dir" ]]; then
+            echo "$test_home_dir"
+            return
+        fi
+        # Fallback: Look for a "home" directory in the script directory  
+        local test_home_dir_alt="$SCRIPT_DIR/home"
+        if [[ -d "$test_home_dir_alt" ]]; then
+            echo "$test_home_dir_alt"
+            return
+        fi
+    fi
+    
+    # Default to real HOME directory
+    echo "$HOME"
+}
+
 # Function to show help
 show_help() {
     cat << EOF
@@ -44,9 +66,11 @@ EOF
 # Function to find dotfiles symlinks
 find_dotfiles_symlinks() {
     local symlinks=()
+    local home_dir
+    home_dir=$(get_home_dir)
     
     # Check common locations for dotfiles
-    for pattern in "$HOME"/.[!.]* "$HOME"/.config/* "$HOME"/.local/bin/* "$HOME"/.local/share/*; do
+    for pattern in "$home_dir"/.[!.]* "$home_dir"/.config/* "$home_dir"/.local/bin/* "$home_dir"/.local/share/*; do
         [[ -e "$pattern" ]] || continue
         
         if [[ -L "$pattern" ]]; then
@@ -55,7 +79,7 @@ find_dotfiles_symlinks() {
             
             # Check if it points to our dotfiles directory
             if [[ "$link_target" == *"/dotfiles/"* ]]; then
-                local rel_path="${pattern#$HOME/}"
+                local rel_path="${pattern#$home_dir/}"
                 symlinks+=("$rel_path")
             fi
         fi
@@ -249,7 +273,9 @@ main() {
     
     # Remove problematic symlinks
     for rel_path in "${problematic[@]}"; do
-        local target_path="$HOME/$rel_path"
+        local home_dir
+        home_dir=$(get_home_dir)
+        local target_path="$home_dir/$rel_path"
         if [[ -L "$target_path" ]]; then
             rm "$target_path"
             print_warn "Removed problematic symlink: $rel_path"

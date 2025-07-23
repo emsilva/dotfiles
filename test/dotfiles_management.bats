@@ -159,6 +159,10 @@ teardown() {
     # Setup existing symlink to dotfiles
     ln -s "$TEST_DOTFILES/dotfiles/.testrc" "$TEST_HOME/.testrc"
     
+    # Copy updated script to ensure we have the latest version
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-migrate.sh" ./
+    chmod +x dotfiles-migrate.sh
+    
     run ./dotfiles-migrate.sh --dry-run
     [ "$status" -eq 0 ]
     [[ "$output" == *".testrc"* ]]
@@ -179,6 +183,10 @@ teardown() {
     # Create nested config file
     mkdir -p "$TEST_HOME/.config/deep/nested"
     echo "content" > "$TEST_HOME/.config/deep/nested/config.toml"
+    
+    # Copy updated script to ensure we have the latest version
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-add.sh" ./
+    chmod +x dotfiles-add.sh
     
     run ./dotfiles-add.sh --yes "$TEST_HOME/.config/deep/nested/config.toml"
     [ "$status" -eq 0 ]
