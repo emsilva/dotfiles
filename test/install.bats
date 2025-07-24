@@ -1,57 +1,14 @@
 #!/usr/bin/env bats
 
 setup() {
-    # Create a temporary directory for this test
-    export TEST_TEMP_DIR="$BATS_TEST_TMPDIR/dotfiles_test"
-    mkdir -p "$TEST_TEMP_DIR"
-    
-    # Create a mock home directory
+    # Create temporary directory for testing
+    TEST_TEMP_DIR=$(mktemp -d)
+    export TEST_TEMP_DIR
     export TEST_HOME="$TEST_TEMP_DIR/home"
+    
+    # Create the required directories and files
     mkdir -p "$TEST_HOME"
-    
-    # Copy our dotfiles to test directory
-    cp -r "$BATS_TEST_DIRNAME/../dotfiles" "$TEST_TEMP_DIR/"
-    cp "$BATS_TEST_DIRNAME/../dotfiles-install.sh" "$TEST_TEMP_DIR/"
-    cp -r "$BATS_TEST_DIRNAME/../scripts" "$TEST_TEMP_DIR/"
-    
-    # Create stub environment
-    export BASH_ENV="$TEST_TEMP_DIR/stub_env.sh"
-    cat <<EOS > "$BASH_ENV"
-# Mock commands to avoid actual system changes
-brew() { echo "brew \$@" >> "$TEST_TEMP_DIR/brew.log"; return 0; }
-apt() { echo "apt \$@" >> "$TEST_TEMP_DIR/apt.log"; return 0; }
-sudo() { 
-    shift; # Remove 'sudo' from arguments
-    echo "sudo \$@" >> "$TEST_TEMP_DIR/sudo.log"
-    # Execute the command without sudo for testing
-    "\$@"
-}
-curl() { echo "curl \$@" >> "$TEST_TEMP_DIR/curl.log"; return 0; }
-git() { echo "git \$@" >> "$TEST_TEMP_DIR/git.log"; return 0; }
-chsh() { echo "chsh \$@" >> "$TEST_TEMP_DIR/chsh.log"; return 0; }
-systemctl() { echo "systemctl \$@" >> "$TEST_TEMP_DIR/systemctl.log"; return 0; }
-defaults() { echo "defaults \$@" >> "$TEST_TEMP_DIR/defaults.log"; return 0; }
-gem() { echo "gem \$@" >> "$TEST_TEMP_DIR/gem.log"; return 0; }
-dpkg() { echo "dpkg \$@" >> "$TEST_TEMP_DIR/dpkg.log"; return 1; } # Simulate package not installed
-command() {
-    if [ "\$1" = "-v" ] && [ "\$2" = "brew" ]; then
-        return 1  # Simulate brew not found initially
-    elif [ "\$1" = "-v" ] && [ "\$2" = "code" ]; then
-        return 1  # Simulate code not found initially
-    else
-        echo "command \$@" >> "$TEST_TEMP_DIR/command.log"
-        return 0
-    fi
-}
-# Override HOME for testing
-HOME="$TEST_HOME"
-EOS
-    
-    # Ensure test directory exists (don't cd here, let tests handle it)
-    if [[ ! -d "$TEST_TEMP_DIR" ]]; then
-        echo "Error: TEST_TEMP_DIR ($TEST_TEMP_DIR) not found, recreating..."
-        mkdir -p "$TEST_TEMP_DIR"
-    fi
+    cp "${BATS_TEST_DIRNAME}/../dotfiles-install.sh" "$TEST_TEMP_DIR/" 2>/dev/null || echo "Warning: Could not copy dotfiles-install.sh" >&2
 }
 
 teardown() {

@@ -52,7 +52,9 @@
       "Bash(./debug_status.sh:*)",
       "Bash(timeout:*)",
       "Bash(./dev-status.sh:*)",
-      "Bash(./debug_minimal_status.sh:*)"
+      "Bash(./debug_minimal_status.sh:*)",
+      "Bash(BASH_ENV=\"\" bash -c 'cd test && bats platform_scripts.bats -f \"\"\"\"macos.sh installs homebrew if not present\"\"\"\"')",
+      "Bash(OSTYPE='freebsd' ./dotfiles-install.sh --yes)"
     ],
     "deny": []
   }

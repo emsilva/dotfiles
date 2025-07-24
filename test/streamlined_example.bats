@@ -36,14 +36,13 @@ teardown() {
 }
 
 @test "OS detection with streamlined mocking" {
-    # Mock unsupported OS
-    mock_os "FreeBSD"
+    # Run with mocked unsupported OS, capture both stdout and stderr
+    run bash -c "export OSTYPE='freebsd' && ./dotfiles-install.sh --yes 2>&1"
     
-    # Run with mocked OS
-    run bash -c "source '$TEST_TEMP_DIR/os_mock.sh' && ./dotfiles-install.sh --yes"
-    
+    echo "Status: $status" >&2
+    echo "Output: $output" >&2
     assert_failure
-    assert_output_contains "Unsupported"
+    assert_output_contains "Unsupported operating system"
 }
 
 @test "complex workflow with streamlined setup" {

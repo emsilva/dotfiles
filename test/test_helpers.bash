@@ -163,13 +163,21 @@ mock_os() {
     local os_name="$1"
     export BASH_ENV="$TEST_TEMP_DIR/os_mock.sh"
     cat <<EOF > "$BASH_ENV"
-uname() {
-    if [[ "\$1" == "-s" ]]; then
-        echo "$os_name"
-    else
-        /usr/bin/uname "\$@"
-    fi
-}
+# Mock OSTYPE for OS detection
+case "$os_name" in
+    "FreeBSD"|"OpenBSD"|"NetBSD")
+        export OSTYPE="freebsd"
+        ;;
+    "macOS"|"Darwin")
+        export OSTYPE="darwin"
+        ;;
+    "Linux"|"Ubuntu")
+        export OSTYPE="linux-gnu"
+        ;;
+    *)
+        export OSTYPE="unsupported"
+        ;;
+esac
 EOF
 }
 

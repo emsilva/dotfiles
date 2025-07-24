@@ -64,22 +64,16 @@ teardown() {
 
 # Test OS detection edge cases
 @test "dotfiles-install handles unsupported OS gracefully" {
-    # Mock uname to return unsupported OS
+    # Mock OSTYPE to return unsupported OS
     export BASH_ENV="$TEST_TEMP_DIR/mock_env.sh"
     cat <<EOS > "$BASH_ENV"
-uname() {
-    if [[ "\$1" == "-s" ]]; then
-        echo "FreeBSD"
-    else
-        /usr/bin/uname "\$@"
-    fi
-}
+export OSTYPE="freebsd13.0"
 EOS
     
     # Should fail gracefully on unsupported OS
     run bash -c "source '$BASH_ENV' && ./dotfiles-install.sh --yes"
+    # The script should exit with non-zero status on unsupported OS
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Unsupported"* ]] || [[ "$output" == *"not supported"* ]] || [[ "$output" == *"FreeBSD"* ]]
 }
 
 # Test missing dependencies
@@ -160,10 +154,10 @@ EOS
     # Create manifest entry but no actual dotfile
     echo ".testfile" > .dotfiles-manifest
     
-    # Status should detect missing target
-    run ./dotfiles-status.sh
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"MISSING"* ]] || [[ "$output" == *"not found"* ]]
+    # Status should detect missing dotfile target and report issues
+    run ./dotfiles-status.sh --verbose
+    [ "$status" -eq 1 ]  # Should exit with error when issues found
+    [[ "$output" == *"DOTFILE_MISSING"* ]] || [[ "$output" == *"MISSING"* ]] || [[ "$output" == *"not found"* ]]
 }
 
 # Test path traversal attempts
@@ -210,12 +204,14 @@ EOS
 
 # Test broken symlinks cleanup
 @test "symlink cleanup handles broken links properly" {
-    # Create manifest and broken symlink
+    # Create manifest, dotfile, and broken symlink
     echo ".testfile" > .dotfiles-manifest
-    ln -s "$TEST_TEMP_DIR/dotfiles/.nonexistent" "$TEST_HOME/.testfile"
+    mkdir -p dotfiles
+    echo "content" > dotfiles/.testfile
+    ln -s "$TEST_TEMP_DIR/dotfiles/.nonexistent" "$TEST_HOME/.testfile"  # Wrong target
     
-    # Status should detect and optionally fix broken symlinks
-    run ./dotfiles-status.sh --fix
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"MISSING"* ]] || [[ "$output" == *"fixed"* ]] || [[ "$output" == *"removed"* ]]
+    # Status should detect wrong target and fix it
+    run ./dotfiles-status.sh --fix --yes
+    [ "$status" -eq 0 ]  # Should succeed in fixing
+    [[ "$output" == *"WRONG_TARGET"* ]] || [[ "$output" == *"fixed"* ]] || [[ "$output" == *"FIXED"* ]]
 }

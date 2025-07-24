@@ -2,11 +2,12 @@
 
 setup() {
     # Create a temporary directory for this test
-    export TEST_TEMP_DIR="$BATS_TEST_TMPDIR/platform_test"
-    mkdir -p "$TEST_TEMP_DIR"
+    TEST_TEMP_DIR=$(mktemp -d)
+    export TEST_TEMP_DIR
     
-    # Copy scripts to test directory
+    # Copy scripts and packages.yml to test directory  
     cp -r "$BATS_TEST_DIRNAME/../scripts" "$TEST_TEMP_DIR/"
+    cp "$BATS_TEST_DIRNAME/../packages.yml" "$TEST_TEMP_DIR/"
     
     # Create stub environment for platform scripts
     export BASH_ENV="$TEST_TEMP_DIR/stub_env.sh"
@@ -165,7 +166,10 @@ teardown() {
 }
 
 @test "macos.sh installs homebrew if not present" {
+    cd "$TEST_TEMP_DIR"
     run bash scripts/macos.sh
+    echo "Status: $status" >&2
+    echo "Output: $output" >&2
     [ "$status" -eq 0 ]
     
     # Check that homebrew installation was attempted
