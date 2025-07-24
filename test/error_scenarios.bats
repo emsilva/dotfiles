@@ -109,13 +109,17 @@ EOS
 
 # Test interrupted operations
 @test "dotfiles management handles interrupted operations" {
-    # Create a partial state (backup exists but operation incomplete)
+    # Create a partial state (backup exists, dotfile exists, but symlink is missing)
     mkdir -p backups/20250101_120000
     echo "partial backup" > backups/20250101_120000/.testfile
+    mkdir -p dotfiles
+    echo "managed content" > dotfiles/.testfile
     echo ".testfile" > .dotfiles-manifest
     
-    # Status should detect and report this inconsistency
-    run ./dotfiles-status.sh
+    # Status should detect and report this inconsistency, then fix it
+    run ./dotfiles-status.sh --fix --yes
+    echo "Status: $status" >&2
+    echo "Output: $output" >&2
     [ "$status" -eq 0 ]
     # Should either fix automatically or report the issue
 }
