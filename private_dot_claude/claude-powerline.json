@@ -1,0 +1,36 @@
+{
+  "theme": "tokyo-night",
+  "display": {
+    "style": "minimal",
+    "charset": "text",
+    "colorCompatibility": "auto",
+    "autoWrap": true,
+    "padding": 1,
+    "lines": [
+      {
+        "segments": {
+          "directory": { "enabled": true, "style": "fish" },
+          "git": { "enabled": true },
+          "model": { "enabled": true }
+        }
+      },
+      {
+        "segments": {
+          "context": {
+            "enabled": true,
+            "showPercentageOnly": false,
+            "displayStyle": "dots",
+            "autocompactBuffer": 33000
+          }
+        }
+      }
+    ]
+  },
+  "budget": {
+    "session": { "warningThreshold": 80 }
+  },
+  "modelContextLimits": {
+    "sonnet": 1000000,
+    "opus": 200000
+  }
+}

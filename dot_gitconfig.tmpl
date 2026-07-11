@@ -1,0 +1,38 @@
+{{/* chezmoi template: the gh credential-helper path is resolved per-machine
+     via lookPath — macOS (/opt/homebrew/bin/gh) and Linux (/usr/bin/gh, etc.)
+     each render their own; falls back to bare `gh` on PATH if not found.
+
+     Git identity carries NO default on purpose (this repo is public — no
+     identifier is baked in). Each machine MUST supply it in the unmanaged,
+     never-synced ~/.config/chezmoi/chezmoi.toml:
+         [data]
+           gitName  = "Your Name"
+           gitEmail = "you@example.com"
+     Missing either one aborts every chezmoi run with the message below,
+     rather than silently writing a blank identity. */ -}}
+{{- if or (not (index . "gitName")) (not (index . "gitEmail")) -}}
+{{-   fail "git identity unset — add [data] gitName/gitEmail to ~/.config/chezmoi/chezmoi.toml (see dot_gitconfig.tmpl header)" -}}
+{{- end -}}
+[filter "lfs"]
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+[user]
+	name = {{ .gitName }}
+	email = {{ .gitEmail }}
+[credential "https://github.com"]
+	helper = 
+	helper = !{{ lookPath "gh" | default "gh" }} auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !{{ lookPath "gh" | default "gh" }} auth git-credential
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	line-numbers = true
+[merge]
+	conflictStyle = zdiff3

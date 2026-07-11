@@ -1,0 +1,107 @@
+# Files chezmoi must never manage.
+
+# Repo documentation — lives in the repo root, never applied to $HOME.
+README.md
+LICENSE
+
+# Contains live API keys (OpenAI/OpenRouter/Tavily/HF) in plaintext.
+# Deliberately kept OUT of the repo — managed by hand per machine.
+.zprofile
+
+# Antidote-generated plugin cache (rebuilt from .zsh_plugins.txt on load).
+.zsh_plugins.zsh
+
+# herdr runtime state — sockets, logs, live session, and local backups.
+# Only config.toml is tracked; everything else is per-machine and ephemeral.
+.config/herdr/*.sock
+.config/herdr/*.log
+.config/herdr/*.bak
+.config/herdr/session.json
+.config/herdr/sessions
+
+# Claude Code (~/.claude). Only curated config is tracked: CLAUDE.md,
+# settings.json, the authored skills (allow-listed below), the statusline
+# script, and claude-powerline.json. Everything below is per-machine state,
+# caches, secrets, session history, or superseded backups — never manage it.
+.claude/backups
+.claude/cache
+.claude/daemon
+.claude/daemon.log
+.claude/downloads
+.claude/file-history
+.claude/history.jsonl
+.claude/ide
+.claude/image-cache
+.claude/jobs
+.claude/paste-cache
+.claude/plans
+.claude/plugins
+.claude/powerline
+.claude/projects
+.claude/security
+.claude/session-env
+.claude/sessions
+.claude/shell-snapshots
+.claude/skills-archive
+.claude/stats-cache.json
+.claude/tasks
+.claude/teams
+.claude/.last-cleanup
+.claude/.last-update-result.json
+# Superseded/backup copies of tracked files.
+.claude/CLAUDE.md.bak-*
+.claude/CLAUDE.md.pre-*
+.claude/settings.json.bak
+# Skills: deny-by-default — only skills I authored are tracked (allow-listed
+# below). Third-party skills (vendored copies, plugin symlinks like herdr)
+# stay unmanaged so no blanket `chezmoi add`/`re-add` can pull them back in.
+.claude/skills/**
+!.claude/skills
+!.claude/skills/choosing-a-model
+!.claude/skills/choosing-a-model/**
+!.claude/skills/doorbell
+!.claude/skills/doorbell/**
+!.claude/skills/epic-workflow-DESIGN.md
+!.claude/skills/ship
+!.claude/skills/ship/**
+!.claude/skills/todo
+!.claude/skills/todo/**
+!.claude/skills/ux-writing
+!.claude/skills/ux-writing/**
+# Retired: machine-specific lint script (leaked private identifiers) — never re-add.
+.claude/harness-lint.sh
+# Runtime log written by the local (unmanaged) cswap LaunchAgent.
+.claude/cswap-best.log
+
+# Codex CLI (~/.codex). Same policy as ~/.claude above — track only curated
+# config — but INVERTED to default-deny: ~/.codex interleaves multi-GB SQLite
+# state (logs_2.sqlite is 2+ GB), live secrets (auth.json), session history, and
+# 250+ ephemeral [projects] trust blocks in config.toml right alongside the few
+# curated files. So we ignore the whole tree and allow-list only the portable,
+# authored config: AGENTS.md (the CLAUDE.md analog) and the ship agent
+# definitions. Skills are deliberately NOT tracked — ~/.codex/skills holds the
+# superpowers port plus Codex's shipped system skills, none of it authored here.
+# config.toml is deliberately NOT tracked — it is ~95% per-machine project-trust
+# state plus machine-specific paths (notify, hooks); curate a portable subset by
+# hand if it is ever needed.
+.codex/**
+!.codex
+!.codex/AGENTS.md
+!.codex/agents
+!.codex/agents/**
+
+# ── Retired from management (2026-07-11) ─────────────────────────────────────
+# Removed from the repo on purpose; live copies may remain on disk, unmanaged.
+# Listed so no blanket `chezmoi add` pulls them back in.
+# Desktop-environment rice (no longer used):
+.config/hypr
+.config/hyprshell
+.config/waybar
+.config/mako
+.config/gtk-4.0
+.config/gtk-3.0
+# cswap account-switcher units + their run_onchange activators (hand-managed):
+.config/systemd/user
+Library
+# Home-lab SSH drop-ins (hand-managed per machine):
+.ssh/config.d

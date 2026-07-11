@@ -1,0 +1,559 @@
+# ~/.zshrc
+# Portable Zsh config (Linux/macOS). Safe to sync across machines.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 0) INTERACTIVE GUARD + XDG DIRS
+# ──────────────────────────────────────────────────────────────────────────────
+[[ -o interactive ]] || return
+
+: ${XDG_CACHE_HOME:=$HOME/.cache}
+: ${XDG_STATE_HOME:=$HOME/.local/state}
+: ${XDG_CONFIG_HOME:=$HOME/.config}
+
+mkdir -p "$XDG_CACHE_HOME/zsh" "$XDG_STATE_HOME/zsh" 2>/dev/null
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1) Plugins
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Antidote (portable bootstrap)
+ANTIDOTE_DIR="${ZDOTDIR:-$HOME}/.antidote"
+export ANTIDOTE_HOME="${XDG_CACHE_HOME}/antidote"
+
+if [[ ! -r "${ANTIDOTE_DIR}/antidote.zsh" ]]; then
+  if (( $+commands[git] )); then
+    git clone --depth=1 https://github.com/mattmc3/antidote.git "${ANTIDOTE_DIR}" 2>/dev/null || true
+  fi
+fi
+
+if [[ -r "${ANTIDOTE_DIR}/antidote.zsh" ]]; then
+  source "${ANTIDOTE_DIR}/antidote.zsh"
+  # Recommended usage: loads plugins from ${ZDOTDIR:-$HOME}/.zsh_plugins.txt
+  antidote load
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2) ZSH CORE OPTIONS
+# ──────────────────────────────────────────────────────────────────────────────
+# Enable colors
+autoload -Uz colors && colors
+
+# Globbing niceties (useful in completion + scripting in zshrc)
+setopt EXTENDED_GLOB
+
+# History settings (portable path; avoids littering $HOME).
+# Honor a pre-set HISTFILE (e.g. a devcontainer's persistent-history volume).
+HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+HISTSIZE=50000
+SAVEHIST=50000
+
+setopt EXTENDED_HISTORY          # :start:elapsed;command format
+setopt HIST_IGNORE_ALL_DUPS      # new command removes older duplicate
+setopt HIST_FIND_NO_DUPS         # don't show duplicates when searching
+setopt HIST_REDUCE_BLANKS        # trim superfluous blanks
+setopt HIST_IGNORE_SPACE         # " secret" commands don't get saved
+setopt HIST_VERIFY               # show expanded history before running
+setopt HIST_FCNTL_LOCK           # better locking when multiple shells write
+
+# Share history across sessions; this already implies incremental appends
+setopt SHARE_HISTORY
+unsetopt INC_APPEND_HISTORY
+
+# Navigation & UI
+setopt AUTO_CD                   # cd by typing directory name
+setopt AUTO_PUSHD                # push old dir to dir stack on cd
+setopt PUSHD_IGNORE_DUPS         # dedupe directory stack
+setopt PUSHD_SILENT              # don't print stack on pushd/popd
+setopt CORRECT                   # spelling correction
+setopt NO_BEEP                   # don't beep
+setopt NO_FLOW_CONTROL           # prevent Ctrl-S "freeze" in many terminals
+setopt INTERACTIVE_COMMENTS      # allow comments in interactive shell
+
+# Keymap (explicit, so it's consistent everywhere)
+bindkey -e                       # emacs-style bindings
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3) PATH, FPTH & ENVIRONMENT (PORTABLE)
+# ──────────────────────────────────────────────────────────────────────────────
+# Ensure arrays are unique (first occurrence wins)
+typeset -U path fpath
+
+# Helper: prepend to $path only if dir exists
+_path_prepend() { [[ -d "$1" ]] && path=("$1" $path); }
+
+# User paths (only if they exist)
+_path_prepend "$HOME/.local/bin"
+_path_prepend "$HOME/.cargo/bin"
+_path_prepend "$HOME/go/bin"
+
+# Common completion dirs for brew + system packages
+for _zfunc in \
+  "$HOME/.zfunc" \
+  "/usr/local/share/zsh/site-functions" \
+  "/opt/homebrew/share/zsh/site-functions" \
+  "/usr/share/zsh/site-functions"
+do
+  [[ -d "$_zfunc" ]] && fpath=("$_zfunc" $fpath)
+done
+unset _zfunc
+
+export PATH
+
+# npm: keep userconfig out of $HOME/.npmrc so nvm's prefix check doesn't trip
+# (nvm hardcodes $HOME/.npmrc; NPM_CONFIG_USERCONFIG it does not check)
+export NPM_CONFIG_USERCONFIG="$HOME/.config/npm/npmrc"
+
+# Editor: prefer nvim, fall back sanely
+if (( $+commands[nvim] )); then
+  export EDITOR="nvim"
+elif (( $+commands[vim] )); then
+  export EDITOR="vim"
+else
+  export EDITOR="vi"
+fi
+export VISUAL="$EDITOR"
+
+# GPG: only set if tty exists (safe on remote/non-tty contexts)
+if (( $+commands[gpg] )); then
+  export GPG_TTY="${TTY:-$(tty 2>/dev/null)}"
+fi
+
+# Claude Code inside tmux: disable the defensive 256-color clamp that
+# Claude Code applies when $TMUX is set, restoring full 24-bit rendering.
+# Our tmux already declares RGB for tmux-256color (nested) + xterm-kitty
+# (outer), so the clamp is unnecessary here and just dulls the palette.
+# Tracked upstream: https://github.com/anthropics/claude-code/issues/46146
+export CLAUDE_CODE_TMUX_TRUECOLOR=1
+
+# Claude Code: use the classic inline renderer instead of the fullscreen
+# alternate-screen one (default since ~2.1.138). Fullscreen renders to the alt
+# screen + captures the mouse, so the conversation never lands in the terminal's
+# normal buffer — which breaks tmux scrollback, copy-mode, and native selection.
+# Inline keeps output in the buffer so the mouse wheel scrolls tmux's scrollback
+# as before. Trade-off: a little more flicker / memory on very long sessions.
+# Toggle live with `/tui fullscreen` ⇄ `/tui default`.
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4) COMPLETION SYSTEM (FAST + PORTABLE)
+# ──────────────────────────────────────────────────────────────────────────────
+# show completion group headings like [files], [options], etc
+zstyle ':completion:*:descriptions' format '[%d]'
+
+# let fzf-tab capture the unambiguous prefix cleanly
+zstyle ':completion:*' menu no
+
+# preview when completing `cd` (eza if available, else ls)
+if (( $+commands[eza] )); then
+  zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+else
+  zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls -1 $realpath'
+fi
+
+# switch groups with < and >
+zstyle ':fzf-tab:*' switch-group '<' '>'
+
+autoload -Uz compinit
+zmodload zsh/complist 2>/dev/null
+
+# Completion styles
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
+zstyle ':completion:*' rehash true                          # auto-rehash
+
+# Colored completion if LS_COLORS is set (GNU coreutils / dircolors)
+if [[ -n "${LS_COLORS-}" ]]; then
+  zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+fi
+
+# Cache completions for speed
+zstyle ':completion:*' use-cache on
+zstyle ':completion:*' cache-path "$XDG_CACHE_HOME/zsh/zcompcache"
+
+# Use an XDG-friendly compdump path
+_comp_dumpfile="$XDG_CACHE_HOME/zsh/zcompdump-${ZSH_VERSION}"
+# Rebuild once/day; otherwise use cached init
+if [[ -r "$_comp_dumpfile" && -z "$_comp_dumpfile"(#qN.mh+24) ]]; then
+  compinit -C -d "$_comp_dumpfile"
+else
+  compinit -d "$_comp_dumpfile"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5) PORTABLE "SOURCE FIRST FOUND" HELPERS
+# ──────────────────────────────────────────────────────────────────────────────
+_source_first() {
+  local _f
+  for _f in "$@"; do
+    [[ -r "$_f" ]] && source "$_f" && return 0
+  done
+  return 1
+}
+
+# We'll intentionally source syntax-highlighting LAST (stored for later)
+_ZSH_SYNTAX_HIGHLIGHTING_FILE=""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6) PLUGINS & INTEGRATIONS (NO OMZ REQUIRED)
+# ──────────────────────────────────────────────────────────────────────────────
+# zsh-autosuggestions
+_source_first \
+  /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# zsh-history-substring-search
+_source_first \
+  /usr/share/zsh/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh \
+  /usr/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
+  /usr/local/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
+  /opt/homebrew/share/zsh-history-substring-search/zsh-history-substring-search.zsh
+
+# zsh-syntax-highlighting (save path; source at end)
+for _f in \
+  /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+do
+  if [[ -r "$_f" ]]; then
+    _ZSH_SYNTAX_HIGHLIGHTING_FILE="$_f"
+    break
+  fi
+done
+unset _f
+
+# FZF integration (supports Arch/Debian/Homebrew/Manual installs)
+if (( $+commands[fzf] )); then
+  _source_first \
+    /usr/share/fzf/key-bindings.zsh \
+    /usr/share/doc/fzf/examples/key-bindings.zsh \
+    /usr/local/opt/fzf/shell/key-bindings.zsh \
+    /opt/homebrew/opt/fzf/shell/key-bindings.zsh \
+    "$HOME/.fzf/shell/key-bindings.zsh"
+
+  _source_first \
+    /usr/share/fzf/completion.zsh \
+    /usr/share/doc/fzf/examples/completion.zsh \
+    /usr/local/opt/fzf/shell/completion.zsh \
+    /opt/homebrew/opt/fzf/shell/completion.zsh \
+    "$HOME/.fzf/shell/completion.zsh"
+
+  export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:---height 40% --layout=reverse --border}"
+
+  # Prefer fd, then rg, then find (portable)
+  if (( $+commands[fd] )); then
+    export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+  elif (( $+commands[rg] )); then
+    export FZF_DEFAULT_COMMAND='rg --files --hidden --follow --glob "!.git/*"'
+  else
+    export FZF_DEFAULT_COMMAND='find . -type f 2>/dev/null'
+  fi
+  export FZF_CTRL_T_COMMAND="${FZF_CTRL_T_COMMAND:-$FZF_DEFAULT_COMMAND}"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7) MODERN TOOLS & INIT (OPTIONAL, AUTO-ENABLED IF INSTALLED)
+# ──────────────────────────────────────────────────────────────────────────────
+# Starship prompt
+(( $+commands[starship] )) && eval "$(starship init zsh)"
+
+# Zoxide (better cd)
+(( $+commands[zoxide] )) && eval "$(zoxide init zsh)"
+
+# FNM (Fast Node Manager)
+(( $+commands[fnm] )) && eval "$(fnm env --use-on-cd)"
+
+# direnv (project-local env vars; safe if installed)
+(( $+commands[direnv] )) && eval "$(direnv hook zsh)"
+
+# atuin (optional: enhanced history). Uncomment if you want it.
+# (( $+commands[atuin] )) && eval "$(atuin init zsh)"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 8) ALIASES / FUNCTIONS
+# ──────────────────────────────────────────────────────────────────────────────
+# Chat-style Codex helper:
+#   sgpt what is the mass of the sun
+#   echo "long prompt" | sgpt
+sgpt() {
+  if (( ! $+commands[codex] )); then
+    print -u2 "sgpt: 'codex' not found in PATH"
+    return 127
+  fi
+
+  if [ "$#" -gt 0 ]; then
+    codex exec \
+      --skip-git-repo-check \
+      --model gpt-5.1 \
+      --config model_reasoning_effort="high" \
+      --config hide_agent_reasoning=true \
+      "$*"
+  else
+    codex exec \
+      --skip-git-repo-check \
+      --model gpt-5.1 \
+      --config model_reasoning_effort="high" \
+      --config hide_agent_reasoning=true \
+      -
+  fi
+}
+
+# --- File Operations ---
+if (( $+commands[eza] )); then
+  alias ls='eza --icons --git --group-directories-first'
+  alias ll='eza --icons --git --group-directories-first -la'
+else
+  # GNU ls supports --color; BSD/macOS uses -G
+  if command ls --color=auto -d . >/dev/null 2>&1; then
+    alias ls='ls --color=auto'
+  else
+    alias ls='ls -G'
+  fi
+  alias ll='ls -la'
+fi
+
+# bat on Debian is often batcat
+if (( $+commands[bat] )); then
+  alias cat='bat --style=plain --paging=never'
+elif (( $+commands[batcat] )); then
+  alias cat='batcat --style=plain --paging=never'
+fi
+
+# Editor convenience
+(( $+commands[nvim] )) && alias vim='nvim'
+
+# Safer coreutils (portable)
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Grep color (GNU vs BSD)
+if command grep --color=auto "" /dev/null >/dev/null 2>&1; then
+  alias grep='grep --color=auto'
+elif command grep --color "" /dev/null >/dev/null 2>&1; then
+  alias grep='grep --color'
+fi
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ezshrc='${EDITOR:-vi} ~/.zshrc && source ~/.zshrc'
+
+# --- Package manager helpers (portable) ---
+# Generic names you can use everywhere:
+#   pkgin / pkgup / pkgrm
+if (( $+commands[pacman] )); then
+  alias pkgin='sudo pacman -S'
+  alias pkgrm='sudo pacman -Rns'
+  alias pkgup='sudo pacman -Syu'
+  # keep your original Arch names too
+  alias pacin='pkgin'
+  alias pacrem='pkgrm'
+  alias pacupg='pkgup'
+
+  (( $+commands[yay] ))  && alias y='yay'
+  (( $+commands[yay] ))  && alias yin='yay -S'
+  (( $+commands[paru] )) && alias y='paru'
+  (( $+commands[paru] )) && alias yin='paru -S'
+
+elif (( $+commands[nala] )); then
+  # Debian/Ubuntu preference: nala
+  alias pkgin='sudo nala install'
+  alias pkgrm='sudo nala remove'
+  alias pkgup='sudo nala upgrade'
+
+elif (( $+commands[apt] )); then
+  alias pkgin='sudo apt install'
+  alias pkgrm='sudo apt remove'
+  alias pkgup='sudo apt update && sudo apt upgrade'
+
+elif (( $+commands[dnf] )); then
+  alias pkgin='sudo dnf install'
+  alias pkgrm='sudo dnf remove'
+  alias pkgup='sudo dnf upgrade --refresh'
+
+elif (( $+commands[brew] )); then
+  alias pkgin='brew install'
+  alias pkgrm='brew uninstall'
+  alias pkgup='brew update && brew upgrade'
+fi
+
+# --- Git (Essentials) ---
+alias g='git status'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias gl='git log --oneline --graph --decorate'
+alias gd='git diff'
+alias gco='git checkout'
+alias gcb='git checkout -b'
+
+# --- Python ---
+alias py='python3'
+alias vact='source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null'
+alias sshadd='ssh-add ~/.ssh/id_rsa'
+
+# --- Others ---
+# macOS: expose GNU coreutils `gtimeout` under the standard `timeout` name
+if [[ "$OSTYPE" == darwin* ]] && (( $+commands[gtimeout] )); then
+  alias timeout='gtimeout'
+fi
+
+(( $+commands[thefuck] )) && eval "$(thefuck --alias fk)"
+# Provide pbcopy/pbpaste on Wayland Linux; leave native macOS pbcopy alone
+if (( ! $+commands[pbcopy] )) && (( $+commands[wl-copy] )); then
+  alias pbcopy='wl-copy'
+  alias pbpaste='wl-paste'
+fi
+# Send a raw ZPL file to a label printer. Set ZPL_PRINTER (e.g. in ~/.zprofile).
+txt2zpl() { nc -N "${ZPL_PRINTER:?set ZPL_PRINTER (host/IP of your ZPL printer)}" 9100 < "$1"; }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 9) FUNCTIONS
+# ──────────────────────────────────────────────────────────────────────────────
+# Create dir and cd into it
+mkcd() {
+  if [[ -z "${1-}" ]]; then
+    print -u2 "mkcd: usage: mkcd <dir>"
+    return 2
+  fi
+  mkdir -p -- "$1" && cd -- "$1"
+}
+
+# Extract wrapper (checks tools where reasonable)
+extract() {
+  if [[ -z "${1-}" ]]; then
+    print -u2 "extract: usage: extract <archive>"
+    return 2
+  fi
+  if [[ ! -f "$1" ]]; then
+    print -u2 "extract: '$1' is not a valid file"
+    return 1
+  fi
+
+  case "$1" in
+    *.tar.bz2) tar xjf -- "$1" ;;
+    *.tar.gz)  tar xzf -- "$1" ;;
+    *.tar.xz)  tar xJf -- "$1" ;;
+    *.bz2)     bunzip2 -- "$1" ;;
+    *.gz)      gunzip -- "$1" ;;
+    *.tar)     tar xf -- "$1" ;;
+    *.tbz2)    tar xjf -- "$1" ;;
+    *.tgz)     tar xzf -- "$1" ;;
+    *.zip)     unzip -- "$1" ;;
+    *.Z)       uncompress -- "$1" ;;
+    *.7z)      (( $+commands[7z] )) && 7z x -- "$1" || print -u2 "extract: need '7z' for .7z" ;;
+    *.rar)     (( $+commands[unrar] )) && unrar x -- "$1" || print -u2 "extract: need 'unrar' for .rar" ;;
+    *)         print -u2 "extract: don't know how to extract '$1'" ;;
+  esac
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 10) KEY BINDINGS (PORTABLE VIA TERMINFO WHEN POSSIBLE)
+# ──────────────────────────────────────────────────────────────────────────────
+zmodload zsh/terminfo 2>/dev/null
+
+# Home/End/Delete via terminfo when available
+[[ -n "${terminfo[khome]-}" ]] && bindkey "${terminfo[khome]}" beginning-of-line
+[[ -n "${terminfo[kend]-}"  ]] && bindkey "${terminfo[kend]}"  end-of-line
+[[ -n "${terminfo[kdch1]-}" ]] && bindkey "${terminfo[kdch1]}" delete-char
+
+# Ctrl+Left / Ctrl+Right: common escape sequences (kept as fallback)
+bindkey "^[[1;5C" forward-word
+bindkey "^[[1;5D" backward-word
+
+# Extra common Home/End fallbacks
+bindkey "^[[H" beginning-of-line
+bindkey "^[[F" end-of-line
+bindkey "^[[3~" delete-char
+
+# History Substring Search (only bind if the widgets exist)
+(( $+widgets[history-substring-search-up] ))   && bindkey '^[A' history-substring-search-up
+(( $+widgets[history-substring-search-down] )) && bindkey '^[B' history-substring-search-down
+
+# Keep the default history flow on the most common keys:
+# - Ctrl-R: classic incremental reverse search
+# - Up/Down: plain chronological history navigation
+# Keep the fzf picker available on Alt-R.
+bindkey '^R' history-incremental-search-backward
+bindkey '^[[A' up-line-or-history
+bindkey '^[[B' down-line-or-history
+(( $+widgets[fzf-history-widget] )) && bindkey '^[r' fzf-history-widget
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 11) TOOLBELT DOCTOR — cry about missing preferred CLI tools
+# ──────────────────────────────────────────────────────────────────────────────
+# Preferred CLI tools as "label|cmd1,cmd2|brew-formula|linux-pkg".
+# A tool counts as present if ANY listed command exists — covers Debian/Ubuntu
+# renames (fd→fdfind, bat→batcat). Set TOOLBELT_QUIET=1 to silence startup.
+# NOTE: never add `sg` as an ast-grep alias — it's `setgroups` on Linux.
+_TOOLBELT=(
+  "rg|rg|ripgrep|ripgrep"
+  "fd|fd,fdfind|fd|fd-find"
+  "fzf|fzf|fzf|fzf"
+  "jq|jq|jq|jq"
+  "yq|yq|yq|yq"
+  "ast-grep|ast-grep|ast-grep|"
+  "bat|bat,batcat|bat|bat"
+  "delta|delta|git-delta|git-delta"
+  "tree|tree|tree|tree"
+  "httpie|http|httpie|httpie"
+  "gh|gh|gh|gh"
+  "task|task|go-task|"
+)
+
+# True if any comma-listed command in $1 is on PATH.
+_tb_have() {
+  local c
+  for c in ${(s:,:)1}; do (( $+commands[$c] )) && return 0; done
+  return 1
+}
+
+# Print an install hint for the given pkg lists, adapting to the box's manager.
+# $1 = brew formulae, $2 = linux pkgs (both space-joined).
+_tb_hint() {
+  if   (( $+commands[brew] ));                             then print -P "  %F{yellow}→ brew install%f $1"
+  elif (( $+commands[apt] )) || (( $+commands[apt-get] )); then print -P "  %F{yellow}→ sudo apt install%f $2"
+  elif (( $+commands[dnf] ));                              then print -P "  %F{yellow}→ sudo dnf install%f $2"
+  elif (( $+commands[pacman] ));                           then print -P "  %F{yellow}→ sudo pacman -S%f $2"
+  else                                                          print -P "  %F{yellow}→ install:%f $1"
+  fi
+}
+
+# `toolbelt` — full status report on demand (green ✓ present / red ✗ missing).
+toolbelt() {
+  local rec; local -a f brew=() lx=()
+  print -P "%B%F{cyan}Toolbelt%f%b ($(uname -s))"
+  for rec in $_TOOLBELT; do
+    f=("${(@s:|:)rec}")
+    if _tb_have "$f[2]"; then
+      print -P "  %F{green}✓%f $f[1]"
+    else
+      print -P "  %F{red}✗%f $f[1]"
+      brew+=$f[3]; lx+=${f[4]:-$f[3]}
+    fi
+  done
+  if (( ${#brew} )); then print -P ""; _tb_hint "$brew" "$lx"; else print -P "%F{green}All present.%f"; fi
+}
+
+# Startup: silent when everything's here; cry only about the gaps.
+_toolbelt_check() {
+  local rec; local -a f lbl=() brew=() lx=()
+  for rec in $_TOOLBELT; do
+    f=("${(@s:|:)rec}")
+    _tb_have "$f[2]" || { lbl+=$f[1]; brew+=$f[3]; lx+=${f[4]:-$f[3]} }
+  done
+  (( ${#lbl} )) || return
+  print -P "%B%F{red}⚠ toolbelt: missing%f%b ${(j:, :)lbl}"
+  _tb_hint "$brew" "$lx"
+  print -P "  %F{242}(run \`toolbelt\` for full status)%f"
+}
+[[ -z "${TOOLBELT_QUIET:-}" ]] && _toolbelt_check
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 12) SOURCE SYNTAX HIGHLIGHTING LAST (IMPORTANT)
+# ──────────────────────────────────────────────────────────────────────────────
+[[ -n "$_ZSH_SYNTAX_HIGHLIGHTING_FILE" ]] && source "$_ZSH_SYNTAX_HIGHLIGHTING_FILE"
+unset _ZSH_SYNTAX_HIGHLIGHTING_FILE

@@ -1,0 +1,45 @@
+onboarding = false
+# herdr config — https://herdr.dev/docs/configuration/
+# Hot-reload after edits:  herdr server reload-config
+
+[terminal]
+new_cwd = "follow"          # new panes inherit the focused pane's directory
+# default_shell omitted -> uses your $SHELL (zsh)
+
+[keys]
+prefix = "ctrl+space"                # A1: match your tmux C-Space (falls back to ctrl+b if space is rejected)
+detach = "prefix+d"                  # A2: tmux muscle memory (herdr default is prefix+q)
+split_vertical = "prefix+backslash"  # A3: side-by-side split, closest reliable key to your `|` (default was prefix+v)
+
+[theme]
+name = "terminal"           # adopt the host terminal's palette (your choice)
+auto_switch = false
+
+[theme.custom]              # A4: port your Monokai Pro accents onto herdr's UI
+panel_bg = "reset"          # A8: let kitty's #2d2a2e show through the chrome — no two-tone seam vs pane bg
+accent = "#ab9df2"          # kitty active-tab purple
+red    = "#ff6188"          # your bell/attention red
+green  = "#a9dc76"          # Monokai green (kitty color2); was #a6e3a1 = stray Catppuccin from the example
+
+[ui]
+confirm_close = true        # don't kill a running agent by accident
+accent = "#ab9df2"          # A4: Monokai purple for borders/highlights/nav
+show_agent_labels_on_pane_borders = true
+
+agent_panel_sort = "spaces"
+[ui.toast]
+delivery = "herdr"          # in-app toast when an agent finishes / gets blocked
+
+[ui.sound]
+enabled = true
+
+[session]
+resume_agents_on_restore = true      # auto-resume the whole herd into --resume on restart (accepting 16 GB OOM risk)
+
+[advanced]
+scrollback_limit_bytes = 20000000    # A5: ~20 MB, echoing tmux history-limit 100000
+
+[experimental]
+kitty_graphics = true       # A7: kitty graphics passthrough (imgcat etc.); your terminal is kitty-compatible
+pane_history = false
+switch_ascii_input_source_in_prefix = false
