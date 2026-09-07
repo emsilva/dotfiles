@@ -134,6 +134,21 @@ class RenderTests(unittest.TestCase):
         self.assertIn('csalive()', shell)
         subprocess.run(['zsh', '-n'], input=shell, text=True, check=True)
 
+    def test_machine_local_shell_additions_survive_shared_config(self):
+        (self.home / '.zshrc').write_text(self.render('.zshrc'))
+        (self.home / '.zshrc.local').write_text('export DOTFILES_LOCAL_FIXTURE=loaded\n')
+        antidote = self.home / '.antidote'
+        antidote.mkdir()
+        (antidote / 'antidote.zsh').write_text('antidote() { :; }\n')
+        result = subprocess.run(['zsh', '-ic', 'print -r -- "LOCAL:${DOTFILES_LOCAL_FIXTURE:-missing}"'],
+                                env={**os.environ, 'HOME': str(self.home), 'ZDOTDIR': str(self.home),
+                                     'PATH': '/usr/bin:/bin', 'TOOLBELT_QUIET': '1'},
+                                text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('LOCAL:loaded', result.stdout)
+        managed = subprocess.check_output(self.command + ['managed'], text=True).splitlines()
+        self.assertNotIn('.zshrc.local', managed)
+
     def test_numeric_override_passes_the_herdr_parser(self):
         self.profile({'herdr': {'advanced': {'scrollback_limit_bytes': 12345678}}})
         rendered = self.render('.config/herdr/config.toml')

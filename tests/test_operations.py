@@ -27,6 +27,7 @@ class OperationTests(unittest.TestCase):
             preferences.mkdir()
             (home / '.config/chezmoi').symlink_to(preferences, target_is_directory=True)
             (home / '.example').write_text('uncommitted installed version\n')
+            (home / '.zshrc.local').write_text('export LOCAL_FIXTURE=preserved\n')
             (home / '.config/nvim').mkdir()
             (home / '.config/nvim/lazy-lock.json').write_text('{"host-plugin":{}}\n')
             (home / '.link').symlink_to('.example')
@@ -47,6 +48,7 @@ class OperationTests(unittest.TestCase):
                 self.assertIn('.config/nvim/lazy-lock.json', archive.getnames())
                 self.assertEqual(archive.extractfile('.config/nvim/lazy-lock.json').read(), b'{"host-plugin":{}}\n')
                 self.assertTrue(archive.getmember('.config/chezmoi').issym())
+                self.assertEqual(archive.extractfile('.zshrc.local').read(), b'export LOCAL_FIXTURE=preserved\n')
             self.assertTrue((backup / 'machine-config.tar.gz').exists(), 'Resolved private preferences are missing from the backup')
             with tarfile.open(backup / 'machine-config.tar.gz') as archive:
                 self.assertEqual(archive.extractfile('chezmoi/machine.json').read(), b'{"private":"fixture"}\n')
@@ -91,9 +93,12 @@ class OperationTests(unittest.TestCase):
             (seed / 'scripts').mkdir(); shutil.copy2(SCRIPT, seed / 'scripts/dotfiles.py')
             (seed / '.chezmoiignore').write_text('scripts\n')
             (seed / 'dot_example').write_text('original\n')
-            (home / '.example').write_text('original\n')
             git(seed, 'add', '.'); git(seed, 'commit', '-qm', 'base'); git(seed, 'push', 'origin', 'main')
             subprocess.run(['git', 'clone', '-q', str(remote), str(local)], check=True)
+            # Let the real renderer establish clean bytes AND permissions;
+            # host umasks need not match chezmoi's configured target modes.
+            subprocess.run(['chezmoi', '--source', str(local), '--destination', str(home),
+                            '--config', str(config), 'apply'], check=True)
             before = git(local, 'rev-parse', 'HEAD')
             (seed / 'dot_example').write_text('upstream\n'); git(seed, 'add', '.'); git(seed, 'commit', '-qm', 'upstream'); git(seed, 'push', 'origin', 'main')
             command = ['python3', str(local / 'scripts/dotfiles.py'), 'sync', '--destination', str(home), '--config', str(config)]

@@ -138,6 +138,11 @@ the optional machine profile default. It refuses to guess when none is set.
 The optional `~/.local/bin/herdr-shell.zsh` greeting and its helper programs are
 machine-local dependencies; they are not installed by this repository.
 
+Put other host-only shell additions in `~/.zshrc.local`. The shared zsh config
+sources this optional file before syntax highlighting. It is deliberately
+unmanaged and included in `task backup`; keep private paths and host-specific
+startup commands there instead of editing the installed `.zshrc`.
+
 `task backup` saves source (including local edits), Git history, installed
 managed files and the machine profile under
 `~/.local/state/dotfiles/backups/<timestamp>/`. These private archives include

@@ -599,5 +599,8 @@ _toolbelt_check() {
 # Optional machine-local Herdr post-detach greeting.
 [[ -r "$HOME/.local/bin/herdr-shell.zsh" ]] && source "$HOME/.local/bin/herdr-shell.zsh"
 
+# Machine-local additions stay outside the shared source and are backed up.
+[[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+
 [[ -n "$_ZSH_SYNTAX_HIGHLIGHTING_FILE" ]] && source "$_ZSH_SYNTAX_HIGHLIGHTING_FILE"
 unset _ZSH_SYNTAX_HIGHLIGHTING_FILE

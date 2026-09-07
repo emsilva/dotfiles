@@ -7,6 +7,7 @@ LICENSE
 # Contains live API keys (OpenAI/OpenRouter/Tavily/HF) in plaintext.
 # Deliberately kept OUT of the repo — managed by hand per machine.
 .zprofile
+.zshrc.local
 
 # Antidote-generated plugin cache (rebuilt from .zsh_plugins.txt on load).
 .zsh_plugins.zsh
