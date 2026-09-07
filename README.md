@@ -133,6 +133,14 @@ machine. Invalid profile or installed Claude JSON stops rendering. Codex's
 runtime config, credentials, trust state, histories, third-party skills and
 plugins remain unmanaged. Never bulk-add those directories.
 
+Git's `.gitignore` also excludes raw and chezmoi-encoded credentials, private
+machine profiles, host shell overrides, and recovery archives if they are
+accidentally copied into the source checkout. `task test` checks this with a real
+`git add --all` and verifies that intended source files and templates remain
+trackable. These rules do not inspect file contents, remove previously tracked
+files, or prevent `git add --force`. `.chezmoiignore` and the `private_` filename
+prefix do not provide Git publication protection.
+
 `csalive [name]` accepts an explicit Codespace, then `DOTFILES_CODESPACE`, then
 the optional machine profile default. It refuses to guess when none is set.
 The optional `~/.local/bin/herdr-shell.zsh` greeting and its helper programs are

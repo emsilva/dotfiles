@@ -4,3 +4,64 @@ __pycache__/
 *.pyc
 *.log
 *.pid
+
+# Git publication exclusions. .chezmoiignore only controls installation;
+# chezmoi's private_ filename prefix does not encrypt repository contents.
+# Cover raw copies and chezmoi-encoded source paths. Templates stay trackable.
+
+# Host environment, shell overrides, and machine profiles.
+.env
+.env.*
+*dot_env
+*dot_env.*
+.zprofile*
+*dot_zprofile*
+.zshrc.local*
+*dot_zshrc.local*
+*machine.json
+.config/chezmoi/
+**/*dot_config/chezmoi/
+
+# Authentication files and private key material.
+.ssh/
+**/*dot_ssh/
+.git-credentials
+*dot_git-credentials
+.netrc
+*dot_netrc
+.pypirc
+*dot_pypirc
+.config/gh/
+**/*dot_config/gh/
+.aws/
+**/*dot_aws/
+*auth.json
+*credentials.json
+.codex/config.toml
+**/*dot_codex/*config.toml
+.claude/settings*.json
+**/*dot_claude/*settings*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Private recovery snapshots, old checkouts, and runtime databases.
+snapshot/
+snapshots/
+backups/
+legacy-source/
+*.bundle
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz
+*.zip
+*.7z
+*.bak
+*.bak-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.db
