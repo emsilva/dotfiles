@@ -39,8 +39,16 @@ def backup(chezmoi, destination):
             archive.add(destination / name, arcname=name)
     subprocess.run(['git', '-C', str(SOURCE), 'bundle', 'create', str(folder / 'history.bundle'), '--all'], check=True)
     subprocess.run(['git', '-C', str(SOURCE), 'bundle', 'verify', str(folder / 'history.bundle')], check=True, stdout=subprocess.DEVNULL)
+    # Preserve link topology above, and separately preserve the bytes behind
+    # symlinked private preferences for recovery on a replacement machine.
+    names = ['source.tar.gz', 'installed.tar.gz', 'history.bundle']
+    preferences = destination / '.config/chezmoi'
+    if preferences.exists():
+        with tarfile.open(folder / 'machine-config.tar.gz', 'w:gz', dereference=True) as archive:
+            archive.add(preferences, arcname='chezmoi')
+        names.append('machine-config.tar.gz')
     checksums = {}
-    for name in ['source.tar.gz', 'installed.tar.gz', 'history.bundle']:
+    for name in names:
         path = folder / name
         with path.open('rb') as stream:
             checksums[name] = hashlib.file_digest(stream, 'sha256').hexdigest()

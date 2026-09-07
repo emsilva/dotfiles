@@ -46,6 +46,7 @@ class RenderTests(unittest.TestCase):
         data = tomllib.loads(self.render('.config/herdr/config.toml'))
         self.assertEqual(data['theme']['custom']['green'], '#123456')
         self.assertTrue(data['experimental']['allow_nested'])
+        self.assertIsInstance(data['advanced']['scrollback_limit_bytes'], int)
         self.assertTrue(data['session']['resume_agents_on_restore'])
         self.assertEqual(data['ui']['toast']['delivery'], 'herdr')
 
@@ -80,6 +81,21 @@ class RenderTests(unittest.TestCase):
         self.assertIn('fixture-codespace', shell)
         self.assertIn('csalive()', shell)
         subprocess.run(['zsh', '-n'], input=shell, text=True, check=True)
+
+    def test_numeric_override_passes_the_herdr_parser(self):
+        self.profile({'herdr': {'advanced': {'scrollback_limit_bytes': 12345678}}})
+        rendered = self.render('.config/herdr/config.toml')
+        self.assertIsInstance(tomllib.loads(rendered)['advanced']['scrollback_limit_bytes'], int)
+        import shutil
+        if shutil.which('herdr'):
+            config = self.home / 'herdr.toml'
+            config.write_text(rendered)
+            subprocess.run(['herdr', 'config', 'check'], env={**os.environ, 'HERDR_CONFIG_PATH': str(config)}, check=True, capture_output=True)
+
+    def test_invalid_codespace_refuses_render(self):
+        self.profile({'codespace': "team's-code"})
+        result = subprocess.run(self.command + ['cat', str(self.home / '.zshrc')], capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
 
 if __name__ == '__main__':
     unittest.main()

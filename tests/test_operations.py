@@ -22,10 +22,15 @@ class OperationTests(unittest.TestCase):
             (source / 'dot_example').write_text('source version\n')
             (source / 'symlink_dot_link').write_text('.example\n')
             home = root / 'home'
-            (home / '.config/chezmoi').mkdir(parents=True)
+            (home / '.config').mkdir(parents=True)
+            preferences = root / 'private-preferences'
+            preferences.mkdir()
+            (home / '.config/chezmoi').symlink_to(preferences, target_is_directory=True)
             (home / '.example').write_text('uncommitted installed version\n')
             (home / '.link').symlink_to('.example')
-            (home / '.config/chezmoi/machine.json').write_text('{"private":"fixture"}\n')
+            profile = root / 'external-machine.json'
+            profile.write_text('{"private":"fixture"}\n')
+            (preferences / 'machine.json').symlink_to(profile)
             config = root / 'config.toml'
             config.write_text('')
             subprocess.run(['git', 'init', '-q', str(source)], check=True)
@@ -37,7 +42,10 @@ class OperationTests(unittest.TestCase):
             with tarfile.open(backup / 'installed.tar.gz') as archive:
                 self.assertEqual(archive.extractfile('.example').read(), b'uncommitted installed version\n')
                 self.assertTrue(archive.getmember('.link').issym())
-                self.assertEqual(archive.extractfile('.config/chezmoi/machine.json').read(), b'{"private":"fixture"}\n')
+                self.assertTrue(archive.getmember('.config/chezmoi').issym())
+            self.assertTrue((backup / 'machine-config.tar.gz').exists(), 'Resolved private preferences are missing from the backup')
+            with tarfile.open(backup / 'machine-config.tar.gz') as archive:
+                self.assertEqual(archive.extractfile('chezmoi/machine.json').read(), b'{"private":"fixture"}\n')
             manifest = json.loads((backup / 'manifest.json').read_text())
             for name, expected in manifest['sha256'].items():
                 with (backup / name).open('rb') as stream:

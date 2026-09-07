@@ -392,6 +392,9 @@ alias gcb='git checkout -b'
 # --- GitHub Codespaces (keep-alive) ---
 {{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson }}
 {{- with get $machine "codespace" }}
+{{- if not (regexMatch "^[A-Za-z0-9-]+$" .) }}
+{{- fail "codespace must contain only letters, digits and hyphens" }}
+{{- end }}
 : ${DOTFILES_CODESPACE:={{ . | squote }}}
 {{- end }}
 # Hold an SSH session open so a codespace doesn't idle-shutdown, and

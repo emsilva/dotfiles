@@ -1,6 +1,11 @@
 {{- $path := joinPath .chezmoi.destDir ".config/chezmoi/machine.json" -}}
 {{- if stat $path -}}
-{{- include $path | mustFromJson | mustToJson -}}
+{{- $raw := include $path -}}
+{{- if not (kindIs "map" ($raw | mustFromJson)) -}}
+{{- fail "machine.json must contain a JSON object" -}}
+{{- end -}}
+{{- /* Keep the original numeric representation for typed TOML consumers. */ -}}
+{{- $raw -}}
 {{- else -}}
 {}
 {{- end -}}

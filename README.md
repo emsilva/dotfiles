@@ -105,7 +105,9 @@ machine-local dependencies; they are not installed by this repository.
 managed files and the machine profile under
 `~/.local/state/dotfiles/backups/<timestamp>/`. These private archives include
 sensitive local data and must never be committed. Archives are read back and
-checksummed, and the Git bundle is verified. For recovery, inspect the
+checksummed, and the Git bundle is verified. Symlink topology is retained in
+`installed.tar.gz`; `machine-config.tar.gz` separately preserves the resolved
+private preferences, including symlinked profile files. For recovery, inspect the
 manifest, restore chosen files from `installed.tar.gz`, and recover source and
 history separately. Do not extract an entire backup blindly over your home.
 
