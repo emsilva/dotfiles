@@ -1,5 +1,8 @@
 {
   "onboarding": false,
+  "update": {
+    "channel": "preview"
+  },
   "terminal": {
     "new_cwd": "follow"
   },

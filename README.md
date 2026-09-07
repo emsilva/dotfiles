@@ -90,6 +90,9 @@ Absent profile keys use shared defaults. Remove a key from the shared defaults
 if it should exist only on selected machines. Legacy chezmoi `gitName/gitEmail`
 data remain supported when the profile does not supply identity.
 
+Herdr's shared update channel is `preview`. This selects the update stream;
+applying dotfiles does not upgrade the installed binary or restart Herdr.
+
 For separate work and personal commit identities, Git 2.36+ can select an
 identity by repository directory or remote URL. Add these optional fields to
 the private machine profile's `git` object:
