@@ -1,0 +1,6 @@
+{{- $path := joinPath .chezmoi.destDir ".config/chezmoi/machine.json" -}}
+{{- if stat $path -}}
+{{- include $path | mustFromJson | mustToJson -}}
+{{- else -}}
+{}
+{{- end -}}

@@ -1,68 +1,12 @@
-{{- /* settings.json is chezmoi-managed EXCEPT the "model" value: Claude Code rewrites
-       it at runtime (/model) and the cswap auto-switcher flips it every ~5m. We read
-       whatever is currently live and echo it straight back, so chezmoi never shows a
-       diff for it and `chezmoi apply` never clobbers the running choice. A fresh machine
-       with no ~/.claude/settings.json yet falls back to the sane default below. */ -}}
-{{- $model := "opus[1m]" -}}
-{{- with (output "sh" "-c" "jq -r '.model // empty' \"$HOME/.claude/settings.json\" 2>/dev/null || true") | trim -}}
-{{-   $model = . -}}
+{{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson -}}
+{{- $settings := include ".chezmoitemplates/claude-settings.json" | mustFromJson -}}
+{{- $settings = mustMergeOverwrite $settings (get $machine "claudeSettings" | default dict) -}}
+{{- /* Preserve the current runtime model, reading the selected destination only. */ -}}
+{{- $live := joinPath .chezmoi.destDir ".claude/settings.json" -}}
+{{- if stat $live -}}
+{{- $current := include $live | mustFromJson -}}
+{{- if hasKey $current "model" -}}
+{{- $_ := set $settings "model" (get $current "model") -}}
 {{- end -}}
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
-  },
-  "includeCoAuthoredBy": false,
-  "model": {{ $model | toJson }},
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh",
-    "refreshInterval": 60
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": true,
-    "claude-powerline@claude-powerline": true,
-    "claude-md-management@claude-plugins-official": true,
-    "exa@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "codex@openai-codex": true,
-    "pyright-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "claude-plugins-official": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/anthropics/claude-plugins-official.git"
-      }
-    },
-    "openai-codex": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/openai/codex-plugin-cc.git"
-      }
-    },
-    "claude-powerline": {
-      "source": {
-        "source": "github",
-        "repo": "Owloops/claude-powerline"
-      }
-    }
-  },
-  "effortLevel": "xhigh",
-  "skipDangerousModePermissionPrompt": true,
-  "skipWorkflowUsageWarning": true,
-  "theme": "dark",
-  "teammateMode": "in-process",
-  "agentPushNotifEnabled": true
-}
+{{- end -}}
+{{ $settings | mustToPrettyJson }}

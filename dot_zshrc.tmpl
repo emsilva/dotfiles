@@ -389,6 +389,44 @@ alias gd='git diff'
 alias gco='git checkout'
 alias gcb='git checkout -b'
 
+# --- GitHub Codespaces (keep-alive) ---
+{{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson }}
+{{- with get $machine "codespace" }}
+: ${DOTFILES_CODESPACE:={{ . | squote }}}
+{{- end }}
+# Hold an SSH session open so a codespace doesn't idle-shutdown, and
+# auto-reconnect when the link silently dies (lid close, network drop).
+# The ServerAlive* flags make a dead connection FAIL FAST (~45s) instead of
+# hanging until you hit Enter — that exit is what lets the loop reconnect.
+# Usage: csalive [codespace-name]   (Ctrl-C to stop)
+csalive() {
+  if (( ! $+commands[gh] )); then
+    print -u2 "csalive: 'gh' not found in PATH"
+    return 127
+  fi
+  local cs="${1:-${DOTFILES_CODESPACE:-}}"
+  if [[ -z "$cs" ]]; then
+    print -u2 "csalive: pass a codespace name or set DOTFILES_CODESPACE"
+    return 2
+  fi
+  local stop=0
+  trap 'stop=1' INT
+  while (( ! stop )); do
+    print -P "%F{green}[$(date +%H:%M:%S)] csalive: connecting to ${cs}…%f"
+    gh cs ssh -c "$cs" -- \
+      -o ServerAliveInterval=15 \
+      -o ServerAliveCountMax=3 \
+      -o ConnectTimeout=10 \
+      'exec sleep infinity'
+    local rc=$?
+    (( stop )) && break
+    print -P "%F{yellow}[$(date +%H:%M:%S)] csalive: dropped (rc=${rc}) — retrying in 5s (Ctrl-C to stop)%f"
+    sleep 5
+  done
+  trap - INT
+  print -P "%F{242}[$(date +%H:%M:%S)] csalive: stopped.%f"
+}
+
 # --- Python ---
 alias py='python3'
 alias vact='source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null'
@@ -555,5 +593,8 @@ _toolbelt_check() {
 # ──────────────────────────────────────────────────────────────────────────────
 # 12) SOURCE SYNTAX HIGHLIGHTING LAST (IMPORTANT)
 # ──────────────────────────────────────────────────────────────────────────────
+# Optional machine-local Herdr post-detach greeting.
+[[ -r "$HOME/.local/bin/herdr-shell.zsh" ]] && source "$HOME/.local/bin/herdr-shell.zsh"
+
 [[ -n "$_ZSH_SYNTAX_HIGHLIGHTING_FILE" ]] && source "$_ZSH_SYNTAX_HIGHLIGHTING_FILE"
 unset _ZSH_SYNTAX_HIGHLIGHTING_FILE

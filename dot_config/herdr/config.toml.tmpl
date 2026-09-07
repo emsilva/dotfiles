@@ -1,0 +1,6 @@
+{{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson -}}
+{{- $config := include ".chezmoitemplates/herdr.json" | mustFromJson -}}
+{{- $config = mustMergeOverwrite $config (get $machine "herdr" | default dict) -}}
+# Shared defaults plus private ~/.config/chezmoi/machine.json overrides.
+# Session auto-resume is owner-accepted, including its memory-pressure/OOM risk.
+{{ $config | toToml }}

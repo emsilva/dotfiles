@@ -57,8 +57,6 @@ LICENSE
 # stay unmanaged so no blanket `chezmoi add`/`re-add` can pull them back in.
 .claude/skills/**
 !.claude/skills
-!.claude/skills/choosing-a-model
-!.claude/skills/choosing-a-model/**
 !.claude/skills/doorbell
 !.claude/skills/doorbell/**
 !.claude/skills/epic-workflow-DESIGN.md
@@ -105,3 +103,18 @@ LICENSE
 Library
 # Home-lab SSH drop-ins (hand-managed per machine):
 .ssh/config.d
+
+# Repo tooling and private machine preferences are never installed.
+Taskfile.yml
+scripts
+tests
+docs
+.gitignore
+.task
+.config/chezmoi
+
+# Authored session handoff workflow.
+!.claude/commands
+!.claude/commands/**
+!.claude/skills/session-handoff
+!.claude/skills/session-handoff/**

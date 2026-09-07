@@ -1,0 +1,45 @@
+{
+  "onboarding": false,
+  "terminal": {
+    "new_cwd": "follow"
+  },
+  "keys": {
+    "prefix": "ctrl+space",
+    "detach": "prefix+d",
+    "split_vertical": "prefix+backslash",
+    "previous_workspace": "prefix+up",
+    "next_workspace": "prefix+down"
+  },
+  "theme": {
+    "name": "terminal",
+    "auto_switch": false,
+    "custom": {
+      "accent": "#ab9df2",
+      "red": "#ff6188",
+      "green": "#a6e3a1"
+    }
+  },
+  "ui": {
+    "confirm_close": true,
+    "accent": "#ab9df2",
+    "show_agent_labels_on_pane_borders": true,
+    "agent_panel_sort": "spaces",
+    "toast": {
+      "delivery": "herdr"
+    },
+    "sound": {
+      "enabled": true
+    }
+  },
+  "session": {
+    "resume_agents_on_restore": true
+  },
+  "advanced": {
+    "scrollback_limit_bytes": 20000000
+  },
+  "experimental": {
+    "kitty_graphics": true,
+    "pane_history": false,
+    "switch_ascii_input_source_in_prefix": false
+  }
+}

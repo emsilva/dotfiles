@@ -1,0 +1,6 @@
+/.task/
+/tmp/
+__pycache__/
+*.pyc
+*.log
+*.pid

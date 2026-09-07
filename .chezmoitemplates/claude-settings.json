@@ -1,0 +1,72 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "includeCoAuthoredBy": false,
+  "model": "opus[1m]",
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/skills/session-handoff/hooks/precompact-snapshot.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh",
+    "refreshInterval": 60
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "claude-powerline@claude-powerline": true,
+    "claude-md-management@claude-plugins-official": true,
+    "exa@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "codex@openai-codex": true,
+    "pyright-lsp@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/anthropics/claude-plugins-official.git"
+      }
+    },
+    "openai-codex": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/openai/codex-plugin-cc.git"
+      }
+    },
+    "claude-powerline": {
+      "source": {
+        "source": "github",
+        "repo": "Owloops/claude-powerline"
+      }
+    }
+  },
+  "effortLevel": "xhigh",
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "theme": "dark",
+  "teammateMode": "in-process",
+  "agentPushNotifEnabled": true
+}

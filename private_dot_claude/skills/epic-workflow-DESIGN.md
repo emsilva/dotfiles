@@ -6,8 +6,14 @@ It is documentation, not a skill; `~/.claude` is not a git repo, so it is not co
 
 > **Superseded 2026-07-05:** `plan-epic` + `run-epic` are merged into the single
 > skill **`ship`** (extended to single-issue work + a compaction-survival ledger).
-> See the dated section at the bottom. `choosing-a-model` is unchanged. The
+> See the dated section at the bottom. The
 > sections in between remain as the historical record of the two-skill design.
+>
+> **Retired 2026-07-25:** `choosing-a-model` is deleted, and with it per-task
+> model routing. Agents inherit the session model unless one is named
+> explicitly (CLAUDE.md "Session model"); `/ship` no longer records or
+> dispatches at a per-child tier. Every mention of it below — the rubric in
+> §1, the routing arrows, the per-child tiers — is historical only.
 
 ## North Star (of this meta-work)
 

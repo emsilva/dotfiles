@@ -20,9 +20,10 @@ deep work, and scout hands off to them instead of doing it:
   only the `wake:` field. It does not re-judge an entry's Intent or
   perishable notes against current code — that is the wake session's job,
   and doing it early is spend the owner hasn't approved.
-- **Depth budget:** epic state comes from the pinned status-ledger comment
-  (no-`gh` mode: the epic file's `## Ledger` section) — never from reading
-  every child body. Entry state comes from INDEX.md + frontmatter. One cheap
+- **Depth budget:** epic state comes from the sentinel-marked status-ledger comment
+  (local contracts: the file's `## Ledger` section) — never from reading
+  child bodies (Step 1's one batched metadata scan reads marker lines
+  only, for grouping). Entry state comes from INDEX.md + frontmatter. One cheap
   probe per wake trigger (below). That's the whole read.
 
 ## Step 1 — Gather the three stores
@@ -30,11 +31,32 @@ Resolve `ROOT` from the main worktree, as park.md does:
 
     ROOT=$(git worktree list --porcelain | awk '/^worktree /{sub(/^worktree /,""); print; exit}')
 
-- **In flight (GitHub, or local degrade):** with `gh` + a remote:
-  `gh issue list --state open` — epics (epic label / sub-issues) get their
-  state from the pinned status-ledger comment; singles from the title line.
-  Without `gh`: `docs/specs/*.md` epic files — the `## Ledger` section + the
-  child checklist.
+- **In flight (GitHub AND local contracts — survey both):** with `gh` + a
+  remote, ONE typed paginated scan powers both the listing and the
+  grouping:
+
+      gh api --paginate "repos/<owner>/<repo>/issues?state=open&per_page=100" \
+        --jq '.[] | select(has("pull_request") | not) | {number, title, body}'
+
+  read ONLY for marker lines — `plan-id:`, `item:`, `engagement-key:`,
+  "Part of #" — plus native parent/sub-issue fields where available;
+  never a semantic review of child bodies. Epic AND single state comes
+  from the sentinel-marked status-ledger comment, never the title line.
+  REGARDLESS of `gh`: grep
+  `$ROOT/docs/specs/*.md` for a `ship:contract` marker with
+  `status=active` — the active local contracts (`kind` says epic|single);
+  state from the
+  `## Ledger` section. The canonical copy may live ONLY on an integration
+  branch: also check each `git branch --list '*-integration'` branch via
+  `git grep -l 'ship:contract' <branch> -- docs/specs/` (read-only).
+  **One line per contract:** group by plan-id / GitHub parent — dedupe
+  working-tree vs integration-branch copies and children under their
+  epic; state comes from the canonical ledger location only. A
+  specs file WITHOUT the marker is not a contract; `status=completed` is
+  done, not in flight;
+  merged-but-closure-owed is DONE work awaiting an
+  authorized close — report it as that, never as unfinished
+  implementation.
 - **Parked:** `$ROOT/docs/backlog/` — INDEX.md plus each entry's frontmatter
   (`intent`/`track`/`parked`/`wake`). No ledger directory → note "no
   intention ledger" and move on; scout never bootstraps one.
@@ -100,7 +122,9 @@ Then hand the decision to the owner — picking what to work on is theirs:
   the smell changes the routing note, not the rank.
 - **Prescribing run-mode work** — "overwrite ledger line #1, then rebuild
   child 1" is run's Step 0 output, not scout's report.
-- **Reading every child/issue body** — the status ledger line is the state.
+- **Reading every child/issue body for STATE** — the status ledger line is
+  the state (Step 1's marker-line metadata scan is the one sanctioned
+  exception, for grouping only).
 - **Writing anything** — a report file, a ledger correction, an INDEX touch.
   Conversation-only.
 - **Starting the pick** — scout ends at the question, even unattended.

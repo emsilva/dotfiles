@@ -43,3 +43,72 @@ Git identity is deliberately not baked in. Tell chezmoi who you are first, in
 - History honors a pre-set `$HISTFILE` (e.g. a dev container's persistent-history volume).
 - tmux plugins load via [TPM](https://github.com/tmux-plugins/tpm); clone it once:
   `git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
+
+## Daily operations
+
+Install [go-task](https://taskfile.dev/installation/), Python 3.11+, chezmoi, Git,
+and zsh. From the source checkout (`chezmoi cd`):
+
+```sh
+task status       # source/installed drift, visible containers and TCP listeners
+task preview      # review rendered changes
+task test         # isolated rendering, backup and divergence tests
+task apply        # test, private backup, then apply
+```
+
+`task up` and `task deploy` apply this machine's configuration. This repository
+owns no daemons or infrastructure: `task down` retains the configuration and
+reports that there are no project services to stop. Existing application
+sessions are not restarted. `task build` runs tests and a dry run.
+
+After making source edits, review and commit them locally. Publish changes to
+GitHub explicitly. On the other machine, `task sync` requires clean source and
+installed state, checks out no branches, and only fast-forwards `main`. It
+refuses divergence and unpublished local commits. Then use `task preview` and
+`task apply`. Avoid `chezmoi update` here: it combines a rebase and application.
+A source edit made through another working copy still needs to be previewed
+against the destination before applying.
+
+## Machine preferences
+
+GitHub is authoritative for portable defaults and authored workflows. Keep
+machine-specific overrides in **unmanaged**
+`~/.config/chezmoi/machine.json` (permissions `0600`):
+
+```json
+{
+  "git": { "name": "Your Name", "email": "you@example.com" },
+  "codespace": "your-optional-codespace-name",
+  "herdr": { "update": { "channel": "preview" } },
+  "claudeSettings": { "effortLevel": "high" }
+}
+```
+
+Objects merge recursively into `.chezmoitemplates/` defaults; arrays and scalar
+values replace the corresponding default. Use the smallest overrides needed.
+Absent profile keys use shared defaults. Remove a key from the shared defaults
+if it should exist only on selected machines. Legacy chezmoi `gitName/gitEmail`
+data remain supported when the profile does not supply identity.
+
+Claude's current runtime `model` is read from the selected destination and
+preserved on apply. A profile model is a fallback when installing on a new
+machine. Invalid profile or installed Claude JSON stops rendering. Codex's
+runtime config, credentials, trust state, histories, third-party skills and
+plugins remain unmanaged. Never bulk-add those directories.
+
+`csalive [name]` accepts an explicit Codespace, then `DOTFILES_CODESPACE`, then
+the optional machine profile default. It refuses to guess when none is set.
+The optional `~/.local/bin/herdr-shell.zsh` greeting and its helper programs are
+machine-local dependencies; they are not installed by this repository.
+
+`task backup` saves source (including local edits), Git history, installed
+managed files and the machine profile under
+`~/.local/state/dotfiles/backups/<timestamp>/`. These private archives include
+sensitive local data and must never be committed. Archives are read back and
+checksummed, and the Git bundle is verified. For recovery, inspect the
+manifest, restore chosen files from `installed.tar.gz`, and recover source and
+history separately. Do not extract an entire backup blindly over your home.
+
+Retired desktop-environment settings, cswap services, private SSH drop-ins and
+private lint helpers remain installed but unmanaged. Retirement from the
+source repository does not delete their live files.

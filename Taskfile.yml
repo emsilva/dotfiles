@@ -1,0 +1,66 @@
+version: '3'
+
+dir: '{{.TASKFILE_DIR}}'
+
+tasks:
+  default:
+    cmds: [task --list]
+  up:
+    desc: Apply the reviewed dotfiles (this repository owns no background services)
+    cmds:
+      - task: config:up
+  down:
+    desc: Report service ownership; retain installed dotfiles
+    cmds:
+      - task: config:down
+  config:up:
+    cmds:
+      - task: apply
+  config:down:
+    cmds:
+      - echo 'No repository-owned services to stop. Installed dotfiles are retained.'
+  status:
+    desc: Show source and installed drift plus visible containers and listening ports
+    cmds:
+      - git status --short --branch
+      - chezmoi --source . status
+      - |
+        if command -v docker >/dev/null 2>&1; then
+          docker ps --format 'table {{"{{.Names}}"}}\t{{"{{.Status}}"}}\t{{"{{.Ports}}"}}' || true
+        fi
+        if command -v lsof >/dev/null 2>&1; then
+          lsof -nP -iTCP -sTCP:LISTEN || true
+        elif command -v ss >/dev/null 2>&1; then
+          ss -ltn
+        fi
+  preview:
+    desc: Preview the complete rendered change without applying it
+    cmds:
+      - chezmoi --source . --no-pager diff
+  backup:
+    desc: Save and verify a private snapshot of source, history, installed files and machine data
+    cmds:
+      - python3 scripts/dotfiles.py backup
+  test:
+    desc: Test rendering, private backup recovery and divergence refusal in isolated homes/repos
+    cmds:
+      - python3 -m unittest discover -s tests -v
+  build:
+    desc: Validate the dotfiles and render a dry run
+    cmds:
+      - task: test
+      - chezmoi --source . --dry-run apply
+  apply:
+    desc: Validate, back up, then apply reviewed configuration
+    cmds:
+      - task: test
+      - task: backup
+      - chezmoi --source . apply
+  deploy:
+    desc: Apply configuration on this machine (Git publication remains explicit)
+    cmds:
+      - task: apply
+  sync:
+    desc: Fetch and fast-forward clean main; refuse local drift or divergence; never auto-apply
+    cmds:
+      - python3 scripts/dotfiles.py sync

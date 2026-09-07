@@ -26,8 +26,8 @@ and mints the issues fresh (see plan.md "Waking a parked ledger entry"). This le
 | GitHub issues | what is **in flight** right now | the live epic + its READY children |
 
 (This *intention ledger* is a different thing from run mode's **status ledger**
-— the epic's pinned progress comment. Same word, unrelated. Park writes to
-`docs/backlog/`, never to an epic comment.)
+— the epic's sentinel-marked progress comment. Same word, unrelated. Park
+writes to `docs/backlog/`, never to an epic comment.)
 
 ## ★ Anchor, don't cement — the one rule that makes the ledger work ★
 A ledger entry is **not a plan**. A plan is written against code you can see
@@ -74,7 +74,15 @@ Resolve the ledger against the **main working tree**, never the current checkout
 `.claude/worktrees/*` worktree is destroyed when that worktree is pruned:
 
     ROOT=$(git worktree list --porcelain | awk '/^worktree /{sub(/^worktree /,""); print; exit}')  # main worktree, always listed first; sub() keeps paths with spaces intact
+    [ -n "$ROOT" ] || { echo "not a git repo — no ledger location"; exit 1; }
     LEDGER="$ROOT/docs/backlog"
+
+**Judge git's exit, not its stdout.** Outside a repo `git worktree list`
+exits non-zero with EMPTY stdout, so `ROOT` is empty and `LEDGER` becomes the
+absolute `/docs/backlog` — and the tracked-dir guard below tests stdout
+emptiness, so it does NOT fire on git's failure. As an unprivileged user the
+`mkdir` then fails loudly; as root it silently creates a ledger at the
+filesystem root. Hence the explicit `-n` check above.
 
 **Guard — is `docs/backlog` already TRACKED in the outer repo?** If
 `git -C "$ROOT" ls-files -- docs/backlog` is non-empty, STOP and surface it: this
@@ -97,7 +105,7 @@ Otherwise bootstrap (each step a no-op once done):
 3. **Nest a git repo inside it.** Check the directory, NOT `rev-parse` — a
    gitignored dir is still "inside" the outer work tree, so
    `rev-parse --is-inside-work-tree` returns true and would skip init, sending
-   Step 5's commit into the OUTER repo:
+   Step 4's commit into the OUTER repo:
 
        [ -d "$LEDGER/.git" ] || git init "$LEDGER"
 
@@ -148,21 +156,7 @@ line instead of appending, so INDEX never doubles:
 
     - [<slug>](<slug>.md) — <one-line hook> · <track>
 
-## Step 4 — Close the origin issue(s) (only if born from open issues)
-If `origin` names an open GitHub issue **and** `gh` is available, close it by
-**URL** (cross-repo safe — `gh issue close <n>` only resolves against the cwd
-repo's remote) with a pointer; the closed issue is the free permanent archive,
-and the entry must **not** copy its body:
-
-    gh issue close <url> --comment "parked to local backlog: <slug>"
-
-- **Parking an epic?** Close its **unstarted** sub-issues too, same pointer — else
-  GitHub isn't at zero. A child **genuinely in flight** forces a `keep`: don't
-  park the epic out from under live work.
-- **No `gh` / no origin →** skip, and report any un-closable origin as still-open
-  debt in the handoff. Never duplicate the issue body into the entry.
-
-## Step 5 — Validate, then commit
+## Step 4 — Validate, then commit (BEFORE any origin closure)
 Self-check before committing — the entry is durable memory; a bad one rots:
 - **Strip-test the Intent:** mentally remove every anchored/dated line — do you
   still know *what we want and why*? If not, implementation detail has leaked in;
@@ -177,6 +171,33 @@ Then commit the **nested** repo (guarded so it's a no-op-safe idempotent step):
     git -C "$LEDGER" diff --cached --quiet || git -C "$LEDGER" commit -m "park: <slug> — <hook>"
 
 The gitignored dir's only durability is this commit — make it every park.
+Committing FIRST means a crash during origin closure loses nothing: the
+intention is already durable in both stores.
+
+## Step 5 — Close the origin issue(s) (only after the entry is durable)
+Closing an issue is an OUTWARD write (`issue-close` — SKILL.md:
+availability is never authority). An explicit owner request to park a NAMED
+issue authorizes closing exactly that named scope — that issue, plus (for
+an epic) its unstarted sub-issues; anything beyond needs `issue-close`
+granted in the session's stated authorization, never inferred from `gh`
+being available. When authorized and `origin` names an open issue, close
+it by **URL** (cross-repo safe — `gh issue close <n>` only resolves against
+the cwd repo's remote) with a pointer; the closed issue is the free permanent
+archive, and the entry must **not** copy its body:
+
+    gh issue close <url> --comment "parked to local backlog: <slug>"
+
+- **The `--comment` is a separate `issue-comment` write** (compound
+  authority — SKILL.md): without comment authority, close WITHOUT
+  `--comment` and put the pointer in the entry + handoff instead.
+- **Idempotent + resumable:** check state first (`gh issue view <url> --json
+  state`) and skip already-closed origins — the loop must be safe to re-run
+  after a crash; resume by re-running this step.
+- **Parking an epic?** Close its **unstarted** sub-issues too, same pointer — else
+  GitHub isn't at zero. A child **genuinely in flight** forces a `keep`: don't
+  park the epic out from under live work.
+- **No `gh` / no origin →** skip, and report any un-closable origin as still-open
+  debt in the handoff. Never duplicate the issue body into the entry.
 
 ## Handoff · Wake · Kill
 - **Report:** the slug, where it landed, any origin issue(s) closed (or still-open
