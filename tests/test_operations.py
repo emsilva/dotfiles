@@ -74,5 +74,42 @@ class OperationTests(unittest.TestCase):
             self.assertIn('diverged', result.stderr)
             self.assertEqual(git(local, 'rev-parse', 'HEAD'), before)
 
+    def test_sync_refuses_drift_then_fast_forwards_without_applying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remote, seed, local, home = [root / name for name in ('remote', 'seed', 'local', 'home')]
+            home.mkdir()
+            config = root / 'config.toml'; config.write_text('')
+            def git(where, *args):
+                return subprocess.check_output(['git', '-C', str(where), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', *args], stderr=subprocess.DEVNULL, text=True).strip()
+            subprocess.run(['git', 'init', '-q', '--bare', '--initial-branch=main', str(remote)], check=True)
+            subprocess.run(['git', 'clone', '-q', str(remote), str(seed)], check=True, stderr=subprocess.DEVNULL)
+            (seed / 'scripts').mkdir(); shutil.copy2(SCRIPT, seed / 'scripts/dotfiles.py')
+            (seed / '.chezmoiignore').write_text('scripts\n')
+            (seed / 'dot_example').write_text('original\n')
+            (home / '.example').write_text('original\n')
+            git(seed, 'add', '.'); git(seed, 'commit', '-qm', 'base'); git(seed, 'push', 'origin', 'main')
+            subprocess.run(['git', 'clone', '-q', str(remote), str(local)], check=True)
+            before = git(local, 'rev-parse', 'HEAD')
+            (seed / 'dot_example').write_text('upstream\n'); git(seed, 'add', '.'); git(seed, 'commit', '-qm', 'upstream'); git(seed, 'push', 'origin', 'main')
+            command = ['python3', str(local / 'scripts/dotfiles.py'), 'sync', '--destination', str(home), '--config', str(config)]
+            (local / 'dot_example').write_text('local source edit\n')
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Source checkout has local changes', result.stderr)
+            self.assertEqual(git(local, 'rev-parse', 'HEAD'), before)
+            (local / 'dot_example').write_text('original\n')
+            (home / '.example').write_text('local installed edit\n')
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Installed dotfiles differ', result.stderr)
+            self.assertEqual(git(local, 'rev-parse', 'HEAD'), before)
+            (home / '.example').write_text('original\n')
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(git(local, 'rev-parse', 'HEAD'), git(seed, 'rev-parse', 'HEAD'))
+            self.assertEqual((home / '.example').read_text(), 'original\n')
+            self.assertEqual((local / 'dot_example').read_text(), 'upstream\n')
+
 if __name__ == '__main__':
     unittest.main()
