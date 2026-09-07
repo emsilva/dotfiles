@@ -40,12 +40,17 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(data['permissions']['defaultMode'], 'default')
         self.assertFalse(data['enabledPlugins']['fixture@local'])
 
-    def test_herdr_host_preferences_and_resume_policy(self):
+    def test_herdr_settings_are_shared_despite_legacy_host_overrides(self):
+        shared = self.render('.config/herdr/config.toml')
         self.profile({'herdr': {'theme': {'custom': {'green': '#123456'}},
-                               'experimental': {'allow_nested': True}}})
+                               'experimental': {'allow_nested': True},
+                               'update': {'channel': 'stable'}}})
+        self.assertEqual(self.render('.config/herdr/config.toml'), shared)
         data = tomllib.loads(self.render('.config/herdr/config.toml'))
-        self.assertEqual(data['theme']['custom']['green'], '#123456')
-        self.assertTrue(data['experimental']['allow_nested'])
+        self.assertEqual(data['theme']['custom']['green'], '#a9dc76')
+        self.assertEqual(data['theme']['custom']['panel_bg'], 'reset')
+        self.assertNotIn('allow_nested', data['experimental'])
+        self.assertEqual(data['update']['channel'], 'preview')
         self.assertIsInstance(data['advanced']['scrollback_limit_bytes'], int)
         self.assertTrue(data['session']['resume_agents_on_restore'])
         self.assertEqual(data['ui']['toast']['delivery'], 'herdr')
@@ -149,8 +154,7 @@ class RenderTests(unittest.TestCase):
         managed = subprocess.check_output(self.command + ['managed'], text=True).splitlines()
         self.assertNotIn('.zshrc.local', managed)
 
-    def test_numeric_override_passes_the_herdr_parser(self):
-        self.profile({'herdr': {'advanced': {'scrollback_limit_bytes': 12345678}}})
+    def test_shared_herdr_config_passes_the_herdr_parser(self):
         rendered = self.render('.config/herdr/config.toml')
         self.assertIsInstance(tomllib.loads(rendered)['advanced']['scrollback_limit_bytes'], int)
         import shutil

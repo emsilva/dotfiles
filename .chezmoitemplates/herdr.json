@@ -19,7 +19,8 @@
     "custom": {
       "accent": "#ab9df2",
       "red": "#ff6188",
-      "green": "#a6e3a1"
+      "green": "#a9dc76",
+      "panel_bg": "reset"
     }
   },
   "ui": {

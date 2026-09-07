@@ -1,7 +1,5 @@
 {{- /* JSON is valid YAML; fromYaml retains integer types that fromJson turns into float64. */ -}}
-{{- $machine := includeTemplate "machine.json.tmpl" . | fromYaml -}}
 {{- $config := include ".chezmoitemplates/herdr.json" | fromYaml -}}
-{{- $config = mustMergeOverwrite $config (get $machine "herdr" | default dict) -}}
-# Shared defaults plus private ~/.config/chezmoi/machine.json overrides.
+# One shared Herdr configuration for every machine; no machine-profile overrides.
 # Session auto-resume is owner-accepted, including its memory-pressure/OOM risk.
 {{ $config | toToml }}

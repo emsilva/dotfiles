@@ -79,19 +79,20 @@ machine-specific overrides in **unmanaged**
 {
   "git": { "name": "Your Name", "email": "you@example.com" },
   "codespace": "your-optional-codespace-name",
-  "herdr": { "update": { "channel": "preview" } },
   "claudeSettings": { "effortLevel": "high" }
 }
 ```
 
-Objects merge recursively into `.chezmoitemplates/` defaults; arrays and scalar
-values replace the corresponding default. Use the smallest overrides needed.
+Claude settings merge recursively into `.chezmoitemplates/` defaults; arrays and
+scalar values replace the corresponding default. Use the smallest overrides needed.
 Absent profile keys use shared defaults. Remove a key from the shared defaults
 if it should exist only on selected machines. Legacy chezmoi `gitName/gitEmail`
 data remain supported when the profile does not supply identity.
 
-Herdr's shared update channel is `preview`. This selects the update stream;
-applying dotfiles does not upgrade the installed binary or restart Herdr.
+Herdr uses one shared configuration from `.chezmoitemplates/herdr.json` on every
+machine, including the `preview` update channel. Legacy `herdr` keys in a machine
+profile are ignored and can be removed. Applying dotfiles does not upgrade the
+installed binary or restart Herdr; binary installation is a separate operation.
 
 For separate work and personal commit identities, Git 2.36+ can select an
 identity by repository directory or remote URL. Add these optional fields to
