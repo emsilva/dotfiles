@@ -13,6 +13,18 @@
 [user]
 	name = {{ $name | quote }}
 	email = {{ $email | quote }}
+{{ range (get $identity "workDirectories" | default list) }}
+[includeIf {{ printf "gitdir:%s/" (trimSuffix "/" .) | quote }}]
+	path = {{ joinPath $.chezmoi.destDir ".config/git/identity-work" | quote }}
+{{ end }}
+{{ range (get $identity "workRemotePatterns" | default list) }}
+[includeIf {{ printf "hasconfig:remote.*.url:%s" . | quote }}]
+	path = {{ joinPath $.chezmoi.destDir ".config/git/identity-work" | quote }}
+{{ end }}
+{{ range (get $identity "personalRemotePatterns" | default list) }}
+[includeIf {{ printf "hasconfig:remote.*.url:%s" . | quote }}]
+	path = {{ joinPath $.chezmoi.destDir ".config/git/identity-personal" | quote }}
+{{ end }}
 [credential "https://github.com"]
 	helper = 
 	helper = !{{ lookPath "gh" | default "gh" }} auth git-credential

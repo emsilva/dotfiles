@@ -1,0 +1,5 @@
+{{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson -}}
+{{- $identity := get $machine "git" | default dict -}}
+[user]
+	name = {{ get $identity "name" | default (index . "gitName") | quote }}
+	email = {{ get $identity "workEmail" | default (get $identity "email") | default (index . "gitEmail") | quote }}

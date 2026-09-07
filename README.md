@@ -90,6 +90,43 @@ Absent profile keys use shared defaults. Remove a key from the shared defaults
 if it should exist only on selected machines. Legacy chezmoi `gitName/gitEmail`
 data remain supported when the profile does not supply identity.
 
+For separate work and personal commit identities, Git 2.36+ can select an
+identity by repository directory or remote URL. Add these optional fields to
+the private machine profile's `git` object:
+
+```json
+{
+  "name": "Your Name",
+  "email": "personal@example.com",
+  "workEmail": "you@company.example",
+  "workDirectories": ["~/code/work/"],
+  "workRemotePatterns": [
+    "https://github.com/work-org/**",
+    "git@github.com:work-org/**",
+    "ssh://git@github.com/work-org/**"
+  ],
+  "personalRemotePatterns": [
+    "https://github.com/personal-owner/**",
+    "git@github.com:personal-owner/**",
+    "ssh://git@github.com/personal-owner/**"
+  ]
+}
+```
+
+`email` is the default/personal identity. `workEmail` overrides it in matching
+work directories (including linked worktrees) or repositories with a matching
+remote. Use the physical directory path if a work directory has symlink aliases.
+Personal remote rules run last, so a personal repository can live in a
+work directory. Git checks every remote, including forks and upstreams; if both
+work and personal patterns match, personal wins. Omitted rules do nothing, and
+an omitted `workEmail` falls back to the default email.
+
+The template generates `.gitconfig` and identity-only includes under
+`~/.config/git/`. Repository-local `user.name`/`user.email` and Git author/committer
+environment variables still take precedence. Inspect with `git var GIT_AUTHOR_IDENT`
+and `git config --show-origin --get user.email`. These rules affect future commits;
+they do not rewrite history or change GitHub authentication.
+
 Claude's current runtime `model` is read from the selected destination and
 preserved on apply. A profile model is a fallback when installing on a new
 machine. Invalid profile or installed Claude JSON stops rendering. Codex's

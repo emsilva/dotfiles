@@ -13,7 +13,7 @@ class RenderTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name)
+        self.home = Path(self.tmp.name).resolve()
         self.config = self.home / 'chezmoi.toml'
         self.config.write_text('[data]\ngitName = "Fixture"\ngitEmail = "fixture@example.invalid"\n')
         self.command = ['chezmoi', '--source', str(SOURCE), '--destination', str(self.home),
@@ -56,6 +56,57 @@ class RenderTests(unittest.TestCase):
         target.write_text(self.render('.gitconfig'))
         email = subprocess.check_output(['git', 'config', '--file', str(target), 'user.email'], text=True).strip()
         self.assertEqual(email, 'machine@example.invalid')
+
+    def install_git_identity(self):
+        managed = subprocess.check_output(self.command + ['managed'], text=True).splitlines()
+        for path in ['.gitconfig'] + [p for p in managed if p.startswith('.config/git/identity-')]:
+            target = self.home / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(self.render(path))
+        self.git_env = {**os.environ, 'HOME': str(self.home), 'GIT_CONFIG_NOSYSTEM': '1',
+                        'GIT_CONFIG_GLOBAL': str(self.home / '.gitconfig')}
+
+    def git(self, repo, *args):
+        return subprocess.check_output(['git', '-C', str(repo), *args],
+                                       env=self.git_env, text=True, stderr=subprocess.PIPE).strip()
+
+    def test_work_identity_follows_https_and_ssh_remotes(self):
+        prefixes = ['https://github.com/', 'git@github.com:', 'ssh://git@github.com/']
+        self.profile({'git': {'name': 'Owner', 'email': 'personal@example.invalid',
+                             'workEmail': 'work@example.invalid',
+                             'workRemotePatterns': [p + 'work-org/**' for p in prefixes]}})
+        self.install_git_identity()
+        repo = self.home / 'repo'
+        repo.mkdir()
+        self.git(repo, 'init')
+        self.git(repo, 'remote', 'add', 'origin', 'https://github.com/personal/repo.git')
+        self.assertEqual(self.git(repo, 'config', 'user.email'), 'personal@example.invalid')
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix):
+                self.git(repo, 'remote', 'set-url', 'origin', prefix + 'work-org/repo.git')
+                self.assertIn('Owner <work@example.invalid>', self.git(repo, 'var', 'GIT_AUTHOR_IDENT'))
+                self.assertIn('Owner <work@example.invalid>', self.git(repo, 'var', 'GIT_COMMITTER_IDENT'))
+
+    def test_personal_remote_overrides_work_directory_and_worktree_inherits(self):
+        work = self.home / 'work'
+        self.profile({'git': {'name': 'Owner', 'email': 'personal@example.invalid',
+                             'workEmail': 'work@example.invalid',
+                             'workDirectories': [str(work) + '/'],
+                             'personalRemotePatterns': ['https://github.com/personal/**']}})
+        self.install_git_identity()
+        repo = work / 'repo'
+        repo.mkdir(parents=True)
+        self.git(repo, 'init')
+        self.assertEqual(self.git(repo, 'config', 'user.email'), 'work@example.invalid')
+        self.git(repo, 'commit', '--allow-empty', '-m', 'Fixture')
+        linked = self.home / 'linked'
+        self.git(repo, 'worktree', 'add', '-b', 'fixture-linked', str(linked))
+        self.assertEqual(self.git(linked, 'config', 'user.email'), 'work@example.invalid')
+        self.git(repo, 'remote', 'add', 'origin', 'https://github.com/personal/dotfiles.git')
+        for checkout in [repo, linked]:
+            self.assertEqual(self.git(checkout, 'config', 'user.email'), 'personal@example.invalid')
+        self.git(repo, 'config', '--local', 'user.email', 'explicit@example.invalid')
+        self.assertEqual(self.git(linked, 'config', 'user.email'), 'explicit@example.invalid')
 
     def test_invalid_profile_refuses_render(self):
         self.profile({}).write_text('{broken')
