@@ -19,3 +19,8 @@ shell startup, configuration parsing, and installed-state comparison are require
 Graphical behavior and provider/model quality require separate checks and must
 not be claimed from a format or shell test. Publishing the reviewed commit and
 switching the active source checkouts to GitHub happen only after validation.
+
+The real Linux Neovim startup check exposed Lazy's automatic lockfile rewrite
+when missing plugins are installed. The generated lockfile is therefore owned
+by Lazy, excluded from chezmoi management, and included in private backups.
+Plugin declarations remain shared; no plugin downgrade is performed.

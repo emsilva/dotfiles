@@ -22,7 +22,7 @@ def backup(chezmoi, destination):
         raise SystemExit('Backup directory must be outside the source checkout')
     folder.mkdir(parents=True, mode=0o700)
     managed = output(chezmoi + ['managed', '--include=files,symlinks', '--path-style=relative']).splitlines()
-    paths = set(managed + ['.config/chezmoi'])
+    paths = set(managed + ['.config/chezmoi', '.config/nvim/lazy-lock.json'])
     selected = []
     for name in sorted(paths, key=lambda p: (len(Path(p).parts), p)):
         path = Path(name)

@@ -114,3 +114,9 @@ history separately. Do not extract an entire backup blindly over your home.
 Retired desktop-environment settings, cswap services, private SSH drop-ins and
 private lint helpers remain installed but unmanaged. Retirement from the
 source repository does not delete their live files.
+
+Neovim plugin declarations are shared. Lazy's generated
+`~/.config/nvim/lazy-lock.json` stays machine-local: startup can rewrite it from
+installed plugin commits. `task backup` includes it for recovery. This preserves
+each host's installed plugin versions; matching plugin versions across machines
+would require a separate, deliberate plugin restore/update.

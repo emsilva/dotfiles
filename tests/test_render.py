@@ -71,6 +71,7 @@ class RenderTests(unittest.TestCase):
 
     def test_repository_and_private_state_are_not_installed(self):
         managed = subprocess.check_output(self.command + ['managed'], text=True).splitlines()
+        self.assertNotIn('.config/nvim/lazy-lock.json', managed)
         for path in managed:
             self.assertFalse(path.startswith(('tests', 'scripts', 'docs', '.config/chezmoi', '.ssh', '.codex/skills')), path)
             self.assertNotIn(path, ['Taskfile.yml', 'README.md', 'LICENSE'])

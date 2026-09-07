@@ -118,3 +118,6 @@ docs
 !.claude/commands/**
 !.claude/skills/session-handoff
 !.claude/skills/session-handoff/**
+
+# Lazy rewrites this from the host's installed plugins, including on startup.
+.config/nvim/lazy-lock.json

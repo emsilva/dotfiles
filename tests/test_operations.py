@@ -27,6 +27,8 @@ class OperationTests(unittest.TestCase):
             preferences.mkdir()
             (home / '.config/chezmoi').symlink_to(preferences, target_is_directory=True)
             (home / '.example').write_text('uncommitted installed version\n')
+            (home / '.config/nvim').mkdir()
+            (home / '.config/nvim/lazy-lock.json').write_text('{"host-plugin":{}}\n')
             (home / '.link').symlink_to('.example')
             profile = root / 'external-machine.json'
             profile.write_text('{"private":"fixture"}\n')
@@ -42,6 +44,8 @@ class OperationTests(unittest.TestCase):
             with tarfile.open(backup / 'installed.tar.gz') as archive:
                 self.assertEqual(archive.extractfile('.example').read(), b'uncommitted installed version\n')
                 self.assertTrue(archive.getmember('.link').issym())
+                self.assertIn('.config/nvim/lazy-lock.json', archive.getnames())
+                self.assertEqual(archive.extractfile('.config/nvim/lazy-lock.json').read(), b'{"host-plugin":{}}\n')
                 self.assertTrue(archive.getmember('.config/chezmoi').issym())
             self.assertTrue((backup / 'machine-config.tar.gz').exists(), 'Resolved private preferences are missing from the backup')
             with tarfile.open(backup / 'machine-config.tar.gz') as archive:
