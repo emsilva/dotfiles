@@ -24,6 +24,7 @@
     }
   },
   "ui": {
+    "copy_on_select": true,
     "confirm_close": true,
     "accent": "#ab9df2",
     "show_agent_labels_on_pane_borders": true,
