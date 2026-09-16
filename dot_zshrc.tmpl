@@ -125,14 +125,12 @@ fi
 # Tracked upstream: https://github.com/anthropics/claude-code/issues/46146
 export CLAUDE_CODE_TMUX_TRUECOLOR=1
 
-# Claude Code: use the classic inline renderer instead of the fullscreen
-# alternate-screen one (default since ~2.1.138). Fullscreen renders to the alt
-# screen + captures the mouse, so the conversation never lands in the terminal's
-# normal buffer — which breaks tmux scrollback, copy-mode, and native selection.
-# Inline keeps output in the buffer so the mouse wheel scrolls tmux's scrollback
-# as before. Trade-off: a little more flicker / memory on very long sessions.
-# Toggle live with `/tui fullscreen` ⇄ `/tui default`.
-export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+# Claude Code renderer: fullscreen (alt-screen) is chosen in settings via
+# machine.json `claudeSettings.tui`. Deliberately NOT overridden here — an
+# earlier CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 silently countermanded it.
+# Known trade-off: the alt screen keeps the conversation out of the terminal's
+# normal buffer, so tmux/herdr scrollback, copy-mode and native selection do
+# not see it. Toggle live with `/tui default` ⇄ `/tui fullscreen`.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4) COMPLETION SYSTEM (FAST + PORTABLE)
@@ -397,6 +395,7 @@ alias gcb='git checkout -b'
 {{- end }}
 : ${DOTFILES_CODESPACE:={{ . | squote }}}
 {{- end }}
+: ${DOTFILES_CODESPACE_PORTS:='5173 5174 3080 3000 8000 8100 8099 8090 19011 44129 19777 45553'}
 # Hold an SSH session open so a codespace doesn't idle-shutdown, and
 # auto-reconnect when the link silently dies (lid close, network drop).
 # The ServerAlive* flags make a dead connection FAIL FAST (~45s) instead of
@@ -412,6 +411,13 @@ csalive() {
     print -u2 "csalive: pass a codespace name or set DOTFILES_CODESPACE"
     return 2
   fi
+  # Forward the app ports over the same held-open link. `gh cs ssh` dials
+  # vscode@localhost on a random port, so no Host block in ~/.ssh/config ever
+  # matches it - forwards must be passed here or they silently never happen.
+  local -a fwd; local p
+  for p in ${=DOTFILES_CODESPACE_PORTS}; do
+    fwd+=(-L "127.0.0.1:${p}:127.0.0.1:${p}")
+  done
   local stop=0
   trap 'stop=1' INT
   while (( ! stop )); do
@@ -420,6 +426,8 @@ csalive() {
       -o ServerAliveInterval=15 \
       -o ServerAliveCountMax=3 \
       -o ConnectTimeout=10 \
+      -o ExitOnForwardFailure=yes \
+      "${fwd[@]}" \
       'exec sleep infinity'
     local rc=$?
     (( stop )) && break
