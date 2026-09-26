@@ -104,11 +104,10 @@ The rule above, pointed inward — and the one I break most. Established 2026-08
 - **review my diff** (working tree) → `/code-review`
 - **review a PR** → `/review`
 - **simplify** → `/simplify`
-- **epic / issue work** (plan · scope · drive to done) → `/ship`
+- **epic / issue work** (plan · scope · drive to done) → `superpowers:brainstorming`
+  → `superpowers:writing-plans` → `superpowers:subagent-driven-development`
 - **save / resume a session** (wrap up · fresh window · after a crash or limit) →
-  `/handoff`, `/pickup` — a session-opening "where do we stand?" goes to
-  `/pickup` first and `/ship` after; `/ship`'s description claims that phrasing
-  too, and this row is the tie-break.
+  `/handoff`, `/pickup` — a session-opening "where do we stand?" goes to `/pickup`.
 - **capture / check todos** ("remember to do X") → `/todo` (global `~/TODO.md`)
 
 Other surfaces exist; these win on ambiguity.
