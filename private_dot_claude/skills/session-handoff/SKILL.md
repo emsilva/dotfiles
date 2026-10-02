@@ -31,6 +31,17 @@ them in the note.
      case where the count matters MOST, so it is never the case you skip.)
    - Background work you started: task/agent list, running workflows (record
      each `resumeFromRunId`), detached processes + the ports they hold
+   - **Herd panes**, when `HERDR_ENV=1`:
+     `bash ~/.claude/skills/session-handoff/scripts/herd-snapshot.sh [extra-root …]`
+     (read-only; it lists every pane whose cwd is this repo or a worktree of it, and
+     you pass any dir outside the repo where this front launched panes). Record
+     each line it prints and classify the pane as **self**, **worker** of this
+     front, **shell** (the command it runs + its log) or **not mine**. For a
+     worker, also record model + effort, worktree + branch, brief path + sha256,
+     deliverable path, and its waiter command verbatim. Match on `session=`
+     first: herdr resumes an agent by it after a restore, where pane ids can
+     change and names clear. A `/clear` inside the pane starts a new session, so
+     pane id and then name are the fallbacks.
    - Session crons — and ANY text the Next step orders re-issued (cron prompt,
      agent dispatch brief, relaunch line): VERBATIM in the note, or in a durable
      file (`./tmp/…`, never `/tmp`) whose path the note records. Includes a cron
@@ -81,7 +92,9 @@ continuation, compact instead.
 
     ## In flight
     <for EACH class: the finding, or `none (checked)` — tasks/agents · workflow
-    run IDs · session crons VERBATIM · detached processes+ports+log paths · open PRs+CI>
+    run IDs · session crons VERBATIM · detached processes+ports+log paths · open PRs+CI
+    · herd panes (only when HERDR_ENV=1): one line per pane, classified
+    self / worker / shell / not mine, workers with brief, deliverable and waiter>
 
     ## Artifacts          (paths, branches, PRs)
 
@@ -167,6 +180,19 @@ verify even when nobody told you to, even when the note "looks complete".
    — no edit, no revert, no mutate-and-restore "just to check". A restore that
    races a live edit destroys work that may exist in no repo. If you already
    raced it, tell it exactly what you did and when, and let IT re-verify.
+
+   **Herd panes — the note records any, or `HERDR_ENV=1`.** Invoke the `herdr`
+   skill before the first herdr command: a note that records panes is the
+   explicit mention its description waits for. Re-run `herd-snapshot.sh` with
+   the note's extra roots, and match each recorded pane by `session=`, then pane
+   id, then name. herdr's live status outranks the note, and a pane in scope that
+   the note does not account for is drift. A worker's progress is its
+   deliverable file (present? sha256?), never its chat. Only read panes: no
+   `agent prompt`, `send-keys` or `/pickup` to a worker to learn its state. A
+   prompt to an idle worker makes it a second writer, and a pane whose cwd is
+   this repo shares this memory dir, so `/pickup` there would select and stamp
+   THIS note. A recorded waiter is a background task of the old session: `pgrep
+   -f` its command, and offer to re-arm it verbatim only when it is gone.
 3. **Classify → tier:**
    - **Tier 1 (clean):** note exists · anchor matches reality · no newer /
      EMERGENCY / drifted evidence · in-flight items all accounted for →
@@ -217,6 +243,8 @@ verify even when nobody told you to, even when the note "looks complete".
 - Continuing a dead agent's "finished" work without re-running its gates
 - Declaring a recorded agent dead from a frozen transcript, an empty `ps`, or a
   quiet minute or two — and then writing to the files it owns
+- Recording a herd worker without its brief, deliverable and waiter, or
+  prompting / `/pickup`-ing a worker pane to find out what state it is in
 - Settling an owner-level design question yourself instead of asking
 - Leaving a consumed note unstamped, or skipping the handoff because
   "compaction will summarize it anyway"

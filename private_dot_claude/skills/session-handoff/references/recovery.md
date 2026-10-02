@@ -60,7 +60,10 @@ running". Detect live work from the OS, not the list.
    a compaction signal → Tier 2. Derive the paths from `worktree list`; do NOT
    prefix-glob `~/.claude/projects/` — a sibling encoding that merely shares the
    repo's prefix is an unrelated project with its own live notes.
-7. Herd panes via the herdr CLI — ONLY when `HERDR_ENV=1` (see §4).
+7. Herd panes — ONLY when `HERDR_ENV=1`: load the `herdr` skill, then run
+   `scripts/herd-snapshot.sh` (read-only, scoped to this repo, its worktrees and
+   any extra root the note names). A herd worker is its own OS process, so it
+   survives the coordinator's crash; match it to the note by `session=`.
 
 ## 2 · Audit — self-reports are claims, not facts
 Classify EVERY in-flight item from artifacts alone. **Never discard uncommitted
@@ -90,19 +93,26 @@ misleading-but-correct commit; supersede it forward instead.
   unverified claim — re-read the files, `git diff`, re-run the gates, then
   continue; do NOT redo landed steps."
 - Claimed-done work you must build on → re-run its gates + a real smoke here.
+- Herd worker → its deliverable file decides, not its pane. Alive and idle with
+  the deliverable present → audit the deliverable. Gone → respawn it in the same
+  pane from its recorded brief file, with the audit-first line above.
 - **Stagger respawns in small waves** — a parallel relaunch recreates the
   rate-limit spike that killed the session in the first place.
 
 ## 4 · Herd sweep (`HERDR_ENV=1` only)
-Only inside a real herd. Enumerate sibling panes via the herdr CLI (read-only),
-then inject recovery into idle / failed **Claude** panes — siblings routinely
-run per-child branches and worktrees, so unfamiliar branches are normal, not a
-reason to skip. Skip non-Claude panes and actively-streaming agents. **The
-injected payload is always the self-scoped resume command (`/pickup` — the pane
-audits its OWN context), NEVER front-specific instructions from this session** —
-that self-scoping is what makes cross-front injection safe. Report who was
-nudged (often nobody). NEVER sweep outside herdr; when in doubt,
-enumerate-and-report rather than inject.
+Only inside a real herd. Enumerate every pane read-only via the herdr CLI.
+Inject `/pickup` only into an idle / failed **Claude** pane whose cwd is in
+**another repo**. Every pane inside this repo's scope (the panes
+`herd-snapshot.sh` lists) is reported and never injected. `/pickup` selects the
+newest unconsumed note in its memory dir, not the pane's own context. A pane in
+this repo shares this memory dir, and a worktree pane may share it too, so
+`/pickup` there would resume and stamp THIS front's note. This front's workers
+are re-briefed from their brief file (§3), and same-repo panes that are not
+this front's go to the owner in the report. Skip non-Claude panes and
+actively-streaming agents. **The injected payload is always `/pickup`, NEVER
+front-specific instructions from this session.** Report who was nudged (often
+nobody). NEVER sweep outside herdr; when in doubt, enumerate-and-report rather
+than inject.
 
 ## 5 · Heartbeat
 Only if work is still genuinely in flight after this pass: arm ONE in-session
