@@ -1,8 +1,14 @@
 """Shared fixtures for the session-handoff script tests: transcript records and a fake herdr."""
-import json
+# The scripts dir is chezmoi source, so bytecode written there would be deployed (a `!.../**`
+# allow-list line outranks any ignore rule). Children run as `python3 -I` ignore the env var: pass -B.
 import os
-from pathlib import Path
-import stat
+import sys
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+import stat  # noqa: E402
 
 SOURCE = Path(__file__).resolve().parents[1]
 SCRIPTS = SOURCE / 'private_dot_claude/skills/session-handoff/scripts'

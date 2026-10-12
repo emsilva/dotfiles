@@ -1,10 +1,11 @@
 import json
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, notice, prompt, queued_notice, tool_result, tool_use, ts,
+from handoff_fixtures import (SCRIPTS, SOURCE, notice, prompt, queued_notice, tool_result, tool_use, ts,
                               write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
@@ -15,7 +16,7 @@ SID = '11111111-1111-4111-8111-111111111111'
 
 
 def run_bg(projects, *args):
-    out = subprocess.run(['python3', '-I', str(BG), '--projects', str(projects), '--json', *args],
+    out = subprocess.run(['python3', '-I', '-B', str(BG), '--projects', str(projects), '--json', *args],
                          capture_output=True, text=True, check=True)
     return json.loads(out.stdout)
 
@@ -92,7 +93,7 @@ class BgTasksTests(unittest.TestCase):
 
     def test_unknown_session_exits_2(self):
         with tempfile.TemporaryDirectory() as tmp:
-            r = subprocess.run(['python3', '-I', str(BG), '--projects', tmp, '--session', SID],
+            r = subprocess.run(['python3', '-I', '-B', str(BG), '--projects', tmp, '--session', SID],
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 2)
             self.assertIn('expected one transcript', r.stderr)
@@ -122,6 +123,21 @@ class TranscriptModuleTests(unittest.TestCase):
             self.assertEqual(transcript.permission_mode(path), 'bypassPermissions')
             self.assertEqual(transcript.first_timestamp(path), ts(1))
             self.assertAlmostEqual(transcript.epoch(ts(1)) - transcript.epoch(ts(0)), 1.0)
+
+
+class ChezmoiPackagingTests(unittest.TestCase):
+    def test_python_bytecode_is_never_managed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            config = home / 'chezmoi.toml'
+            config.write_text('[data]\ngitName = "Fixture"\ngitEmail = "fixture@example.invalid"\n')
+            managed = subprocess.check_output(
+                ['chezmoi', '--source', str(SOURCE), '--destination', str(home), '--config', str(config),
+                 '--persistent-state', str(home / 'state.boltdb'), 'managed'], text=True).splitlines()
+        self.assertTrue(any(p.startswith('.claude/skills/session-handoff/scripts/') for p in managed), managed)
+        self.assertEqual([p for p in managed if '__pycache__' in p or p.endswith('.pyc')], [],
+                         'chezmoi would deploy Python bytecode: delete the stray __pycache__ under %s '
+                         '(a script was run from the source dir without -B)' % SOURCE)
 
 
 if __name__ == '__main__':
