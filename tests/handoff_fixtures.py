@@ -27,19 +27,30 @@ def tool_result(tid, text, second=0):
             'message': {'content': [{'type': 'tool_result', 'tool_use_id': tid, 'content': text}]}}
 
 
-def _notice_text(task_id, status):
-    return ('<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n</task-notification>'
-            % (task_id, status))
+def _notice_text(task_id, status, payload=None):
+    """A terminal notice as Claude Code 2.1.296 writes it: header tags, then the payload."""
+    if payload is None:
+        payload = '<summary>Background task "%s" %s</summary>\n<event>exit 0</event>' % (task_id, status)
+    return ('<task-notification>\n<task-id>%s</task-id>\n<tool-use-id>toolu_%s</tool-use-id>\n'
+            '<output-file>/tmp/x/%s.output</output-file>\n<status>%s</status>\n%s\n</task-notification>'
+            % (task_id, task_id, task_id, status, payload))
 
 
-def notice(task_id, status, second=0):
+def notice(task_id, status, second=0, payload=None):
     return {'type': 'user', 'timestamp': ts(second), 'origin': {'kind': 'task-notification'},
-            'message': {'content': _notice_text(task_id, status)}}
+            'message': {'content': _notice_text(task_id, status, payload)}}
 
 
-def queued_notice(task_id, status, second=0):
+def queued_notice(task_id, status, second=0, payload=None):
     return {'type': 'queue-operation', 'operation': 'enqueue', 'timestamp': ts(second),
-            'content': _notice_text(task_id, status)}
+            'content': _notice_text(task_id, status, payload)}
+
+
+def monitor_event(task_id, event_text, second=0):
+    """A monitor's event notice: no <status> in the header, the event text is the payload."""
+    return {'type': 'user', 'timestamp': ts(second), 'origin': {'kind': 'task-notification'},
+            'message': {'content': '<task-notification>\n<task-id>%s</task-id>\n<summary>Monitor event: '
+                        '"watch"</summary>\n<event>%s</event>\n</task-notification>' % (task_id, event_text)}}
 
 
 def prompt(text, second=0, source='typed'):

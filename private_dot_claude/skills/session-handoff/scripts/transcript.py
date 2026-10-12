@@ -5,14 +5,20 @@ directory off sys.path, so each CLI inserts it before importing this module.
 
 Record formats, verified on Claude Code 2.1.296 (2026-10-12):
 - Background launches are tool results of specific tools: Bash with
-  run_in_background (`Command running in background with ID: <id>`), Monitor
-  (`Monitor started (task <id>`), Workflow (`Workflow launched in background.
-  Task ID: <id>`), Agent with run_in_background (`Async agent launched
-  successfully. ... agentId: <id>`).
-- A task closes on a `user` record whose origin.kind is "task-notification", or
-  a `queue-operation` record, carrying a terminal <status>; or on a TaskStop
-  result `Successfully stopped task: <id>`. `attachment` records are never read:
-  prompt snapshots quote notifications verbatim.
+  run_in_background (`Command running in background with ID: <id>`), Bash that
+  outlived its timeout (`Command did not complete within its 120s timeout and
+  was moved to the background (ID: <id>)`), Monitor (`Monitor started (task
+  <id>`), Workflow (`Workflow launched in background. Task ID: <id>`), Agent
+  with run_in_background (`Async agent launched successfully. ... agentId: <id>`).
+- A task closes on a notification: a `user` record whose origin.kind is
+  "task-notification", or a `queue-operation` record, whose text starts with
+  <task-notification>. Only its header is read (the tags before the first
+  <summary>, <result>, <event>, <note>, <diagnostics> or the closing tag): it
+  closes the one <task-id> there when the header's <status> is terminal.
+  Payloads quote other tasks' tags, and monitor events carry no <status>. A
+  task also closes on a TaskStop result `Successfully stopped task: <id>`.
+  `attachment` records are never read: prompt snapshots quote notifications
+  verbatim.
 - Typed prompts (by the owner, or by herdr into the pane) are `user` records
   whose origin.kind is "human", or `queue-operation` enqueues while busy.
 - CronCreate results read `Scheduled <one-shot|recurring> task <id>`; CronDelete
@@ -29,11 +35,16 @@ PROJECTS = os.path.expanduser('~/.claude/projects')
 # (kind, tool name, requires run_in_background, result pattern matched at the start)
 LAUNCHES = (
     ('shell', 'Bash', True, re.compile(r'Command running in background with ID: (\w+)')),
+    ('shell', 'Bash', False, re.compile(
+        r'Command did not complete within its \S+ timeout and was moved to the background \(ID: (\w+)\)')),
     ('monitor', 'Monitor', False, re.compile(r'Monitor started \(task (\w+)')),
     ('workflow', 'Workflow', False, re.compile(r'Workflow launched in background\. Task ID: (\w+)')),
     ('agent', 'Agent', True, re.compile(r'Async agent launched successfully\..*?agentId: (\w+)', re.S)),
 )
-NOTICE = re.compile(r'<task-id>(\w+)</task-id>.*?<status>(\w+)</status>', re.S)
+NOTICE_START = '<task-notification>'
+HEADER_END = re.compile(r'<(?:summary|result|event|note|diagnostics)>|</task-notification>')
+TASK_ID = re.compile(r'<task-id>(\w+)</task-id>')
+STATUS = re.compile(r'<status>(\w+)</status>')
 STOPPED = re.compile(r'Successfully stopped task: (\w+)')
 TERMINAL = frozenset({'completed', 'failed', 'killed', 'stopped'})
 CRON_MADE = re.compile(r'Scheduled [\w-]+ task (\w+)')
@@ -116,14 +127,24 @@ def _events(paths, until_line=None):
                         yield path, i, rec, (name, args, _text(b.get('content')))
 
 
+def _is_notice(text):
+    return text.lstrip().startswith(NOTICE_START)
+
+
 def _closed_by_notice(rec):
+    """The task id a notification record closes, read from its header only; else None."""
     if rec.get('type') == 'user' and (rec.get('origin') or {}).get('kind') == 'task-notification':
         text = _user_text(rec)
     elif rec.get('type') == 'queue-operation':
         text = str(rec.get('content', ''))
     else:
-        return []
-    return [tid for tid, status in NOTICE.findall(text) if status in TERMINAL]
+        return None
+    if not _is_notice(text):
+        return None
+    end = HEADER_END.search(text)
+    header = text[:end.start()] if end else text
+    task, status = TASK_ID.search(header), STATUS.search(header)
+    return task.group(1) if task and status and status.group(1) in TERMINAL else None
 
 
 def open_tasks(paths, until_line=None):
@@ -134,7 +155,7 @@ def open_tasks(paths, until_line=None):
     launched, closed = {}, set()
     for path, line, rec, call in _events(paths, until_line):
         if call is None:
-            closed.update(_closed_by_notice(rec))
+            closed.update(filter(None, [_closed_by_notice(rec)]))
             continue
         name, args, result = call
         if name == 'TaskStop':
@@ -149,7 +170,7 @@ def open_tasks(paths, until_line=None):
                     'id': m.group(1), 'kind': kind, 'description': args.get('description', ''),
                     'command': args.get('command', ''), 'started_at': rec.get('timestamp', ''),
                     'transcript': path, 'line': line}
-            break
+                break
     return [task for tid, task in launched.items() if tid not in closed]
 
 
@@ -180,7 +201,7 @@ def prompts(path):
             out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': _user_text(rec)})
         elif kind == 'queue-operation' and rec.get('operation') == 'enqueue':
             text = str(rec.get('content', ''))
-            if not text.lstrip().startswith('<task-notification>'):
+            if not _is_notice(text):
                 out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': text})
     return out
 

@@ -5,8 +5,8 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, SOURCE, notice, prompt, queued_notice, tool_result, tool_use, ts,
-                              write_transcript)
+from handoff_fixtures import (SCRIPTS, SOURCE, monitor_event, notice, prompt, queued_notice, tool_result,
+                              tool_use, ts, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import transcript  # noqa: E402
@@ -46,8 +46,13 @@ class BgTasksTests(unittest.TestCase):
                  tool_use('tu10', 'TaskStop', {'task_id': 'bstop0004'}, 10),
                  tool_result('tu10', '{"message":"Successfully stopped task: bstop0004 (tail -f x.log)"}', 10),
                  notice('wdone0006', 'completed', 11),
-                 notice('mopen0005', 'running', 12)]
+                 monitor_event('mopen0005', 'a.log: line 1', 12)]
         return recs
+
+    def open_ids(self, recs):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_transcript(tmp, SID, recs)
+            return sorted(t['id'] for t in run_bg(tmp, '--session', SID))
 
     def test_lists_exactly_the_open_tasks_of_every_kind(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,11 +69,48 @@ class BgTasksTests(unittest.TestCase):
             tool_result('tu20', 'Command running in background with ID: bfake0020. Output is being written', 20),
             {'type': 'attachment', 'attachment': {'type': 'prompt_snapshot', 'systemPrompt': [
                 '<task-notification><task-id>bopen0001</task-id><status>completed</status>']}},
-            prompt('it said <task-id>mopen0005</task-id> <status>completed</status>', 21)]
+            prompt('it said <task-id>mopen0005</task-id> <status>completed</status>', 21),
+            tool_use('tu22', 'Bash', {'command': 'grep -h timeout old.jsonl'}, 22),
+            tool_result('tu22', 'old.jsonl: Command did not complete within its 120s timeout and was moved to '
+                        'the background (ID: bfake0021). Output is being written to: /tmp/x/bfake0021.output', 22)]
         with tempfile.TemporaryDirectory() as tmp:
             write_transcript(tmp, SID, recs)
             ids = sorted(t['id'] for t in run_bg(tmp, '--session', SID))
             self.assertEqual(ids, ['aopen0007', 'bopen0001', 'mopen0005'])
+
+    def test_queued_typed_prompt_quoting_a_notice_closes_nothing(self):
+        text = 'it said <task-id>bopen0001</task-id> <status>completed</status>'
+        recs = self.fixture() + [{'type': 'queue-operation', 'operation': 'enqueue', 'timestamp': ts(20),
+                                  'content': text}]
+        self.assertEqual(self.open_ids(recs), ['aopen0007', 'bopen0001', 'mopen0005'])
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIn(text, [p['text'] for p in transcript.prompts(str(write_transcript(tmp, SID, recs)))])
+
+    def test_a_notice_payload_quoting_another_task_closes_only_its_own(self):
+        recs = self.fixture() + [
+            tool_use('tu20', 'Agent', {'description': 'review', 'prompt': 'p', 'run_in_background': True}, 20),
+            tool_result('tu20', 'Async agent launched successfully. agentId: adone0008 (internal)', 20),
+            notice('adone0008', 'completed', 21, payload='<summary>Agent "review" completed</summary>\n<result>'
+                   'Found in the log: <task-id>bopen0001</task-id><status>completed</status></result>')]
+        self.assertEqual(self.open_ids(recs), ['aopen0007', 'bopen0001', 'mopen0005'])
+
+    def test_a_monitor_event_quoting_a_status_does_not_close_the_monitor(self):
+        recs = self.fixture() + [
+            monitor_event('mopen0005', '{"type":"queue-operation","content":"<status>completed</status>"}', 20)]
+        self.assertEqual(self.open_ids(recs), ['aopen0007', 'bopen0001', 'mopen0005'])
+
+    def test_auto_backgrounded_command_is_listed_until_it_closes(self):
+        def timed_out(n, task_id, cmd, second):
+            return [tool_use('tu%d' % n, 'Bash', {'command': cmd, 'description': 'slow %s' % task_id}, second),
+                    tool_result('tu%d' % n, 'Command did not complete within its 120s timeout and was moved to the '
+                                'background (ID: %s). Output is being written to: /tmp/x/%s.output\nYou will be '
+                                'notified when it completes.' % (task_id, task_id), second)]
+        recs = (timed_out(1, 'bauto0001', 'pytest -x', 1) + timed_out(2, 'bauto0002', 'make all', 2)
+                + [queued_notice('bauto0002', 'completed', 3)])
+        with tempfile.TemporaryDirectory() as tmp:
+            write_transcript(tmp, SID, recs)
+            tasks = run_bg(tmp, '--session', SID)
+        self.assertEqual([(t['id'], t['kind'], t['command']) for t in tasks], [('bauto0001', 'shell', 'pytest -x')])
 
     def test_until_line_ignores_later_closes(self):
         with tempfile.TemporaryDirectory() as tmp:
