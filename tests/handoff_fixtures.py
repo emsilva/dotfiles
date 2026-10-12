@@ -22,9 +22,13 @@ def tool_use(tid, name, args, second=0):
                 {'type': 'tool_use', 'id': tid, 'name': name, 'input': args}]}}
 
 
-def tool_result(tid, text, second=0):
-    return {'type': 'user', 'timestamp': ts(second),
-            'message': {'content': [{'type': 'tool_result', 'tool_use_id': tid, 'content': text}]}}
+def tool_result(tid, text, second=0, tool_use_result=None):
+    """tool_use_result: the record's structured `toolUseResult` (e.g. {'backgroundTaskId': id})."""
+    rec = {'type': 'user', 'timestamp': ts(second),
+           'message': {'content': [{'type': 'tool_result', 'tool_use_id': tid, 'content': text}]}}
+    if tool_use_result is not None:
+        rec['toolUseResult'] = tool_use_result
+    return rec
 
 
 def _notice_text(task_id, status, payload=None):

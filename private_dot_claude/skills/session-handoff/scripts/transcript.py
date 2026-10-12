@@ -4,12 +4,17 @@ Stdlib only. The CLIs run under `python3 -I`, which leaves the script's own
 directory off sys.path, so each CLI inserts it before importing this module.
 
 Record formats, verified on Claude Code 2.1.296 (2026-10-12):
-- Background launches are tool results of specific tools: Bash with
-  run_in_background (`Command running in background with ID: <id>`), Bash that
-  outlived its timeout (`Command did not complete within its 120s timeout and
-  was moved to the background (ID: <id>)`), Monitor (`Monitor started (task
-  <id>`), Workflow (`Workflow launched in background. Task ID: <id>`), Agent
-  with run_in_background (`Async agent launched successfully. ... agentId: <id>`).
+- A background launch is read from the structured `toolUseResult` on the user
+  record answering the tool call, never from the result text, which varies
+  (a `Shell cwd was reset` prefix, timeouts, moves to deliver a message) and
+  can be quoted by any other tool. Measured read-only over 2,545 transcripts
+  (2.1.266 to 2.1.296), with no user record holding more than one tool_result
+  (0 of 85,224):
+  - Bash: `backgroundTaskId`, on 2,357 of 2,357 launches; never on another tool.
+  - Monitor: `taskId`, on 137 of 137 launches.
+  - Workflow: `taskId` with status "async_launched", on 29 of 29 launches.
+  - Agent: `agentId` with status "async_launched", on 589 of 589 launches, 418
+    of them without run_in_background ("teammate_spawned" is not a launch).
 - A task closes on a notification: a `user` record whose origin.kind is
   "task-notification", or a `queue-operation` record, whose text starts with
   <task-notification>. Only its header is read (the tags before the first
@@ -32,15 +37,13 @@ import re
 
 PROJECTS = os.path.expanduser('~/.claude/projects')
 
-# (kind, tool name, requires run_in_background, result pattern matched at the start)
-LAUNCHES = (
-    ('shell', 'Bash', True, re.compile(r'Command running in background with ID: (\w+)')),
-    ('shell', 'Bash', False, re.compile(
-        r'Command did not complete within its \S+ timeout and was moved to the background \(ID: (\w+)\)')),
-    ('monitor', 'Monitor', False, re.compile(r'Monitor started \(task (\w+)')),
-    ('workflow', 'Workflow', False, re.compile(r'Workflow launched in background\. Task ID: (\w+)')),
-    ('agent', 'Agent', True, re.compile(r'Async agent launched successfully\..*?agentId: (\w+)', re.S)),
-)
+# tool name -> (kind, toolUseResult field holding the task id, status the result must carry or None)
+LAUNCHES = {
+    'Bash': ('shell', 'backgroundTaskId', None),
+    'Monitor': ('monitor', 'taskId', None),
+    'Workflow': ('workflow', 'taskId', 'async_launched'),
+    'Agent': ('agent', 'agentId', 'async_launched'),
+}
 NOTICE_START = '<task-notification>'
 HEADER_END = re.compile(r'<(?:summary|result|event|note|diagnostics)>|</task-notification>')
 TASK_ID = re.compile(r'<task-id>(\w+)</task-id>')
@@ -100,8 +103,14 @@ def _user_text(rec):
     return _text([b for b in _blocks(rec) if b.get('type') == 'text'])
 
 
-def _in_background(args):
-    return str(args.get('run_in_background')).lower() == 'true'
+def _launch(name, rec):
+    """(kind, task id) when the record answering a `name` call says it started a background task."""
+    kind, field, status = LAUNCHES.get(name, (None, None, None))
+    result = rec.get('toolUseResult')
+    if kind is None or not isinstance(result, dict) or (status and result.get('status') != status):
+        return None
+    task_id = result.get(field)
+    return (kind, task_id) if isinstance(task_id, str) and task_id else None
 
 
 def _events(paths, until_line=None):
@@ -161,16 +170,13 @@ def open_tasks(paths, until_line=None):
         if name == 'TaskStop':
             closed.update(STOPPED.findall(result))
             continue
-        for kind, tool, needs_background, pattern in LAUNCHES:
-            if name != tool or (needs_background and not _in_background(args)):
-                continue
-            m = pattern.match(result.lstrip())
-            if m:
-                launched[m.group(1)] = {
-                    'id': m.group(1), 'kind': kind, 'description': args.get('description', ''),
-                    'command': args.get('command', ''), 'started_at': rec.get('timestamp', ''),
-                    'transcript': path, 'line': line}
-                break
+        launch = _launch(name, rec)
+        if launch:
+            kind, task_id = launch
+            launched[task_id] = {
+                'id': task_id, 'kind': kind, 'description': args.get('description', ''),
+                'command': args.get('command', ''), 'started_at': rec.get('timestamp', ''),
+                'transcript': path, 'line': line}
     return [task for tid, task in launched.items() if tid not in closed]
 
 

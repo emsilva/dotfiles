@@ -21,11 +21,29 @@ def run_bg(projects, *args):
     return json.loads(out.stdout)
 
 
+def bash_launch(n, task_id, cmd, text, second, flag=None, **extra):
+    """A Bash call the harness runs in the background: its record carries toolUseResult.backgroundTaskId."""
+    args = {'command': cmd, 'description': 'task %s' % task_id}
+    if flag is not None:
+        args['run_in_background'] = flag
+    return [tool_use('tu%d' % n, 'Bash', args, second),
+            tool_result('tu%d' % n, text, second, tool_use_result=dict(
+                {'stdout': '', 'stderr': '', 'interrupted': False, 'backgroundTaskId': task_id}, **extra))]
+
+
 def bash_bg(n, task_id, cmd, second):
-    return [tool_use('tu%d' % n, 'Bash', {'command': cmd, 'description': 'task %s' % task_id,
-                                          'run_in_background': True}, second),
-            tool_result('tu%d' % n, 'Command running in background with ID: %s. Output is being written '
-                        'to: /tmp/x/%s.output' % (task_id, task_id), second)]
+    return bash_launch(n, task_id, cmd, 'Command running in background with ID: %s. Output is being written '
+                       'to: /tmp/x/%s.output' % (task_id, task_id), second, flag=True)
+
+
+def agent_bg(n, agent_id, second, flag=True):
+    args = {'description': 'agent %s' % agent_id, 'prompt': 'p'}
+    if flag is not None:
+        args['run_in_background'] = flag
+    return [tool_use('tu%d' % n, 'Agent', args, second),
+            tool_result('tu%d' % n, 'Async agent launched successfully. (internal) agentId: %s (internal)'
+                        % agent_id, second,
+                        tool_use_result={'status': 'async_launched', 'isAsync': True, 'agentId': agent_id})]
 
 
 class BgTasksTests(unittest.TestCase):
@@ -36,12 +54,13 @@ class BgTasksTests(unittest.TestCase):
         recs += bash_bg(3, 'bkill0003', 'df -h; sleep 999', 3)
         recs += bash_bg(4, 'bstop0004', 'tail -f x.log', 4)
         recs += [tool_use('tu5', 'Monitor', {'command': 'tail -f a.log', 'description': 'watch a'}, 5),
-                 tool_result('tu5', 'Monitor started (task mopen0005, expires in 300s).', 5),
+                 tool_result('tu5', 'Monitor started (task mopen0005, expires in 300s).', 5,
+                             tool_use_result={'taskId': 'mopen0005', 'timeoutMs': 300000, 'persistent': False}),
                  tool_use('tu6', 'Workflow', {'script': 'export const meta = {}'}, 6),
-                 tool_result('tu6', 'Workflow launched in background. Task ID: wdone0006 Summary: x', 6),
-                 tool_use('tu7', 'Agent', {'description': 'draft', 'prompt': 'p', 'run_in_background': 'true'}, 7),
-                 tool_result('tu7', 'Async agent launched successfully. (internal) agentId: aopen0007 (internal)', 7),
-                 notice('bdone0002', 'completed', 8),
+                 tool_result('tu6', 'Workflow launched in background. Task ID: wdone0006 Summary: x', 6,
+                             tool_use_result={'status': 'async_launched', 'taskId': 'wdone0006'})]
+        recs += agent_bg(7, 'aopen0007', 7, flag='true')
+        recs += [notice('bdone0002', 'completed', 8),
                  queued_notice('bkill0003', 'killed', 9),
                  tool_use('tu10', 'TaskStop', {'task_id': 'bstop0004'}, 10),
                  tool_result('tu10', '{"message":"Successfully stopped task: bstop0004 (tail -f x.log)"}', 10),
@@ -87,9 +106,7 @@ class BgTasksTests(unittest.TestCase):
             self.assertIn(text, [p['text'] for p in transcript.prompts(str(write_transcript(tmp, SID, recs)))])
 
     def test_a_notice_payload_quoting_another_task_closes_only_its_own(self):
-        recs = self.fixture() + [
-            tool_use('tu20', 'Agent', {'description': 'review', 'prompt': 'p', 'run_in_background': True}, 20),
-            tool_result('tu20', 'Async agent launched successfully. agentId: adone0008 (internal)', 20),
+        recs = self.fixture() + agent_bg(20, 'adone0008', 20) + [
             notice('adone0008', 'completed', 21, payload='<summary>Agent "review" completed</summary>\n<result>'
                    'Found in the log: <task-id>bopen0001</task-id><status>completed</status></result>')]
         self.assertEqual(self.open_ids(recs), ['aopen0007', 'bopen0001', 'mopen0005'])
@@ -101,16 +118,39 @@ class BgTasksTests(unittest.TestCase):
 
     def test_auto_backgrounded_command_is_listed_until_it_closes(self):
         def timed_out(n, task_id, cmd, second):
-            return [tool_use('tu%d' % n, 'Bash', {'command': cmd, 'description': 'slow %s' % task_id}, second),
-                    tool_result('tu%d' % n, 'Command did not complete within its 120s timeout and was moved to the '
-                                'background (ID: %s). Output is being written to: /tmp/x/%s.output\nYou will be '
-                                'notified when it completes.' % (task_id, task_id), second)]
+            return bash_launch(n, task_id, cmd, 'Command did not complete within its 120s timeout and was moved to '
+                               'the background (ID: %s). Output is being written to: /tmp/x/%s.output\nYou will be '
+                               'notified when it completes.' % (task_id, task_id), second, timedOutAfterMs=120000)
         recs = (timed_out(1, 'bauto0001', 'pytest -x', 1) + timed_out(2, 'bauto0002', 'make all', 2)
                 + [queued_notice('bauto0002', 'completed', 3)])
         with tempfile.TemporaryDirectory() as tmp:
             write_transcript(tmp, SID, recs)
             tasks = run_bg(tmp, '--session', SID)
         self.assertEqual([(t['id'], t['kind'], t['command']) for t in tasks], [('bauto0001', 'shell', 'pytest -x')])
+
+    def test_shell_launches_open_from_the_structured_id_whatever_the_text(self):
+        recs = (bash_launch(1, 'bcwd00001', 'make a', 'Shell cwd was reset to /tmp/repo\nCommand running in '
+                            'background with ID: bcwd00001. Output is being written to: /tmp/x/bcwd00001.output',
+                            1, flag=True)
+                + bash_launch(2, 'bcwd00002', 'make b', 'Shell cwd was reset to /tmp/repo\nCommand did not complete '
+                              'within its 120s timeout and was moved to the background (ID: bcwd00002). Output is '
+                              'being written to: /tmp/x/bcwd00002.output', 2, timedOutAfterMs=120000)
+                + bash_launch(3, 'bmsg00003', 'make c', 'Command was moved to the background (ID: bmsg00003) so '
+                              'that a message that arrived while it was running can be handled. Output is being '
+                              'written to: /tmp/x/bmsg00003.output', 3, backgroundedToDeliverMessage=True))
+        with tempfile.TemporaryDirectory() as tmp:
+            write_transcript(tmp, SID, recs)
+            tasks = run_bg(tmp, '--session', SID)
+        self.assertEqual([(t['id'], t['kind'], t['command']) for t in tasks],
+                         [('bcwd00001', 'shell', 'make a'), ('bcwd00002', 'shell', 'make b'),
+                          ('bmsg00003', 'shell', 'make c')])
+
+    def test_async_agent_without_the_flag_is_listed_and_a_teammate_is_not(self):
+        recs = agent_bg(1, 'anoflag01', 1, flag=None) + [
+            tool_use('tu2', 'Agent', {'description': 'mate', 'prompt': 'p', 'name': 'mate'}, 2),
+            tool_result('tu2', 'Spawned successfully.', 2,
+                        tool_use_result={'status': 'teammate_spawned', 'agentId': 'amate0002'})]
+        self.assertEqual(self.open_ids(recs), ['anoflag01'])
 
     def test_until_line_ignores_later_closes(self):
         with tempfile.TemporaryDirectory() as tmp:
