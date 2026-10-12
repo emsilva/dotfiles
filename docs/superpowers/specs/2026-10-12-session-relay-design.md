@@ -247,8 +247,13 @@ the check and leave the old lead driving.
 
 ## Verify early (unconfirmed)
 
-- `herdr agent start ... -- --session-id <uuid>` passes the id through (fallback: herdr's `agent_session`).
-- herdr agent names are unique across the whole server, so the rename works as a mutex.
+- Verified 2026-10-12 (herdr 0.9.2-preview.2026-09-29): `herdr agent start ... -- --session-id <uuid>` creates the
+  session under that id. `agent_session.value` matched in the `agent start` and `herdr agent get` JSON, and
+  `ls ~/.claude/projects/*/<uuid>.jsonl` found exactly one transcript, `<enc-cwd>/<uuid>.jsonl`. The file appears
+  only after the first prompt; right after `agent start` the project dir did not exist yet.
+- Verified 2026-10-12: `herdr agent rename <pane> <name>` fails while a live agent in another tab of the same
+  workspace holds `<name>` (exit 1, error `agent_name_taken`, which names the holder's pane and tab). Renaming the
+  same pane to a free name succeeds, so `rename` accepts a pane id as target. Not tested across workspaces.
 - Permission mode: no environment variable carries it; take it from settings `permissions.defaultMode` plus the
   model's own statement, and assert it on the successor's banner.
 - Transcript formats for background launches, task notifications, `TaskStop`, and owner-typed prompts versus
