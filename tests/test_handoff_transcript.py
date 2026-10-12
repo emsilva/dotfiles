@@ -16,7 +16,7 @@ SID = '11111111-1111-4111-8111-111111111111'
 
 
 def run_bg(projects, *args):
-    out = subprocess.run(['python3', '-I', '-B', str(BG), '--projects', str(projects), '--json', *args],
+    out = subprocess.run(['python3', '-I', str(BG), '--projects', str(projects), '--json', *args],
                          capture_output=True, text=True, check=True)
     return json.loads(out.stdout)
 
@@ -93,7 +93,7 @@ class BgTasksTests(unittest.TestCase):
 
     def test_unknown_session_exits_2(self):
         with tempfile.TemporaryDirectory() as tmp:
-            r = subprocess.run(['python3', '-I', '-B', str(BG), '--projects', tmp, '--session', SID],
+            r = subprocess.run(['python3', '-I', str(BG), '--projects', tmp, '--session', SID],
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 2)
             self.assertIn('expected one transcript', r.stderr)
@@ -137,7 +137,7 @@ class ChezmoiPackagingTests(unittest.TestCase):
         self.assertTrue(any(p.startswith('.claude/skills/session-handoff/scripts/') for p in managed), managed)
         self.assertEqual([p for p in managed if '__pycache__' in p or p.endswith('.pyc')], [],
                          'chezmoi would deploy Python bytecode: delete the stray __pycache__ under %s '
-                         '(a script was run from the source dir without -B)' % SOURCE)
+                         '(something imported a script there without sys.dont_write_bytecode)' % SOURCE)
 
 
 if __name__ == '__main__':
