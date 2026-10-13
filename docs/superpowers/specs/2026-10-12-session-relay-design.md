@@ -169,8 +169,11 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   `relay_id`, `created_at`; `predecessor` {`session_id`, `pane_id`, `herdr_name`, `model` (last main-thread
   `message.model`), `effort` (`CLAUDE_EFFORT`), `permission_mode`, `pid` (`CLAUDE_PID`)}; `repo`; `git`
   {`head`, `branch`, `dirty`}; `note` {`path`, `sha256`}; `background_tasks` (from `bg-tasks.py`); `workers`
-  (from `herd-snapshot.sh`: name, pane, session, status); `crons`; `owner_prompts` (the last 3 prompts the
-  owner typed, verbatim, with times).
+  (herdr panes whose cwd is the repo, a worktree of it, or an `--extra-root`, minus this pane: name, pane,
+  kind, status, session); `crons`; `recent_prompts` (the last 3 prompts typed into the session, by the owner or
+  through herdr, verbatim, with times: the transcript cannot tell the two apart). It refuses (exit 3, no dir)
+  while an agent or workflow task is open in the session or git is mid-operation. A `relay-check.py identity`
+  subcommand prints the running session's identity for the successor's receipt.
 - **`relay-check.py compare <relay-dir>`** validates `receipt.json` against `checklist.json`. Fails on: model,
   effort or permission mode differ; note path or sha256 differ; a checklist task id missing from the receipt,
   marked re-armed with no live `pgrep -f` match for its marker, or dropped without a reason; a worker missing or
