@@ -176,8 +176,9 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   subcommand prints the running session's identity for the successor's receipt.
 - **`relay-check.py compare <relay-dir>`** validates `receipt.json` against `checklist.json`. Fails on: model,
   effort or permission mode differ; note path or sha256 differ; a checklist task id missing from the receipt,
-  marked re-armed with no live `pgrep -f` match for its marker, or dropped without a reason; a worker missing or
-  its status differing from live `herdr agent get`; a cron not accounted for; open questions; drift reported
+  marked re-armed with no live `pgrep -f` match for its marker, or dropped without a reason; a worker missing, or
+  with neither a live waiter marker nor a reason (status equality is not checked: a worker can finish between
+  the successor's look and the compare); a cron not accounted for; open questions; drift reported
   without an explanation. Prints PASS or one line per failure; exit 0 or 1.
 - **`relay-launch.sh <relay-dir>`**: `herdr pane split $HERDR_PANE_ID --direction down --cwd <repo>
   --no-focus`; `herdr agent start lead-<project>-next --kind claude --pane <new> -- --model <m> --effort <e>

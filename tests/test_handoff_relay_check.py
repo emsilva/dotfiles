@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -197,6 +198,124 @@ class ChecklistTests(unittest.TestCase):
         r = rc('identity', '--projects', str(self.projects), env=env, cwd=self.repo)
         self.assertEqual(json.loads(r.stdout), {'session_id': SID, 'pane_id': 'wT:p1', 'model': 'claude-opus-5-5',
                                                 'effort': 'xhigh', 'permission_mode': 'bypassPermissions'})
+
+
+class CompareTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / 'relay' / 'R1'
+        self.dir.mkdir(parents=True)
+        self.note = Path(self.tmp.name) / 'note.md'
+        self.note.write_text('# note\n')
+        self.marker = 'relay-test%d-w' % os.getpid()
+        # Own process group: bash forks `sleep 60`, and killing bash alone would orphan the sleep.
+        # stderr: bash may report the sleep's SIGKILL before the same signal reaches bash itself.
+        self.procs = [subprocess.Popen(['bash', '-c', ': %s%d; sleep 60' % (self.marker, k)], start_new_session=True,
+                                       stderr=subprocess.DEVNULL) for k in (1, 2)]
+        identity = {'model': 'claude-opus-5-5', 'effort': 'xhigh', 'permission_mode': 'bypassPermissions'}
+        self.checklist = {
+            'relay_id': 'R1', 'predecessor': dict(identity, session_id='P', transcript='/dev/null'),
+            'note': {'path': str(self.note), 'sha256': load_module().sha256(str(self.note))},
+            'background_tasks': [{'id': 'b4tcyp53v', 'kind': 'shell', 'description': 'Watch free disk', 'command': 'df'}],
+            'crons': [{'id': 'cr1', 'cron': '7 * * * *', 'prompt': 'status', 'recurring': True}],
+            'workers': [{'pane_id': 'wT:p2', 'name': 'worker-a', 'kind': 'codex', 'status': 'working'}]}
+        self.receipt = {
+            'relay_id': 'R1', 'successor': dict(identity, session_id='N'),
+            'note': {'path': str(self.note), 'sha256': self.checklist['note']['sha256']},
+            'tier': 'clean', 'drift': [],
+            'tasks': [{'id': 'b4tcyp53v', 'action': 'rearmed', 'marker': self.marker + '1'}],
+            'workers': [{'pane_id': 'wT:p2', 'status_seen': 'working', 'waiter_marker': self.marker + '2'}],
+            'crons': [{'id': 'cr1', 'action': 'rearmed'}],
+            'disagreements': [], 'questions': [], 'gaps': []}
+
+    def tearDown(self):
+        for proc in self.procs:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+        self.tmp.cleanup()
+
+    def compare(self):
+        (self.dir / 'checklist.json').write_text(json.dumps(self.checklist))
+        (self.dir / 'receipt.json').write_text(json.dumps(self.receipt))
+        return rc('compare', str(self.dir))
+
+    def test_complete_receipt_passes(self):
+        r = self.compare()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'PASS'), r.stdout)
+
+    def test_dropped_disk_watcher_fails(self):
+        self.receipt['tasks'] = []
+        r = self.compare()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('FAIL task b4tcyp53v (Watch free disk) is not in the receipt', r.stdout)
+
+    def test_identity_mismatch_fails(self):
+        self.receipt['successor']['effort'] = 'high'
+        self.assertIn("identity: successor effort 'high', predecessor 'xhigh'", self.compare().stdout)
+
+    def test_note_changed_after_the_successor_read_it_fails(self):
+        self.note.write_text('# note\n## Relay Q&A\nanswer\n')
+        self.assertIn('re-read it', self.compare().stdout)
+
+    def test_dead_marker_fails(self):
+        self.receipt['tasks'][0]['marker'] = 'relay-nobody-w9'
+        self.assertIn("no live process carries marker 'relay-nobody-w9'", self.compare().stdout)
+
+    def test_drop_needs_a_reason(self):
+        self.receipt['tasks'] = [{'id': 'b4tcyp53v', 'action': 'drop', 'reason': ''}]
+        self.assertIn('dropped without a reason', self.compare().stdout)
+        self.receipt['tasks'] = [{'id': 'b4tcyp53v', 'action': 'drop', 'reason': 'disk is 60 GiB free'}]
+        self.assertEqual(self.compare().returncode, 0)
+
+    def test_missing_worker_cron_question_and_unexplained_drift_fail(self):
+        self.receipt.update(workers=[], crons=[], questions=['what is the walkthrough headline?'],
+                            tier='drift', drift=[{'item': 'HEAD moved', 'explanation': ''}])
+        out = self.compare().stdout
+        for text in ('worker wT:p2 (worker-a) is not in the receipt', 'cron cr1', 'open question: what is',
+                     'unexplained drift: HEAD moved'):
+            self.assertIn(text, out)
+
+    def test_worker_status_change_does_not_fail_when_its_waiter_is_live(self):
+        self.receipt['workers'][0]['status_seen'] = 'done'
+        self.assertEqual(self.compare().returncode, 0)
+
+    def test_unreadable_receipt_fails(self):
+        (self.dir / 'checklist.json').write_text(json.dumps(self.checklist))
+        r = rc('compare', str(self.dir))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('FAIL receipt.json unreadable', r.stdout)
+
+
+class QuietTests(unittest.TestCase):
+    def run_quiet(self, prompt_seconds, handover_second):
+        from handoff_fixtures import ts
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, SID, [prompt('p%d' % s, s) for s in prompt_seconds])
+            rdir = Path(tmp) / 'relay' / 'R1'
+            rdir.mkdir(parents=True)
+            (rdir / 'checklist.json').write_text(json.dumps({'predecessor': {'transcript': str(path)}}))
+            if handover_second is not None:
+                (rdir / 'handover.md').write_text('# Hand-over R1\n')
+                when = datetime.datetime.fromisoformat(ts(handover_second).replace('Z', '+00:00')).timestamp()
+                os.utime(rdir / 'handover.md', (when, when))
+            return rc('quiet', str(rdir))
+
+    def test_no_prompt_after_the_handover_is_quiet(self):
+        self.assertEqual(self.run_quiet([10], 30).returncode, 0)
+
+    def test_a_prompt_after_the_handover_is_not_quiet(self):
+        r = self.run_quiet([10, 40], 30)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('p40', r.stdout)
+
+    def test_no_handover_yet_exits_2(self):
+        # argparse also exits 2 (on an unknown subcommand): the reason pins which 2 this is.
+        r = self.run_quiet([10], None)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('no handover.md', r.stderr)
 
 
 if __name__ == '__main__':

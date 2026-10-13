@@ -199,6 +199,92 @@ def cmd_checklist(a):
     return 0
 
 
+def live(marker):
+    return bool(marker) and subprocess.run(['pgrep', '-f', marker], capture_output=True).returncode == 0
+
+
+def _reason(entry):
+    return bool((entry.get('reason') or '').strip())
+
+
+def cmd_compare(a):
+    chk = json.load(open(os.path.join(a.relay_dir, 'checklist.json')))
+    try:
+        rec = json.load(open(os.path.join(a.relay_dir, 'receipt.json')))
+    except (OSError, ValueError) as e:
+        print('FAIL receipt.json unreadable: %s' % e)
+        return 1
+    fails = []
+    if rec.get('relay_id') != chk.get('relay_id'):
+        fails.append('relay_id %r is not %r' % (rec.get('relay_id'), chk.get('relay_id')))
+    for key in ('model', 'effort', 'permission_mode'):
+        want, got = chk['predecessor'].get(key), (rec.get('successor') or {}).get(key)
+        if want != got:
+            fails.append('identity: successor %s %r, predecessor %r' % (key, got, want))
+    note = rec.get('note') or {}
+    if note.get('path') != chk['note']['path']:
+        fails.append('note: the successor read %r, the checklist names %r' % (note.get('path'), chk['note']['path']))
+    else:
+        on_disk = sha256(chk['note']['path'])
+        if note.get('sha256') != on_disk:
+            fails.append('note: the successor read sha256 %s, the note on disk is %s (re-read it)'
+                         % (note.get('sha256'), on_disk))
+    tasks = {t.get('id'): t for t in rec.get('tasks') or []}
+    for t in chk.get('background_tasks', []):
+        got = tasks.get(t['id'])
+        label = t.get('description') or t.get('command', '')[:60]
+        if not got:
+            fails.append('task %s (%s) is not in the receipt' % (t['id'], label))
+        elif got.get('action') == 'drop':
+            if not _reason(got):
+                fails.append('task %s dropped without a reason' % t['id'])
+        elif got.get('action') in ('rearmed', 'watching-exit-file'):
+            if not live(got.get('marker')):
+                fails.append('task %s: no live process carries marker %r' % (t['id'], got.get('marker')))
+        else:
+            fails.append('task %s: unknown action %r' % (t['id'], got.get('action')))
+    seen = {w.get('pane_id'): w for w in rec.get('workers') or []}
+    for w in chk.get('workers', []):
+        got = seen.get(w['pane_id'])
+        if not got:
+            fails.append('worker %s (%s) is not in the receipt' % (w['pane_id'], w.get('name') or w.get('kind')))
+        elif got.get('waiter_marker'):
+            if not live(got['waiter_marker']):
+                fails.append('worker %s: no live process carries marker %r' % (w['pane_id'], got['waiter_marker']))
+        elif not _reason(got):
+            fails.append('worker %s has neither a waiter nor a reason' % w['pane_id'])
+    crons = {c.get('id'): c for c in rec.get('crons') or []}
+    for c in chk.get('crons', []):
+        got = crons.get(c['id'], {})
+        if got.get('action') != 'rearmed' and not (got.get('action') == 'drop' and _reason(got)):
+            fails.append('cron %s (%s) is neither re-armed nor dropped with a reason' % (c['id'], c.get('cron')))
+    fails += ['open question: %s' % q for q in rec.get('questions') or []]
+    fails += ['open disagreement: %s' % d for d in rec.get('disagreements') or []]
+    if rec.get('tier') not in ('clean', 'drift'):
+        fails.append('tier %r is neither clean nor drift' % rec.get('tier'))
+    fails += ['unexplained drift: %s' % d.get('item') for d in rec.get('drift') or []
+              if not (d.get('explanation') or '').strip()]
+    for line in fails:
+        print('FAIL ' + line)
+    if not fails:
+        print('PASS')
+    return 1 if fails else 0
+
+
+def cmd_quiet(a):
+    chk = json.load(open(os.path.join(a.relay_dir, 'checklist.json')))
+    handover = os.path.join(a.relay_dir, 'handover.md')
+    if not os.path.exists(handover):
+        print('relay-check: no handover.md in %s yet' % a.relay_dir, file=sys.stderr)
+        return 2
+    after = os.path.getmtime(handover)
+    late = [p for p in transcript.prompts(chk['predecessor']['transcript'])
+            if (transcript.epoch(p['timestamp']) or 0) > after]
+    for p in late:
+        print('prompt at %s: %s' % (p['timestamp'], p['text'][:120]))
+    return 1 if late else 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description='Relay checklist, receipt comparison, quiet check and lead names.')
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -211,11 +297,14 @@ def main(argv=None):
     s.add_argument('--note', required=True)
     s.add_argument('--extra-root', action='append', default=[])
     s.add_argument('--transcript', action='append', default=[])
+    for name in ('compare', 'quiet'):
+        sub.add_parser(name).add_argument('relay_dir')
     for parser in sub.choices.values():
         parser.add_argument('--projects', default=transcript.PROJECTS, help=argparse.SUPPRESS)
     a = p.parse_args(argv)
     try:
-        return {'name': cmd_name, 'identity': cmd_identity, 'checklist': cmd_checklist}[a.cmd](a)
+        return {'name': cmd_name, 'identity': cmd_identity, 'checklist': cmd_checklist,
+                'compare': cmd_compare, 'quiet': cmd_quiet}[a.cmd](a)
     except HerdrError as e:
         print('relay-check: herdr read failed: %s' % e, file=sys.stderr)
         return 2
