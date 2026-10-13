@@ -95,9 +95,9 @@ predecessor, on failure). The project's current lead is recorded in
    - the successor stays `blocked` for 8 consecutive polls, about 2 minutes
      (any other status resets the count). A successor waiting on an approval
      shows `blocked` while the owner answers (writing `receipt.json` under
-     `~/.claude` can prompt, in the default mode and reportedly in bypass
-     mode for protected `.claude/` directories), and it must not be failed
-     and closed at the first poll;
+     `~/.claude` can prompt in the default mode, and any other approval
+     prompt blocks it the same way), and it must not be failed and closed at
+     the first poll;
    - 20 minutes past the anchor's mtime (`+ 1200`).
 
    Its last line reads `successor=<status> receipt=<new|none>`.
