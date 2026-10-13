@@ -161,11 +161,17 @@ def cmd_name(a):
     return 0
 
 
+def claude_pid():
+    pid = os.environ.get('CLAUDE_PID', '')
+    return int(pid) if pid.isdigit() else None
+
+
 def cmd_identity(a):
     session, tpath = own_transcript(a)
     print(json.dumps({'session_id': session, 'pane_id': os.environ.get('HERDR_PANE_ID'),
                       'model': transcript.last_model(tpath), 'effort': os.environ.get('CLAUDE_EFFORT'),
-                      'permission_mode': transcript.permission_mode(tpath) or settings_mode()}))
+                      'permission_mode': transcript.permission_mode(tpath) or settings_mode(),
+                      'pid': claude_pid()}))
     return 0
 
 
@@ -186,7 +192,6 @@ def cmd_checklist(a):
         return 2
     self_pane = os.environ.get('HERDR_PANE_ID')
     me = herdr_json('agent', 'get', self_pane).get('result', {}).get('agent', {}) if self_pane else {}
-    pid = os.environ.get('CLAUDE_PID', '')
     record = {
         'repo': repo,
         'predecessor': {
@@ -194,7 +199,7 @@ def cmd_checklist(a):
             'herdr_session': (me.get('agent_session') or {}).get('value'),
             'model': transcript.last_model(tpath), 'effort': os.environ.get('CLAUDE_EFFORT'),
             'permission_mode': transcript.permission_mode(tpath) or settings_mode(),
-            'pid': int(pid) if pid.isdigit() else None},
+            'pid': claude_pid()},
         'git': git_state(repo),
         'note': note,
         'background_tasks': tasks,
@@ -212,29 +217,77 @@ def cmd_checklist(a):
     return 0
 
 
-def live(marker):
-    """A live process carries the whole marker: relay-R1-w1 is not satisfied by relay-R1-w10.
-
-    pgrep takes a POSIX ERE; a backslash before its special characters is literal on BSD and glibc alike
-    (re.escape also escapes '-', which ERE leaves undefined). A bad pattern makes pgrep exit 2: not live."""
-    if not marker:
-        return False
-    pattern = re.sub(r'([.\[\\()*+?{|^$])', r'\\\1', marker) + '([^0-9A-Za-z_-]|$)'
-    return subprocess.run(['pgrep', '-f', pattern], capture_output=True).returncode == 0
+class PsError(Exception):
+    """The process list could not be read: no marker can be shown live."""
 
 
-def marker_problem(relay_dir, relay_id, marker):
+def processes():
+    """One snapshot of the process table: {pid: (ppid, command line)}.
+
+    -ww: never cut a command line at a terminal width ($COLUMNS). macOS ps prints a newline inside an
+    argument as \\012, so each process is one line; a line that does not start with two numbers is skipped."""
+    try:
+        r = subprocess.run(['ps', '-ww', '-axo', 'pid=,ppid=,command='], capture_output=True, text=True,
+                           errors='replace')
+    except OSError as e:
+        raise PsError('ps: %s' % e)
+    if r.returncode != 0:
+        raise PsError('ps exited %d: %s' % (r.returncode, ' '.join(r.stderr.split()) or '(no stderr)'))
+    table = {}
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            table[int(parts[0])] = (int(parts[1]), parts[2] if len(parts) > 2 else '')
+    return table
+
+
+def carriers(table, marker):
+    """Pids whose command line carries the whole marker: relay-R1-w1 is not satisfied by relay-R1-w10."""
+    pattern = re.compile(re.escape(marker) + '([^0-9A-Za-z_-]|$)')
+    return sorted(pid for pid, (_, command) in table.items() if pattern.search(command))
+
+
+def descends(table, pid, ancestor):
+    """pid is a (grand)child of ancestor in the snapshot. Stops at a pid the snapshot lacks, at pid 0 or 1
+    (launchd/init adopts orphans: a detached waiter ends there) and on a cycle."""
+    seen = set()
+    while pid in table and pid not in seen:
+        seen.add(pid)
+        pid = table[pid][0]
+        if pid == ancestor:
+            return True
+        if pid <= 1:
+            return False
+    return False
+
+
+def marker_problem(relay_dir, relay_id, marker, table, successor_pid):
     """Why `marker` does not cover its item, or None.
 
     The marker must be this relay's (relay-<id>-w...): the predecessor's own waiters from an earlier relay are
     alive until the hand-over, and a generic string like 'while' matches anything. A waiter that already fired
-    has exited; the successor's waiters leave <relay-dir>/fired/<marker> behind when they do."""
+    has exited; the successor's waiters leave <relay-dir>/fired/<marker> behind when they do. A live waiter
+    covers its item only when it descends from the successor's claude (successor_pid): that is what a Bash
+    run_in_background task is, and only such a task wakes the session when it ends. A nohup/& waiter is
+    re-parented away (to launchd): it fires, but nobody is woken to act on it. table is processes()'s
+    snapshot, or None when ps failed (the caller reports that once). Without a successor pid (also reported
+    once by the caller) descent cannot be checked, and a live carrier is not failed again here."""
     prefix = 'relay-%s-w' % relay_id
     if not (marker or '').startswith(prefix):
         return "marker %r is not this relay's (expected prefix %r)" % (marker, prefix)
-    if os.path.isfile(os.path.join(relay_dir, 'fired', marker)) or live(marker):
+    if os.path.isfile(os.path.join(relay_dir, 'fired', marker)):
         return None
-    return 'no live process carries marker %r and fired/%s does not exist' % (marker, marker)
+    if table is None:
+        return 'the process list is unreadable, so marker %r cannot be shown live, and fired/%s does not exist' % (
+            marker, marker)
+    pids = carriers(table, marker)
+    if not pids:
+        return 'no live process carries marker %r and fired/%s does not exist' % (marker, marker)
+    if successor_pid is None or any(descends(table, pid, successor_pid) for pid in pids):
+        return None
+    return ('marker %r is carried only by a process detached from the successor (pid %s, not under successor '
+            'pid %d): it cannot wake the successor; arm the waiter with run_in_background, never nohup or &'
+            % (marker, ', '.join(map(str, pids)), successor_pid))
 
 
 def _reason(entry):
@@ -249,6 +302,16 @@ def cmd_compare(a):
         print('FAIL receipt.json unreadable: %s' % e)
         return 1
     fails = []
+    successor_pid = (rec.get('successor') or {}).get('pid')
+    if not (isinstance(successor_pid, int) and not isinstance(successor_pid, bool) and successor_pid > 1):
+        fails.append('receipt has no successor pid; write the successor block from relay-check.py identity'
+                     + ('' if successor_pid is None else ' (it holds %r)' % (successor_pid,)))
+        successor_pid = None
+    try:
+        table = processes()
+    except PsError as e:
+        fails.append('cannot read the process list: %s' % e)
+        table = None
     if rec.get('relay_id') != chk.get('relay_id'):
         fails.append('relay_id %r is not %r' % (rec.get('relay_id'), chk.get('relay_id')))
     for key in ('model', 'effort', 'permission_mode'):
@@ -273,7 +336,7 @@ def cmd_compare(a):
             if not _reason(got):
                 fails.append('task %s dropped without a reason' % t['id'])
         elif got.get('action') in ('rearmed', 'watching-exit-file'):
-            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got.get('marker'))
+            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got.get('marker'), table, successor_pid)
             if problem:
                 fails.append('task %s: %s' % (t['id'], problem))
         else:
@@ -284,7 +347,7 @@ def cmd_compare(a):
         if not got:
             fails.append('worker %s (%s) is not in the receipt' % (w['pane_id'], w.get('name') or w.get('kind')))
         elif got.get('waiter_marker'):
-            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got['waiter_marker'])
+            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got['waiter_marker'], table, successor_pid)
             if problem:
                 fails.append('worker %s: %s' % (w['pane_id'], problem))
         elif not _reason(got):

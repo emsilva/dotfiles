@@ -249,7 +249,14 @@ class ChecklistTests(unittest.TestCase):
         env = self.env(self.transcript_recs())
         r = rc('identity', '--projects', str(self.projects), env=env, cwd=self.repo)
         self.assertEqual(json.loads(r.stdout), {'session_id': SID, 'pane_id': 'wT:p1', 'model': 'claude-opus-5-5',
-                                                'effort': 'xhigh', 'permission_mode': 'bypassPermissions'})
+                                                'effort': 'xhigh', 'permission_mode': 'bypassPermissions',
+                                                'pid': 4242})
+
+    def test_identity_without_a_claude_pid_records_none(self):
+        env = self.env(self.transcript_recs())
+        del env['CLAUDE_PID']
+        r = rc('identity', '--projects', str(self.projects), env=env, cwd=self.repo)
+        self.assertIsNone(json.loads(r.stdout)['pid'])
 
 
 class CompareTests(unittest.TestCase):
@@ -262,7 +269,7 @@ class CompareTests(unittest.TestCase):
         self.note = Path(self.tmp.name) / 'note.md'
         self.note.write_text('# note\n')
         self.marker = 'relay-%s-w' % self.relay_id
-        self.procs = []
+        self.procs, self.orphans = [], []
         for k in (1, 2):
             self.spawn(': %s%d; while :; do sleep 1; done' % (self.marker, k))
         identity = {'model': 'claude-opus-5-5', 'effort': 'xhigh', 'permission_mode': 'bypassPermissions'}
@@ -272,8 +279,10 @@ class CompareTests(unittest.TestCase):
             'background_tasks': [{'id': 'b4tcyp53v', 'kind': 'shell', 'description': 'Watch free disk', 'command': 'df'}],
             'crons': [{'id': 'cr1', 'cron': '7 * * * *', 'prompt': 'status', 'recurring': True}],
             'workers': [{'pane_id': 'wT:p2', 'name': 'worker-a', 'kind': 'codex', 'status': 'working'}]}
+        # The marker processes are children of this test process, which stands in for the successor's claude:
+        # a run_in_background waiter is a descendant of the session that armed it.
         self.receipt = {
-            'relay_id': self.relay_id, 'successor': dict(identity, session_id='N'),
+            'relay_id': self.relay_id, 'successor': dict(identity, session_id='N', pid=os.getpid()),
             'note': {'path': str(self.note), 'sha256': self.checklist['note']['sha256']},
             'tier': 'clean', 'drift': [],
             'tasks': [{'id': 'b4tcyp53v', 'action': 'rearmed', 'marker': self.marker + '1'}],
@@ -289,6 +298,22 @@ class CompareTests(unittest.TestCase):
         self.procs.append(proc)
         return proc
 
+    def spawn_detached(self, marker):
+        """A marker loop re-parented away from this process, as `nohup ... &` leaves a waiter: the intermediate
+        bash backgrounds a subshell carrying the marker, prints its pid and exits. The orphan keeps the
+        intermediate's process group, so kill() still takes it; its exact pid is killed in tearDown too."""
+        proc = subprocess.Popen(['bash', '-c', '( : %s; while :; do sleep 1; done ) & echo $!' % marker],
+                                start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.procs.append(proc)
+        orphan = int(proc.stdout.readline())
+        self.orphans.append(orphan)
+        proc.wait()
+        ppid, command = subprocess.run(['ps', '-ww', '-o', 'ppid=,command=', '-p', str(orphan)], capture_output=True,
+                                       text=True).stdout.strip().split(None, 1)
+        self.assertIn(marker, command, 'the orphan does not carry the marker: the test would pass for the wrong reason')
+        self.assertNotEqual(int(ppid), os.getpid(), 'the orphan is still a child of the test process')
+        return orphan
+
     def kill(self, proc):
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -299,6 +324,11 @@ class CompareTests(unittest.TestCase):
     def tearDown(self):
         for proc in self.procs:
             self.kill(proc)
+        for pid in self.orphans:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         self.tmp.cleanup()
 
     def assert_alive(self, marker, alive=True):
@@ -388,6 +418,52 @@ class CompareTests(unittest.TestCase):
         self.kill(self.procs[0])
         self.spawn('while :; do sleep 1; done', self.marker + '1')   # bash's $0: the last word of the argv
         self.assertEqual(self.compare().returncode, 0)
+
+    def test_a_waiter_under_the_successor_counts(self):
+        # A run_in_background waiter descends from the successor's claude, so its end wakes the successor.
+        for proc in self.procs:
+            ppid = subprocess.run(['ps', '-o', 'ppid=', '-p', str(proc.pid)], capture_output=True, text=True).stdout
+            self.assertEqual(int(ppid), os.getpid())
+        r = self.compare()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'PASS'), r.stdout)
+
+    def test_a_detached_waiter_fails(self):
+        # A nohup/& waiter is re-parented away from the successor: it fires, but no task notice wakes the successor.
+        self.kill(self.procs[0])
+        self.assert_alive(self.marker + '1', alive=False)
+        self.spawn_detached(self.marker + '1')
+        lines = [line for line in self.compare().stdout.splitlines() if line.startswith('FAIL task b4tcyp53v: ')]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("marker '%s1' is carried only by a process detached from the successor" % self.marker, lines[0])
+        self.assertIn('run_in_background', lines[0])
+
+    def test_a_fired_file_still_covers_a_detached_waiter_that_fired(self):
+        self.kill(self.procs[0])
+        self.spawn_detached(self.marker + '1')
+        self.fired(self.marker + '1')
+        r = self.compare()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'PASS'), r.stdout)
+
+    def test_a_waiter_under_another_process_fails(self):
+        # Descent is checked against the receipt's successor pid, not merely "has a parent".
+        other = self.spawn('while :; do sleep 1; done')
+        self.receipt['successor']['pid'] = other.pid
+        out = self.compare().stdout
+        for what, k in (('task b4tcyp53v', 1), ('worker wT:p2', 2)):
+            self.assertIn("FAIL %s: marker '%s%d' is carried only by a process detached from the successor"
+                          % (what, self.marker, k), out)
+
+    def test_a_receipt_without_a_successor_pid_fails(self):
+        for pid in ('absent', None):
+            with self.subTest(pid=pid):
+                if pid == 'absent':
+                    self.receipt['successor'].pop('pid', None)
+                else:
+                    self.receipt['successor']['pid'] = pid
+                r = self.compare()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('FAIL receipt has no successor pid; write the successor block from '
+                              'relay-check.py identity', r.stdout.splitlines())
 
     def test_drop_needs_a_reason(self):
         self.receipt['tasks'] = [{'id': 'b4tcyp53v', 'action': 'drop', 'reason': ''}]

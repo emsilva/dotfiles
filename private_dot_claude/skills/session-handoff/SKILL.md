@@ -159,7 +159,8 @@ re-arms waiters while the predecessor's still run, re-arms crons instead of
 offering to, and does not wait for confirmation after the hand-over).
 In short — read-only until the hand-over (no dispatch, merge or spend; do NOT
 stamp the note yet), resume the note `<dir>/checklist.json` names, arm your own
-waiters marked `relay-<id>-w<k>`, write `<dir>/receipt.json`, end your turn
+waiters with `run_in_background` (never `nohup` or `&`: a detached waiter wakes
+no one), marked `relay-<id>-w<k>`, write `<dir>/receipt.json`, end your turn
 addressed to the predecessor. After the hand-over, a clean pickup keeps driving
 under the standing instruction quoted in `handover.md`; it does not wait for
 confirmation. Log anything the note lacked per `references/feedback.md`.

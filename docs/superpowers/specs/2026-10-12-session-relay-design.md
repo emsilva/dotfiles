@@ -142,8 +142,9 @@ this repo). The defects this spec fixes:
      note is drift.
    - Verify `checklist.json` against reality: git, each worker's status (`herdr agent get`, read-only),
      deliverables, background tasks.
-   - Arm its own waiters, each command prefixed `: relay-<id>-w<k>;` so `pgrep -f` finds it, and ending with
-     `touch <relay-dir>/fired/<marker>`; re-arm crons.
+   - Arm its own waiters with the Bash tool's `run_in_background` (never `nohup` or `&`: only such a task wakes the
+     session when it ends), each command prefixed `: relay-<id>-w<k>;` so compare finds it in the process list,
+     and ending with `touch <relay-dir>/fired/<marker>`; re-arm crons.
    - Write `receipt.json`: what it needs answered goes in `questions`; a claim of the note or checklist that its
      evidence contradicts goes in `disagreements`; a gap it filled itself goes in `gaps`. End the turn addressed
      to the old lead. Files are the channel: it never types into the old pane (after the hand-over any prompt
@@ -227,18 +228,21 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   kind, status, session); `crons`; `recent_prompts` (the last 3 prompts typed into the session, by the owner or
   through herdr, verbatim, with times: the transcript cannot tell the two apart). It refuses (exit 3, no dir)
   while an agent or workflow task is open in the session or git is mid-operation. A `relay-check.py identity`
-  subcommand prints the running session's identity for the successor's receipt.
+  subcommand prints the running session's identity (with `pid` from `CLAUDE_PID`) for the successor's receipt.
 - **`relay-check.py compare <relay-dir>`** validates `receipt.json` against `checklist.json`. Fails on: model,
   effort or permission mode differ; note path or sha256 differ; a checklist task id missing from the receipt,
-  marked re-armed with no live `pgrep -f` match for its marker, or dropped without a reason; a worker missing, or
+  marked re-armed with no live process carrying its marker, or dropped without a reason; a worker missing, or
   with neither a live waiter marker nor a reason (status equality is not checked: a worker can finish between
   the successor's look and the compare); a cron not accounted for; open questions or disagreements; drift
   reported without an explanation; a `relay_id` that is not this relay's; a `tier` other than `clean` or
   `drift`. Every task and worker marker must start with `relay-<relay-id>-w` for this relay's id, so a live
   waiter of an earlier relay (the predecessor's own, alive until the hand-over) or a generic string such
-  as `while` covers nothing. A marker of this relay is satisfied by a live `pgrep -f` match or by the file
-  `<relay-dir>/fired/<marker>`, which the successor's waiters leave when they fire between arming and the compare;
-  a fired file never rescues a marker with another prefix. Prints PASS or one line per failure; exit 0 or 1.
+  as `while` covers nothing. A marker of this relay is satisfied by the file `<relay-dir>/fired/<marker>`, which
+  the successor's waiters leave when they fire between arming and the compare, or by a live process carrying it
+  that descends from the receipt's `successor.pid` (one `ps` snapshot, ppid chains walked): a `run_in_background`
+  task does, while a `nohup`/`&` waiter is re-parented away, cannot wake the successor, and FAILs as detached; a
+  receipt without `successor.pid` FAILs. A fired file never rescues a marker with another prefix. Prints PASS or
+  one line per failure; exit 0 or 1.
 - **`relay-launch.sh <relay-dir>`**: `herdr pane split $HERDR_PANE_ID --direction down --cwd <repo>
   --no-focus`; `herdr agent start lead-<project>-next --kind claude --pane <new> -- --model <m> --effort <e>
   [--dangerously-skip-permissions] [--session-id <uuid>]`; retries the start once (no fixed sleeps); asserts the

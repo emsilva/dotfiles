@@ -158,9 +158,10 @@ predecessor, on failure). The project's current lead is recorded in
      created (that path does not confirm the close or record it in
      `failed.json`). Your own pane is never closed on a failed relay.
 9. **Hand-over** (make before break). The compare PASS already proved that
-   every checklist task and worker is covered by a successor waiter, live or
-   fired (`<relay-dir>/fired/<marker>`), and that the successor re-armed the
-   crons that still apply: do not re-check them. In this order:
+   every checklist task and worker is covered by a successor waiter, live
+   under the successor's process or fired (`<relay-dir>/fired/<marker>`),
+   and that the successor re-armed the crons that still apply: do not
+   re-check them. In this order:
    1. Delete your session crons (`CronDelete` each). They go first: a cron
       left here fires a prompt into this pane, and one that fires after
       `handover.md` is written is a prompt after the hand-over, so
@@ -222,8 +223,12 @@ predecessor, on failure). The project's current lead is recorded in
      worker (`herdr agent get`, read-only), deliverables, background tasks.
    - For each open background task you keep and each worker, arm your own
      waiter, even while the predecessor's waiter for the same item still runs
-     (it stops them at the hand-over). Each is a Bash `run_in_background` loop
-     of this shape:
+     (it stops them at the hand-over). Arm every waiter with the Bash tool's
+     `run_in_background`, never `nohup` or `&`: only a `run_in_background`
+     task wakes this session when it ends. A detached waiter fires, writes its
+     fired file and wakes no one, so compare FAILs a live waiter whose process
+     does not descend from the `pid` in your receipt's `successor` block. Each
+     waiter is a loop of this shape:
 
          : relay-<relay-id>-w<k>; until <condition>; do sleep 30; done; mkdir -p <dir>/fired && touch <dir>/fired/relay-<relay-id>-w<k>
 
@@ -241,7 +246,8 @@ predecessor, on failure). The project's current lead is recorded in
      one-shot whose time has passed is dropped, with that reason).
    - Write `<dir>/receipt.json` (format below). Its `successor` block is the
      output of
-     `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py identity`.
+     `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py identity`,
+     including your `pid` (compare FAILs a receipt without one).
      What you need the predecessor to answer goes in `questions`; a claim of
      the note or `checklist.json` that your evidence contradicts goes in
      `disagreements` (both defined under receipt.json below); a gap you found
@@ -348,10 +354,12 @@ unsettled after 2 fix rounds stops the relay, and the owner decides.
 
 `compare` passes only when all of these hold:
 - `relay_id` is this relay's, and `tier` is `clean` or `drift`;
-- the successor's model, effort and permission mode equal the predecessor's;
+- the successor's model, effort and permission mode equal the predecessor's,
+  and its block carries a `pid`;
 - `note.path` is the checklist's and `note.sha256` matches the note on disk now;
 - every checklist task is `rearmed` or `watching-exit-file` with a `marker`
-  of this relay that is live or fired, or `drop` with a reason;
+  of this relay that is fired, or live in a process that descends from the
+  successor's `pid` (a detached waiter fails), or `drop` with a reason;
 - every checklist worker, matched by `pane_id`, has such a `waiter_marker` or
   a reason (its status is not compared: a worker can finish between your look
   and the compare);

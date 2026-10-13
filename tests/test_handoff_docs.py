@@ -114,6 +114,21 @@ class HandoffDocsTests(unittest.TestCase):
                        'A **disagreement** says the note or `checklist.json` is wrong about reality'):
             self.assertIn(needle, spec)
 
+    def test_waiters_stay_attached_to_the_session_they_wake(self):
+        # A nohup/& waiter fires without waking anyone, and compare FAILs it unless it descends from the receipt's
+        # successor pid: relay.md, the successor outline, CLAUDE.md and the spec must all say to keep waiters
+        # run_in_background (CLAUDE.md's "detach long work" rule pulled a real successor the other way).
+        relay = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        self.assertIn("Arm every waiter with the Bash tool's `run_in_background`, never `nohup` or `&`", relay)
+        skill = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        self.assertIn('arm your own waiters with `run_in_background`', skill)
+        claude = ' '.join((SOURCE / 'private_dot_claude/CLAUDE.md').read_text().split())
+        self.assertIn('Waiters are not long work: keep them `run_in_background`', claude)
+        self.assertNotIn('Short waiters may stay `run_in_background`', claude)
+        spec = ' '.join((SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text().split())
+        self.assertIn("descends from the receipt's `successor.pid`", spec)
+        self.assertNotIn('pgrep -f', spec)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):
