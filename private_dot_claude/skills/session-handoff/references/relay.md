@@ -72,16 +72,22 @@ predecessor, on failure). The project's current lead is recorded in
 
        anchor=<relay-dir>/launch.json receipt=<relay-dir>/receipt.json name=<successor name> n=0
        deadline=$(( $(python3 -I -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$anchor") + 1200 ))
-       successor() { python3 -I -c 'import json, subprocess, sys; r = subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True); print(("gone" if "agent_not_found" in r.stderr else "unread") if r.returncode else ((json.loads(r.stdout).get("result") or {}).get("agent") or {}).get("agent_status") or "unread")' "$name" 2>/dev/null || echo unread; }
-       until st=$(successor)
+       status_of() { python3 -I -c 'import json, subprocess, sys; r = subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True, timeout=10); print(("gone" if "agent_not_found" in r.stderr else "unread") if r.returncode else ((json.loads(r.stdout).get("result") or {}).get("agent") or {}).get("agent_status") or "unread")' "$1" 2>/dev/null || echo unread; }
+       until st=$(status_of "$name")
          case $st in blocked) n=$((n + 1)) ;; *) n=0 ;; esac
          case $st in idle|done) [ "$receipt" -nt "$anchor" ] ;; gone) true ;; blocked) [ "$n" -ge 8 ] ;; *) false ;; esac \
            || [ "$(date +%s)" -ge "$deadline" ]
        do sleep 15; done
        echo "successor=$st receipt=$([ "$receipt" -nt "$anchor" ] && echo new || echo none)"
 
-   It reads the `agent_status` field of `herdr agent get <successor name>`; a
-   failed read prints `unread`. The loop ends on the first of:
+   `status_of <agent>` prints the `agent_status` field of
+   `herdr agent get <agent>`, `gone` when herdr answers `agent_not_found`, and
+   `unread` for any other failed read. Each read is bounded: `timeout=10` stops
+   a hung `herdr agent get` after 10 s, and any exception (that timeout, herdr
+   missing, an answer that is not JSON) exits python non-zero with nothing
+   printed, so `|| echo unread` reports it. A poll never outlasts 10 s, and the
+   loop ends within about 25 s (one read, one sleep) of its deadline even while
+   herdr hangs. The loop ends on the first of:
    - the receipt is newer than the anchor and the successor is `idle` or
      `done` (`working`, `unknown`, `unread` and any other status keep it
      waiting);
@@ -230,10 +236,23 @@ predecessor, on failure). The project's current lead is recorded in
    any close: not inside herdr, `CLAUDE_CODE_SESSION_ID` unset, no checklist,
    or a usage error.
    - Refused because the pane is `working`: the predecessor has not ended its
-     turn yet. Arm a background until-loop on the old pane's `agent_status`
-     (`herdr agent get <pane>`, read as in Predecessor step 7) leaving
-     `working`, bounded at 10 minutes, then rerun `relay-close.sh`. Still
-     `working` at the bound: tell the owner.
+     turn yet. Wait for it to leave `working` with this loop, run through the
+     Bash tool with `run_in_background`; `<pane>` is the checklist's
+     `predecessor.pane_id`, and `status_of` is Predecessor step 7's, bounded
+     the same way:
+
+         pane=<pane> deadline=$(( $(date +%s) + 600 ))
+         status_of() { python3 -I -c 'import json, subprocess, sys; r = subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True, timeout=10); print(("gone" if "agent_not_found" in r.stderr else "unread") if r.returncode else ((json.loads(r.stdout).get("result") or {}).get("agent") or {}).get("agent_status") or "unread")' "$1" 2>/dev/null || echo unread; }
+         until st=$(status_of "$pane")
+           case $st in working|unread) false ;; *) true ;; esac || [ "$(date +%s)" -ge "$deadline" ]
+         do sleep 15; done
+         echo "predecessor=$st"
+
+     `unread` keeps it waiting: a failed or hung read says nothing about the
+     turn. It ends when the pane shows any other status or 10 minutes pass
+     (`+ 600`). Then rerun `relay-close.sh`, which reads the pane again itself.
+     Refused again (still `working` at the bound, or another status such as
+     `blocked`): tell the owner.
    - Refused because a prompt reached the old pane: tell the owner; the pane
      stays open for them.
    - If it refused and the owner then closes the old pane by hand, the close

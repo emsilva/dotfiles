@@ -52,6 +52,19 @@ class HandoffDocsTests(unittest.TestCase):
         for needle in ('blocked) [ "$n" -ge 8 ]', 'idle|done) [ "$receipt" -nt "$anchor" ]'):
             self.assertIn(needle, text)
 
+    def test_every_documented_herdr_read_in_a_wait_loop_is_bounded(self):
+        # A hung `herdr agent get` must not freeze a wait loop past its deadline: the read times out,
+        # python exits non-zero and `|| echo unread` reports it. Both loops (the predecessor's receipt wait,
+        # the successor's close retry) carry the same line.
+        text = (SKILL / 'references/relay.md').read_text()
+        reads = [line.strip() for line in text.splitlines() if line.strip().startswith('status_of() {')]
+        self.assertEqual(len(reads), 2, reads)
+        self.assertEqual(len(set(reads)), 1, reads)
+        self.assertIn('timeout=10', reads[0])
+        self.assertTrue(reads[0].endswith('2>/dev/null || echo unread; }'), reads[0])
+        self.assertNotIn('subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True)',
+                         text)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):
