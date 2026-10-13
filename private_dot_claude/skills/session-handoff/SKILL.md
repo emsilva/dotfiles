@@ -134,7 +134,7 @@ then `/pickup`. A lead never compacts instead.
 
     ## Memory             (`clean (checked)`, or the debt memory-check.py left)
 
-    ## Relay Q&A          (RELAY only: the successor's questions, answered here)
+    ## Relay Q&A          (RELAY only: the successor's questions and disagreements, answered here)
 
     ## Pickup gaps        (written by the successor after it takes over)
 

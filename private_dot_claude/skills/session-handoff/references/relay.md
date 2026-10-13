@@ -108,11 +108,13 @@ predecessor, on failure). The project's current lead is recorded in
    `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.
    - Exit 0 prints `PASS`: go to step 9.
    - Exit 1 prints one `FAIL` line per problem. Fix what each line names:
-     correct the note; answer the successor's questions and explain drift
-     under the note's `## Relay Q&A`. compare hashes the note on disk every
-     time, so after any edit to the note the successor must re-read it and
-     record the new sha256. Then `touch <relay-dir>/fix-<round>` and tell the
-     successor (`herdr agent prompt <name> "…"`): "Re-read <items> in the note
+     correct the note; under the note's `## Relay Q&A`, answer the
+     successor's questions, answer each disagreement (correct the note, or
+     show with your evidence why it stands) and explain drift. compare hashes
+     the note on disk every time, so after any edit to the note the successor
+     must re-read it and record the new sha256. Then
+     `touch <relay-dir>/fix-<round>` and tell the successor
+     (`herdr agent prompt <name> "…"`): "Re-read <items> in the note
      and rewrite <relay-dir>/receipt.json." Wait with step 7's loop, with
      `anchor=<relay-dir>/fix-<round>` and `+ 900` (15 minutes) in place of
      `+ 1200` (the receipt is already newer than `launch.json`, so that anchor
@@ -204,18 +206,23 @@ predecessor, on failure). The project's current lead is recorded in
    - Write `<dir>/receipt.json` (format below). Its `successor` block is the
      output of
      `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py identity`.
-     What you need the predecessor to answer goes in `questions`; a gap you
-     found and filled yourself goes in `gaps` (`references/feedback.md`).
-     `questions` block the compare; `gaps` do not.
+     What you need the predecessor to answer goes in `questions`; a claim of
+     the note or `checklist.json` that your evidence contradicts goes in
+     `disagreements` (both defined under receipt.json below); a gap you found
+     and filled yourself goes in `gaps` (`references/feedback.md`).
+     `questions` and `disagreements` block the compare; `gaps` do not.
    - End your turn with a summary addressed to the predecessor. It stays in
      your pane: files are the channel, and the predecessor waits on
      `receipt.json`. Never type into the predecessor's pane: after the
      hand-over, any prompt there makes `relay-close.sh` refuse.
    - Told to re-read items: re-read them (and re-hash the note if it
-     changed). Remove each answered entry from `questions` (compare passes
-     only when it is empty), move anything informational to `gaps`, and fill
-     the `explanation` of each drift item the predecessor explained. Rewrite
-     `receipt.json`, end your turn again.
+     changed). Remove each answered entry from `questions` and
+     `disagreements` (compare passes only when both are empty), move anything
+     informational to `gaps`, and fill the `explanation` of each drift item
+     the predecessor explained. A disagreement the answer does not settle
+     stays, with what still contradicts it: after 2 fix rounds the relay
+     stops and the owner decides. Rewrite `receipt.json`, end your turn
+     again.
 2. **On "you have the lead":** read `handover.md`, write its late facts to
    memory (then `memory-check.py --fix` as in SAVE), stamp the note `resumed`.
    If the note's Memory section carries debt, fix it first (read MEMORY.md in
@@ -285,6 +292,21 @@ predecessor, on failure). The project's current lead is recorded in
       "questions": [],
       "gaps": []
     }
+
+`questions` and `disagreements` are lists of strings, one entry each, and
+both block the compare until they are empty:
+- a **question** asks for something the note does not tell you (what a
+  Backlog item means, where a deliverable lands);
+- a **disagreement** says the note or `checklist.json` is wrong about reality:
+  quote the claim and give the evidence that contradicts it (the note calls a
+  branch merged that git shows unmerged; a waiter's command cannot match the
+  report the note names). Drift is different: reality moved on after the save
+  (a new commit, a worker that finished), and the claim was true when written.
+
+The predecessor answers each question and disagreement under the note's
+`## Relay Q&A`. Once an answer settles one, remove it from the receipt;
+anything left that is only informational moves to `gaps`. One still
+unsettled after 2 fix rounds stops the relay, and the owner decides.
 
 `compare` passes only when all of these hold:
 - `relay_id` is this relay's, and `tier` is `clean` or `drift`;

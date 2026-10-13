@@ -65,6 +65,15 @@ class HandoffDocsTests(unittest.TestCase):
         self.assertNotIn('subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True)',
                          text)
 
+    def test_disagreements_are_defined_answered_and_cleared(self):
+        # compare fails on any open disagreement: the protocol must say what one is, who answers it and
+        # when the successor removes it, or a relay can only fail on it.
+        text = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        for needle in ('a **disagreement** says the note or `checklist.json` is wrong about reality',
+                       'answer each disagreement',
+                       'Remove each answered entry from `questions` and `disagreements`'):
+            self.assertIn(needle, text)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):

@@ -11,10 +11,11 @@ something you needed:
 - the predecessor's tasks not matching the checklist.
 
 During a relay, one you need answered is a receipt `question` for the
-predecessor (questions block the compare until answered); one you resolved
-yourself goes in the receipt's `gaps`, one sentence each, which do not block
-it. After the hand-over, record both kinds as below; outside a relay, record
-each straight away.
+predecessor, and a note claim your evidence contradicts is a `disagreement`
+(both block the compare until answered); one you resolved yourself goes in
+the receipt's `gaps`, one sentence each, which do not block it. After the
+hand-over, record all of them as below; outside a relay, record each straight
+away.
 
 ## Record
 
