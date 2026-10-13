@@ -168,6 +168,20 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn('herdr pane list', r.stderr)
         self.assertFalse(self.relay_root().exists())
 
+    def test_a_herdr_listing_of_another_shape_stops_the_checklist(self):
+        # A herdr JSON shape change must not read as an empty herd: `workers: []` would pass a lost worker.
+        for cmd, key in (('pane list', 'panes'), ('agent list', 'agents')):
+            for answer in ({'result': {'items': []}}, {'result': {key: {}}}, {'result': None}, {}):
+                with self.subTest(cmd=cmd, answer=answer):
+                    r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects),
+                           env=self.env(self.transcript_recs(), herdr={cmd: [{'out': json.dumps(answer)}]}),
+                           cwd=self.repo)
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                    self.assertIn('herdr ' + cmd, r.stderr)
+                    self.assertIn('result.' + key, r.stderr)
+                    self.assertFalse(self.relay_root().exists())
+
     def test_a_missing_note_leaves_no_relay_dir(self):
         r = rc('checklist', '--note', str(self.root / 'absent.md'), '--projects', str(self.projects),
                env=self.env(self.transcript_recs()), cwd=self.repo)

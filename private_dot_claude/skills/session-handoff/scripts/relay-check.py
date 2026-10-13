@@ -86,6 +86,16 @@ def herdr_json(*args):
     return data
 
 
+def herdr_list(key, *args):
+    """herdr's result.<key> list, or HerdrError: a listing of another shape is not an empty herd."""
+    result = herdr_json(*args).get('result')
+    items = result.get(key) if isinstance(result, dict) else None
+    if not isinstance(items, list):
+        raise HerdrError('%s: result.%s is not a list (herdr answered %s)'
+                         % (' '.join(['herdr', *args]), key, json.dumps(result)[:200]))
+    return items
+
+
 def repo_root():
     code, top = run(['git', 'rev-parse', '--show-toplevel'])
     return top if code == 0 and top else os.getcwd()
@@ -115,9 +125,9 @@ def workers(repo, extra_roots, self_pane):
     _, listing = run(['git', '-C', repo, 'worktree', 'list', '--porcelain'])
     roots = [line[len('worktree '):] for line in listing.splitlines() if line.startswith('worktree ')] or [repo]
     roots = [os.path.realpath(r).rstrip('/') for r in roots + list(extra_roots)]
-    names = {a.get('pane_id'): a.get('name') for a in herdr_json('agent', 'list').get('result', {}).get('agents', [])}
+    names = {a.get('pane_id'): a.get('name') for a in herdr_list('agents', 'agent', 'list')}
     out = []
-    for p in herdr_json('pane', 'list').get('result', {}).get('panes', []):
+    for p in herdr_list('panes', 'pane', 'list'):
         cwd = os.path.realpath(p.get('cwd') or '/').rstrip('/')
         if p.get('pane_id') == self_pane or not any(cwd == r or cwd.startswith(r + '/') for r in roots):
             continue
