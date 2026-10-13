@@ -89,9 +89,10 @@ this repo). The defects this spec fixes:
    successor's questions in the note's `## Relay Q&A`, and tells the successor to re-read only those items and
    rewrite the receipt. At most 2 rounds. After that, or on a question only the owner can answer, the relay
    stops and asks the owner; nothing is closed and the old lead keeps the lead.
-7. **Hand-over (make before break).** Confirm the successor's waiters are live (`pgrep -f relay-<id>-w`), stop
-   the old lead's own waiters (`TaskStop`), write `handover.md`, send the successor one line ("Read
-   `<relay-dir>/handover.md`; you have the lead."), end the turn. From launch on, the old lead writes no memory;
+7. **Hand-over (make before break).** The compare PASS proved every task and worker is covered (a live waiter,
+   or one that already fired: `<relay-dir>/fired/<marker>`). Stop the old lead's own waiters (`TaskStop`), write
+   `handover.md`, send the successor one line ("Read `<relay-dir>/handover.md`; you have the lead."), end the
+   turn. From launch on, the old lead writes no memory;
    late facts go in `handover.md`. If the owner types into the old pane afterwards, it only says where the lead
    moved.
 8. **Failure.** The successor fails to start twice, or the check fails past its rounds: write `failed.json`,
@@ -202,8 +203,8 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
 
 - `receipt.json` (successor): `relay_id`; `successor` identity (same fields as the predecessor's); `note`
   {`path`, `sha256`}; `tier` (`clean` or `drift`) and `drift` items; `tasks` [{`id`, `action`: `rearmed` |
-  `watching-exit-file` | `drop`, `marker`, `reason`}]; `workers` [{`name`, `status_seen`, `waiter_marker`}];
-  `crons` [{`id`, `action`, `reason`}]; `disagreements`; `questions`; `gaps`.
+  `watching-exit-file` | `drop`, `marker`, `reason`}]; `workers` [{`pane_id`, `status_seen`, `waiter_marker`,
+  `reason`}]; `crons` [{`id`, `action`, `reason`}]; `disagreements`; `questions`; `gaps`.
 - `handover.md` (old lead): the standing instruction (quoted, with its time), deliveries that arrived during
   the relay, late facts for memory.
 - `launch.json`, `closed.json`, `failed.json` (scripts). `failed.json` holds the reason and attempt count;
@@ -264,6 +265,8 @@ the check and leave the old lead driving.
   same pane to a free name succeeds, so `rename` accepts a pane id as target. Not tested across workspaces.
 - Permission mode: no environment variable carries it; take it from settings `permissions.defaultMode` plus the
   model's own statement, and assert it on the successor's banner.
+- Permission mode: from the transcript's `permission-mode` record, else the owner's `~/.claude/settings.json`; repo
+  settings never grant bypass (security review, 2026-10-12).
 - Transcript formats for background launches, task notifications, `TaskStop`, and owner-typed prompts versus
   injected ones, on the installed build.
 

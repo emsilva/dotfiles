@@ -1,14 +1,15 @@
 ---
 name: session-handoff
-description: Use when wrapping up a session or nearing the context limit ("wrap up the session", "save a handoff", "about to compact", "running out of context"), when resuming in a fresh window ("continue from the last session", "pick up where we left off"), or when returning after a crash or limit ("we're back — resume", "agents crashed/died/stalled", "we ran out of tokens", "session/weekly limit hit", "rate limited"). Works in any project, code or content.
+description: Use when wrapping up a session or nearing the context limit ("wrap up the session", "save a handoff", "about to compact", "running out of context"), when handing the lead to a new session ("relay", "hand over to a new session", "/relay"), when resuming in a fresh window ("continue from the last session", "pick up where we left off"), or when returning after a crash or limit ("we're back — resume", "agents crashed/died/stalled", "we ran out of tokens", "session/weekly limit hit", "rate limited"). Works in any project, code or content.
 ---
 
 # Session Handoff
 
 Document-and-clear: near the end of a session save a short, curated,
 **command-verified** note; start the next session by reading only that note —
-then verifying it against reality. Two modes: **SAVE** (`/handoff`) and
-**RESUME** (`/pickup`).
+then verifying it against reality. Three modes: **SAVE** (`/handoff`),
+**RESUME** (`/pickup`) and **RELAY** (`/relay`: SAVE, then a successor in a new
+herdr pane RESUMEs, takes the lead and closes this session).
 
 Notes live in `<memory-dir>/handoffs/YYYY-MM-DD-<slug>.md`, where
 `<memory-dir>` is the project memory directory named in your system prompt (or
@@ -20,8 +21,23 @@ them in the note.
 ## SAVE mode
 
 1. **Finish the current micro-step first** — never abandon a working change
-   because the meter grew.
-2. **Run the snapshots** — the note records **command output, not conversational
+   because the meter grew. Attached long work (a `run_in_background` test,
+   build or paid run) must finish before this session closes: it dies with
+   the session. Long work should have been started detached (global
+   CLAUDE.md, "Long work outlives its session").
+2. **Memory before the note.** Decide which durable facts (traps,
+   preferences, recipes) are worth keeping and write them to memory files now.
+   Do not ask first: this is the wrap-up, where an unanswered question is how a
+   fact gets lost, and a wrong call costs one deletion. Then run
+   `python3 -I ~/.claude/skills/session-handoff/scripts/memory-check.py <memory-dir> --fix`.
+   It applies only two safe fixes (an index line for each memory written this
+   session; removal of index lines whose every link is dead) and measures
+   MEMORY.md as the loader does (200 lines, 25,000 UTF-16 units; the tail past
+   the cap never loads). Exit 0 prints `clean (checked)`: that line is the
+   note's Memory section. Exit 1 means debt remains: record it in the note's
+   Memory section as the successor's first job. Never strand a durable fact in
+   the note.
+3. **Run the snapshots** — the note records **command output, not conversational
    memory**. Never write State / anchor / In flight from what you remember:
    - `git status --porcelain --branch` · `git log --oneline -5` ·
      `git log --oneline @{u}.. 2>/dev/null || git log --oneline HEAD --not --remotes 2>/dev/null`
@@ -29,8 +45,22 @@ them in the note.
      all — the second form IS the answer, not a failure: record it as
      `no-upstream, N commits exist nowhere else`. A branch with no upstream is the
      case where the count matters MOST, so it is never the case you skip.)
-   - Background work you started: task/agent list, running workflows (record
-     each `resumeFromRunId`), detached processes + the ports they hold
+   - **Background tasks:**
+     `python3 -I ~/.claude/skills/session-handoff/scripts/bg-tasks.py`
+     (add `--transcript <earlier.jsonl>` for tasks started before a `/clear`).
+     It reads the structured task ids Claude Code records (Bash, Monitor,
+     Workflow, Agent); MCP tools moved to the background are not listed —
+     record those by hand.
+     Never a hand-written `ps | grep` filter: it can only show what you thought
+     to match. Label each open task:
+     - **waiter** — record its command VERBATIM and run its condition once now;
+       record the result. It must be false. A condition already true is a
+       broken waiter (a stale report file passes a bare `[ -f … ]`): fix it
+       before writing the note. A report condition checks the report was
+       written by this dispatch (mtime after the dispatch), never bare existence.
+     - **work** — its log path and exit-code file.
+     Also record running workflows (each `resumeFromRunId`) and detached
+     processes + the ports they hold.
    - **Herd panes**, when `HERDR_ENV=1`:
      `bash ~/.claude/skills/session-handoff/scripts/herd-snapshot.sh [extra-root …]`
      (read-only; it lists every pane whose cwd is this repo or a worktree of it, and
@@ -48,18 +78,15 @@ them in the note.
      deleted at wrap-up. "In this session's transcript" is never a valid location
      — RESUME is forbidden to read it.
    - `gh pr status` (skip silently if no remote / no gh)
-3. **Write the note** (template below). Fill every section: for In flight, write
+4. **Write the note** (template below). Fill every section: for In flight, write
    the finding for each class **or `none (checked)`** — a present `none` proves
-   you looked; an absent section reads as "forgot to check".
-4. **Decide and write durable facts to persistent memory** — judge which
-   trap/preference/recipe is worth keeping, write it to a memory file, and report
-   what you wrote. Do not ask first: this is the wrap-up, where an unanswered
-   question is how a fact gets lost, and a wrong call costs one deletion. Never
-   strand one in the note.
+   you looked; an absent section reads as "forgot to check". Backlog lists
+   every plan item not done, each with what it means: an item name alone
+   forces the successor to guess.
 
-Discipline: save at ~50–60% of the context meter, not at the wire. Hand off when
-the next chunk of work shares little of the current window; for direct
-continuation, compact instead.
+Discipline: hand off at 50% of the context meter, not at the wire. Inside
+herdr, relay to a new session (`/relay`); outside it, `/handoff`, then `/clear`,
+then `/pickup`. A lead never compacts instead.
 
 ### Note template (copy this — it is THE format)
 
@@ -81,6 +108,11 @@ continuation, compact instead.
 
     ## Next step          (ONE concrete move)
 
+    ## Backlog            (every plan item not done: deferred or not started)
+    <one line each: what it means · why it waits · what unblocks it. A name
+    alone is not enough: the successor must never have to guess what an item
+    means.>
+
     ## What we tried / dead ends
     <chronological; EACH with the reason it was rejected, so the next session
     treats it as settled and does NOT reopen it — the most expensive thing to
@@ -91,19 +123,27 @@ continuation, compact instead.
     any code changed>
 
     ## In flight
-    <for EACH class: the finding, or `none (checked)` — tasks/agents · workflow
+    <for EACH class: the finding, or `none (checked)` — background tasks from
+    bg-tasks.py, one line per task id: command, waiter or work, and the
+    condition result (waiter) or log + exit-code file (work) · workflow
     run IDs · session crons VERBATIM · detached processes+ports+log paths · open PRs+CI
     · herd panes (only when HERDR_ENV=1): one line per pane, classified
     self / worker / shell / not mine, workers with brief, deliverable and waiter>
 
     ## Artifacts          (paths, branches, PRs)
 
+    ## Memory             (`clean (checked)`, or the debt memory-check.py left)
+
+    ## Relay Q&A          (RELAY only: the successor's questions, answered here)
+
+    ## Pickup gaps        (written by the successor after it takes over)
+
 Keep the anchor quoted and colon-free — an unquoted `:` inside it makes the
 frontmatter unparseable, and the harness memory layer re-serializes what you
 write. `dirty=` must NAME the paths: they are the only operands RESUME's drift
 check has, and a bare `dirty` makes that check pass on anything.
 
-Core four (Summary, Decisions, State, Next step) always; the rest adapt to the
+Core four (Summary, Decisions, State, Next step) plus Backlog and Memory always; the rest adapt to the
 project — a content project has no anchor or Verified section, but In flight is
 still answered (`none (checked)`).
 
@@ -111,6 +151,15 @@ still answered (`none (checked)`).
 
 **The note is a claim; reality is the authority.** Distrust it structurally —
 verify even when nobody told you to, even when the note "looks complete".
+
+**Relay sub-mode.** When the arguments carry `relay=<dir>`, you are a relay
+successor: follow `references/relay.md` § Successor on top of the steps below.
+In short — read-only until the hand-over (no dispatch, merge or spend; do NOT
+stamp the note yet), resume the note `<dir>/checklist.json` names, arm your own
+waiters marked `relay-<id>-w<k>`, write `<dir>/receipt.json`, end your turn
+addressed to the predecessor. After the hand-over, a clean pickup keeps driving
+under the standing instruction quoted in `handover.md`; it does not wait for
+confirmation. Log anything the note lacked per `references/feedback.md`.
 
 1. **Locate + sweep.** Work inside `<memory-dir>/handoffs/` (or the topic/path in
    the arguments). Take the newest **unconsumed** `kind: handoff` note — match
@@ -213,7 +262,8 @@ verify even when nobody told you to, even when the note "looks complete".
      work without classifying it),
      **batch owner-level open questions to the user** instead of silently
      settling them, and follow `references/recovery.md`.
-4. **Afterwards: stamp what you consumed** on disk — the stamp is exactly what
+4. **Afterwards: stamp what you consumed** on disk (in relay sub-mode: only
+   after the hand-over) — the stamp is exactly what
    steps 1 and 3 grep to skip it next time, and stamping is also what makes a
    file mtime-newest, so leaving one unstamped is a guaranteed re-resume.
    - The note → `status: resumed`. Never stamp over `done` or `superseded`:
@@ -229,6 +279,34 @@ verify even when nobody told you to, even when the note "looks complete".
      is reported, never written.
    Session crons recorded in the note NEVER survive into a fresh session —
    offer to re-arm them; never claim to have "confirmed" them.
+
+## RELAY mode
+
+A relay is SAVE, a successor in a new herdr pane that RESUMEs, and a hand-over.
+Read `references/relay.md` before the first step: it has the full protocol, the
+file formats and the failure table. Outline:
+
+1. Outside herdr (`HERDR_ENV` unset), refuse: use `/handoff`, `/clear`, `/pickup`.
+2. Wait for the preconditions: no subagent or workflow running inside this
+   session, git not mid-operation, attached work finished. Answer any worker
+   blocked on a question within its brief. Then **freeze**: no new dispatch,
+   merge or spend.
+3. SAVE (above). Then
+   `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py checklist --note <note>`
+   prints the relay dir.
+4. `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`
+   (Bash timeout 300000).
+5. Wait on `<relay-dir>/receipt.json` with a background until-loop, never on
+   the screen.
+6. `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.
+   Fix and answer under the note's `## Relay Q&A`, at most 2 rounds; then stop
+   and ask the owner.
+7. Hand-over: stop your own waiters (the compare PASS proved the successor
+   covers every task and worker) and delete your session crons, write
+   `<relay-dir>/handover.md` once (never
+   edit it after sending), send "Read <relay-dir>/handover.md; you have the
+   lead.", end your turn. Never close your own pane: the successor does, with
+   `bash ~/.claude/skills/session-handoff/scripts/relay-close.sh <relay-dir>`.
 
 ## Red flags — you are about to violate this skill
 
@@ -248,6 +326,12 @@ verify even when nobody told you to, even when the note "looks complete".
 - Settling an owner-level design question yourself instead of asking
 - Leaving a consumed note unstamped, or skipping the handoff because
   "compaction will summarize it anyway"
+- Recording background tasks from a hand-written `ps | grep` instead of
+  `bg-tasks.py`
+- Saving a waiter whose condition is already true
+- In a relay: closing your own pane, stamping the note before the hand-over,
+  or acting in the old pane after it; as the successor, typing into the old
+  pane (`relay-close.sh` then refuses to close it)
 
 ## Known limits (stated, not solved)
 
