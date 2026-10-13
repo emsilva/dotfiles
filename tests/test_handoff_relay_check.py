@@ -208,10 +208,9 @@ class CompareTests(unittest.TestCase):
         self.note = Path(self.tmp.name) / 'note.md'
         self.note.write_text('# note\n')
         self.marker = 'relay-test%d-w' % os.getpid()
-        # Own process group: bash forks `sleep 60`, and killing bash alone would orphan the sleep.
-        # stderr: bash may report the sleep's SIGKILL before the same signal reaches bash itself.
-        self.procs = [subprocess.Popen(['bash', '-c', ': %s%d; sleep 60' % (self.marker, k)], start_new_session=True,
-                                       stderr=subprocess.DEVNULL) for k in (1, 2)]
+        self.procs = []
+        for k in (1, 2):
+            self.spawn(': %s%d; while :; do sleep 1; done' % (self.marker, k))
         identity = {'model': 'claude-opus-5-5', 'effort': 'xhigh', 'permission_mode': 'bypassPermissions'}
         self.checklist = {
             'relay_id': 'R1', 'predecessor': dict(identity, session_id='P', transcript='/dev/null'),
@@ -228,14 +227,29 @@ class CompareTests(unittest.TestCase):
             'crons': [{'id': 'cr1', 'action': 'rearmed'}],
             'disagreements': [], 'questions': [], 'gaps': []}
 
+    def spawn(self, script, *args):
+        """A bash carrying a marker in its argv. The script must end in a loop, not a simple command: bash >= 5.1
+        execs a final simple command, and `sleep 60` would replace bash and drop the marker. Own process group,
+        so kill() takes the loop's sleep too. stderr: bash may report the sleep's SIGKILL before dying itself."""
+        proc = subprocess.Popen(['bash', '-c', script, *args], start_new_session=True, stderr=subprocess.DEVNULL)
+        self.procs.append(proc)
+        return proc
+
+    def kill(self, proc):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+
     def tearDown(self):
         for proc in self.procs:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait()
+            self.kill(proc)
         self.tmp.cleanup()
+
+    def assert_alive(self, marker):
+        r = subprocess.run(['pgrep', '-f', marker], capture_output=True)
+        self.assertEqual(r.returncode, 0, 'no process carries %r: the test would pass for the wrong reason' % marker)
 
     def compare(self):
         (self.dir / 'checklist.json').write_text(json.dumps(self.checklist))
@@ -264,6 +278,23 @@ class CompareTests(unittest.TestCase):
         self.receipt['tasks'][0]['marker'] = 'relay-nobody-w9'
         self.assertIn("no live process carries marker 'relay-nobody-w9'", self.compare().stdout)
 
+    def test_a_longer_marker_does_not_stand_in_for_a_shorter_one(self):
+        self.kill(self.procs[0])
+        self.spawn(': %s10; while :; do sleep 1; done' % self.marker)
+        self.assert_alive(self.marker + '10')
+        self.assertIn("FAIL task b4tcyp53v: no live process carries marker '%s1'" % self.marker, self.compare().stdout)
+
+    def test_a_marker_is_matched_literally(self):
+        # Unescaped, the '.' would match the live '...-w1'.
+        self.assert_alive(self.marker + '1')
+        self.receipt['tasks'][0]['marker'] = self.marker + '.'
+        self.assertIn("no live process carries marker '%s.'" % self.marker, self.compare().stdout)
+
+    def test_a_marker_at_the_end_of_the_command_line_is_live(self):
+        self.kill(self.procs[0])
+        self.spawn('while :; do sleep 1; done', self.marker + '1')   # bash's $0: the last word of the argv
+        self.assertEqual(self.compare().returncode, 0)
+
     def test_drop_needs_a_reason(self):
         self.receipt['tasks'] = [{'id': 'b4tcyp53v', 'action': 'drop', 'reason': ''}]
         self.assertIn('dropped without a reason', self.compare().stdout)
@@ -290,10 +321,10 @@ class CompareTests(unittest.TestCase):
 
 
 class QuietTests(unittest.TestCase):
-    def run_quiet(self, prompt_seconds, handover_second):
+    def run_quiet(self, prompt_seconds, handover_second, extra=()):
         from handoff_fixtures import ts
         with tempfile.TemporaryDirectory() as tmp:
-            path = write_transcript(tmp, SID, [prompt('p%d' % s, s) for s in prompt_seconds])
+            path = write_transcript(tmp, SID, [prompt('p%d' % s, s) for s in prompt_seconds] + list(extra))
             rdir = Path(tmp) / 'relay' / 'R1'
             rdir.mkdir(parents=True)
             (rdir / 'checklist.json').write_text(json.dumps({'predecessor': {'transcript': str(path)}}))
@@ -310,6 +341,15 @@ class QuietTests(unittest.TestCase):
         r = self.run_quiet([10, 40], 30)
         self.assertEqual(r.returncode, 1)
         self.assertIn('p40', r.stdout)
+
+    def test_a_prompt_that_cannot_be_placed_in_time_is_not_quiet(self):
+        # quiet gates closing the old lead: a prompt it cannot date counts as after the hand-over.
+        garbled = dict(prompt('pgarbled', 20), timestamp='garbled')
+        undated = {k: v for k, v in prompt('pundated', 20).items() if k != 'timestamp'}
+        r = self.run_quiet([10], 30, extra=[garbled, undated])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('pgarbled', r.stdout)
+        self.assertIn('pundated', r.stdout)
 
     def test_no_handover_yet_exits_2(self):
         # argparse also exits 2 (on an unknown subcommand): the reason pins which 2 this is.

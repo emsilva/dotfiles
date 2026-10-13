@@ -200,7 +200,14 @@ def cmd_checklist(a):
 
 
 def live(marker):
-    return bool(marker) and subprocess.run(['pgrep', '-f', marker], capture_output=True).returncode == 0
+    """A live process carries the whole marker: relay-R1-w1 is not satisfied by relay-R1-w10.
+
+    pgrep takes a POSIX ERE; a backslash before its special characters is literal on BSD and glibc alike
+    (re.escape also escapes '-', which ERE leaves undefined). A bad pattern makes pgrep exit 2: not live."""
+    if not marker:
+        return False
+    pattern = re.sub(r'([.\[\\()*+?{|^$])', r'\\\1', marker) + '([^0-9A-Za-z_-]|$)'
+    return subprocess.run(['pgrep', '-f', pattern], capture_output=True).returncode == 0
 
 
 def _reason(entry):
@@ -278,8 +285,9 @@ def cmd_quiet(a):
         print('relay-check: no handover.md in %s yet' % a.relay_dir, file=sys.stderr)
         return 2
     after = os.path.getmtime(handover)
+    # This gates closing the old lead: a prompt that cannot be dated counts as after the hand-over.
     late = [p for p in transcript.prompts(chk['predecessor']['transcript'])
-            if (transcript.epoch(p['timestamp']) or 0) > after]
+            if (when := transcript.epoch(p['timestamp'])) is None or when > after]
     for p in late:
         print('prompt at %s: %s' % (p['timestamp'], p['text'][:120]))
     return 1 if late else 0
