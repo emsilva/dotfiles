@@ -307,11 +307,13 @@ file formats and the failure table. Outline:
    Fix and answer under the note's `## Relay Q&A`, at most 2 rounds; then
    write `failed.json`, close the successor you launched (only once its pane
    is shown to still host it), keep the lead and ask the owner.
-7. Hand-over: stop your own waiters (the compare PASS proved the successor
-   covers every task and worker) and delete your session crons, write
-   `<relay-dir>/handover.md` once (never
-   edit it after sending), send "Read <relay-dir>/handover.md; you have the
-   lead.", end your turn. Never close your own pane: the successor does, with
+7. Hand-over, in this order: delete your session crons; write
+   `<relay-dir>/handover.md` once (never edit it after sending); send
+   "Read <relay-dir>/handover.md; you have the lead." and check the send
+   (one retry); only once it is sent, stop your own waiters (the compare PASS
+   proved the successor covers every task and worker) and end your turn. Two
+   failed sends: keep your waiters, write `failed.json` (`"stage": "handover"`)
+   and tell the owner. Never close your own pane: the successor does, with
    `bash ~/.claude/skills/session-handoff/scripts/relay-close.sh <relay-dir>`.
 
 ## Red flags — you are about to violate this skill

@@ -86,6 +86,23 @@ class HandoffDocsTests(unittest.TestCase):
         for needle in ('do not close the pane', '"successor_close_reason"'):
             self.assertIn(needle, text[check:])
 
+    def test_the_hand_over_send_is_confirmed_before_the_waiters_stop(self):
+        # Crons go before handover.md (a later fire is a prompt after the hand-over); waiters stop only after a
+        # confirmed send, so a failed send never leaves the lead with no session holding it.
+        text = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        step = text[text.index('9. **Hand-over**'):text.index('10. **After the hand-over**')]
+        order = [step.index(s) for s in ('`CronDelete` each', 'Write `<relay-dir>/handover.md`',
+                                         'you have the lead.` with `herdr agent prompt',
+                                         'check its exit status', 'send it once more', '`TaskStop` each')]
+        self.assertEqual(order, sorted(order), order)
+        self.assertIn('"stage": "handover"', step)
+        self.assertIn('do not stop your waiters', step)
+        outline = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        outline = outline[outline.index('7. Hand-over'):outline.index('## Red flags')]
+        order = [outline.index(s) for s in ('delete your session crons', 'write `<relay-dir>/handover.md`',
+                                            'check the send', 'stop your own waiters')]
+        self.assertEqual(order, sorted(order), order)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):

@@ -159,15 +159,36 @@ predecessor, on failure). The project's current lead is recorded in
      `failed.json`). Your own pane is never closed on a failed relay.
 9. **Hand-over** (make before break). The compare PASS already proved that
    every checklist task and worker is covered by a successor waiter, live or
-   fired (`<relay-dir>/fired/<marker>`): do not re-check them. Stop your own
-   waiters (`TaskStop` each) and delete your session crons (`CronDelete` each:
-   the successor re-armed the ones that still apply, and a cron left here
-   fires a prompt into this pane). Write `<relay-dir>/handover.md` (format
-   below) once and completely, then send the successor exactly
-   `Read <relay-dir>/handover.md; you have the lead.` and end your turn. Never
-   edit `handover.md` after sending: `relay-close.sh` dates "a prompt after the
-   hand-over" from its mtime. Anything you learn later goes to the owner, not
-   into that file.
+   fired (`<relay-dir>/fired/<marker>`), and that the successor re-armed the
+   crons that still apply: do not re-check them. In this order:
+   1. Delete your session crons (`CronDelete` each). They go first: a cron
+      left here fires a prompt into this pane, and one that fires after
+      `handover.md` is written is a prompt after the hand-over, so
+      `relay-close.sh` would refuse to close this pane.
+   2. Write `<relay-dir>/handover.md` (format below) once and completely.
+      Never edit it after sending: `relay-close.sh` dates "a prompt after the
+      hand-over" from its mtime. Anything you learn later goes to the owner,
+      not into that file.
+   3. Send the successor exactly `Read <relay-dir>/handover.md; you have the lead.`
+      with `herdr agent prompt <name> "…"` and check its exit status. Not 0:
+      send it once more.
+   4. Sent (exit 0): stop your own waiters (`TaskStop` each) and end your
+      turn. They stop only now, after the confirmed send, so a failed send
+      never leaves the lead with no session holding it. For those few seconds
+      they overlap the successor's waiters; that is harmless because you are
+      frozen: a waiter only waits, and you act on nothing it reports.
+   5. Not sent after the second try: the successor holds a valid receipt
+      (compare PASS) but never got the lead, and stays read-only. Do not end
+      silently and do not stop your waiters: this pane keeps the lead's
+      record (the note, your waiters) and stays frozen. Write
+      `<relay-dir>/failed.json`:
+      `{"stage": "handover", "reason": "<herdr's error>", "attempts": 2, "at": "<UTC ISO time>", "successor_closed": false, "successor_close_reason": "it holds a valid receipt; the owner decides"}`.
+      Tell the owner that the successor (`<name>`, pane `<pane>`) holds a
+      valid receipt but never got the lead and that this pane keeps the
+      record. The owner decides: send the line to the successor themselves
+      (it then closes this pane with `relay-close.sh`, and its `closed.json`
+      supersedes this `failed.json`), or have this session resume and close
+      the successor.
 10. **After the hand-over** you are done. If anyone types into this pane,
     reply only: "The lead moved to pane <pane> (<name>)." Never close your own
     pane: the successor closes it.
@@ -240,6 +261,8 @@ predecessor, on failure). The project's current lead is recorded in
      again.
 2. **On "you have the lead":** read `handover.md`, write its late facts to
    memory (then `memory-check.py --fix` as in SAVE), stamp the note `resumed`.
+   A second copy of the line (the predecessor retries a send it could not
+   confirm) changes nothing.
    If the note's Memory section carries debt, fix it first (read MEMORY.md in
    full: the part past the cap never loaded into your context).
 3. **Close the predecessor:**
@@ -354,6 +377,7 @@ passes.
 | Check fails, or a question only the owner can answer | up to 2 fix rounds, then `failed.json`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`) and asks the owner; its own pane stays open; `receipt.json` and `failed.json` stay for inspection |
 | Worker delivers during the relay | the predecessor notes it in `handover.md`; the successor's waiter fires on it (`fired/<marker>`) |
 | Worker blocked on a question | answered before the freeze if within its brief; otherwise in the note |
+| The hand-over line cannot be sent (two failed `herdr agent prompt`) | the predecessor keeps its waiters and the record, stays frozen, writes `failed.json` with `"stage": "handover"` and tells the owner; the successor holds a valid receipt but not the lead; the owner decides (a later `closed.json` supersedes that `failed.json`) |
 | Owner types into the old pane after the hand-over | the predecessor points to the new pane; `relay-close.sh` refuses; the successor tells the owner |
 | Successor dies after the hand-over | the old pane is still open (only the successor closes it); the owner resumes it |
 | Memory index over the cap | the relay proceeds; debt in the note; the successor's first job |
