@@ -1,9 +1,14 @@
+import contextlib
+import importlib.util
+import io
 import json
 import mmap
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -15,16 +20,30 @@ MC = SCRIPTS / 'memory-check.py'
 # Without --since the CLI looks up $CLAUDE_CODE_SESSION_ID's transcript under --projects
 # (default ~/.claude/projects): tests give it no session and a projects dir with no transcripts.
 ENV = {k: v for k, v in os.environ.items() if k != 'CLAUDE_CODE_SESSION_ID'}
+SINCE = '2026-01-01T00:00:00Z'
 
 
-def mc(mem, *args):
+def mc(mem, *args, **kwargs):
     return subprocess.run(['python3', '-I', str(MC), str(mem), '--projects', str(Path(mem, 'no-projects')), *args],
-                          capture_output=True, text=True, env=ENV)
+                          capture_output=True, text=True, env=ENV, **kwargs)
 
 
 def run_mc(mem, *args):
     r = mc(mem, '--json', *args)
     return r.returncode, json.loads(r.stdout)
+
+
+def index_text(mem):
+    path = Path(mem, 'MEMORY.md')
+    return path.read_text() if path.exists() else ''
+
+
+def load_mc():
+    """memory-check.py as a module (its name has a dash), for tests that patch its internals."""
+    spec = importlib.util.spec_from_file_location('memory_check', MC)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def memory(mem, name, desc='a fact', mtime=None):
@@ -131,6 +150,90 @@ class MemoryCheckTests(unittest.TestCase):
             code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z', '--fix')
             self.assertEqual(rep['fixed']['removed'], [line])
             self.assertEqual(code, 0)
+
+    def test_only_real_memory_pointers_are_checked(self):
+        # Each line below is live: --fix must keep it, and none of it is a dead link.
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            memory(mem, 'my note')
+            index = ('- [Global rules](~/.claude/CLAUDE.md) - live note\n'
+                     '- Link syntax: write `[text](path)` in notes\n'
+                     '- [K2](<kept.md>) - an angle-bracket pointer\n'
+                     '- [Sp](my%20note.md) - an escaped space\n'
+                     '- [Abs](/etc/notes.md) - an absolute path\n'
+                     '- [Up](../other/notes.md) - outside the memory dir\n'
+                     '- Pointer example: `[x](gone.md)` in a code span\n'
+                     '- [Log](build.log) - not a memory file\n')
+            Path(mem, 'MEMORY.md').write_text(index)
+            code, rep = run_mc(mem, '--since', SINCE)
+            self.assertEqual((rep['dead_links'], rep['unindexed_recent'], rep['unindexed_older']), ([], [], []))
+            self.assertEqual(code, 0)
+            code, rep = run_mc(mem, '--since', SINCE, '--fix')
+            self.assertEqual(rep['fixed'], {'added': [], 'removed': []})
+            self.assertEqual((index_text(mem), code), (index, 0))
+
+    def test_a_relative_memory_dir_reads_its_pointers(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            Path(mem, 'MEMORY.md').write_text('- [kept](kept.md) — x\n')
+            r = subprocess.run(['python3', '-I', str(MC), '.', '--json', '--since', SINCE], cwd=mem,
+                               capture_output=True, text=True, env=ENV)
+            self.assertEqual((r.returncode, json.loads(r.stdout)['unindexed_recent']), (0, []))
+
+    def test_fix_twice_on_a_name_with_a_space_leaves_one_pointer(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'my note')
+            codes = [run_mc(mem, '--since', SINCE, '--fix')[0] for _ in range(2)]
+            self.assertEqual(index_text(mem), '- [my note](my note.md) — a fact\n')
+            self.assertEqual(codes, [0, 0])
+
+    def test_fix_never_writes_a_pointer_it_cannot_read_back(self):
+        # A pointer the check cannot parse back would be added again on every run.
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'x(1)')
+            memory(mem, 'a#b')
+            for _ in range(2):
+                code, rep = run_mc(mem, '--since', SINCE, '--fix')
+            self.assertEqual(index_text(mem), '')
+            self.assertEqual((rep['fixed']['added'], rep['unindexed_recent'], code), ([], ['a#b.md', 'x(1).md'], 1))
+
+    def test_fix_edits_the_text_it_checked(self):
+        # Herd workers share the memory dir: a line written after the check's read must not
+        # shift which line the fix drops.
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            Path(mem, 'MEMORY.md').write_text('- [Kept](kept.md) — stays\n- [Gone](gone.md) — deleted file\n')
+            mod = load_mc()
+            real, reads = mod.read_index, []
+
+            def read_then_race(path):
+                out = real(path)
+                if not reads:  # another worker prepends a line right after the first read
+                    Path(mem, 'MEMORY.md').write_text('- [Kept](kept.md) — another worker\n' + out[0])
+                reads.append(path)
+                return out
+
+            mod.read_index = read_then_race
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                mod.main([mem, '--json', '--since', SINCE, '--fix', '--projects', str(Path(mem, 'no-projects'))])
+            self.assertEqual(json.loads(out.getvalue())['fixed']['removed'], ['- [Gone](gone.md) — deleted file'])
+            self.assertIn('- [Kept](kept.md) — stays\n', index_text(mem))
+
+    def test_a_failed_index_write_leaves_the_old_index(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            memory(mem, 'new')
+            index = '- [kept](kept.md) — x\n- [Gone](gone.md) — deleted file\n'
+            Path(mem, 'MEMORY.md').write_text(index)
+
+            def small_files():  # a write past 16 bytes fails (EFBIG), like a full disk mid-write
+                signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+                resource.setrlimit(resource.RLIMIT_FSIZE, (16, 16))
+
+            r = mc(mem, '--since', SINCE, '--fix', preexec_fn=small_files)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertEqual(index_text(mem), index)
+            self.assertEqual(sorted(os.listdir(mem)), ['MEMORY.md', 'kept.md', 'new.md'])
 
     def test_loader_constants_match_the_installed_claude_code(self):
         exe = shutil.which('claude')
