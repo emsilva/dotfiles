@@ -210,6 +210,20 @@ def live(marker):
     return subprocess.run(['pgrep', '-f', pattern], capture_output=True).returncode == 0
 
 
+def marker_problem(relay_dir, relay_id, marker):
+    """Why `marker` does not cover its item, or None.
+
+    The marker must be this relay's (relay-<id>-w...): the predecessor's own waiters from an earlier relay are
+    alive until the hand-over, and a generic string like 'while' matches anything. A waiter that already fired
+    has exited; the successor's waiters leave <relay-dir>/fired/<marker> behind when they do."""
+    prefix = 'relay-%s-w' % relay_id
+    if not (marker or '').startswith(prefix):
+        return "marker %r is not this relay's (expected prefix %r)" % (marker, prefix)
+    if os.path.isfile(os.path.join(relay_dir, 'fired', marker)) or live(marker):
+        return None
+    return 'no live process carries marker %r and fired/%s does not exist' % (marker, marker)
+
+
 def _reason(entry):
     return bool((entry.get('reason') or '').strip())
 
@@ -246,8 +260,9 @@ def cmd_compare(a):
             if not _reason(got):
                 fails.append('task %s dropped without a reason' % t['id'])
         elif got.get('action') in ('rearmed', 'watching-exit-file'):
-            if not live(got.get('marker')):
-                fails.append('task %s: no live process carries marker %r' % (t['id'], got.get('marker')))
+            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got.get('marker'))
+            if problem:
+                fails.append('task %s: %s' % (t['id'], problem))
         else:
             fails.append('task %s: unknown action %r' % (t['id'], got.get('action')))
     seen = {w.get('pane_id'): w for w in rec.get('workers') or []}
@@ -256,8 +271,9 @@ def cmd_compare(a):
         if not got:
             fails.append('worker %s (%s) is not in the receipt' % (w['pane_id'], w.get('name') or w.get('kind')))
         elif got.get('waiter_marker'):
-            if not live(got['waiter_marker']):
-                fails.append('worker %s: no live process carries marker %r' % (w['pane_id'], got['waiter_marker']))
+            problem = marker_problem(a.relay_dir, chk.get('relay_id'), got['waiter_marker'])
+            if problem:
+                fails.append('worker %s: %s' % (w['pane_id'], problem))
         elif not _reason(got):
             fails.append('worker %s has neither a waiter nor a reason' % w['pane_id'])
     crons = {c.get('id'): c for c in rec.get('crons') or []}

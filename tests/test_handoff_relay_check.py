@@ -203,23 +203,25 @@ class ChecklistTests(unittest.TestCase):
 class CompareTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name) / 'relay' / 'R1'
+        # The relay id carries the pid, so the markers (relay-<id>-w<k>) are unique to this run.
+        self.relay_id = 'test%d' % os.getpid()
+        self.dir = Path(self.tmp.name) / 'relay' / self.relay_id
         self.dir.mkdir(parents=True)
         self.note = Path(self.tmp.name) / 'note.md'
         self.note.write_text('# note\n')
-        self.marker = 'relay-test%d-w' % os.getpid()
+        self.marker = 'relay-%s-w' % self.relay_id
         self.procs = []
         for k in (1, 2):
             self.spawn(': %s%d; while :; do sleep 1; done' % (self.marker, k))
         identity = {'model': 'claude-opus-5-5', 'effort': 'xhigh', 'permission_mode': 'bypassPermissions'}
         self.checklist = {
-            'relay_id': 'R1', 'predecessor': dict(identity, session_id='P', transcript='/dev/null'),
+            'relay_id': self.relay_id, 'predecessor': dict(identity, session_id='P', transcript='/dev/null'),
             'note': {'path': str(self.note), 'sha256': load_module().sha256(str(self.note))},
             'background_tasks': [{'id': 'b4tcyp53v', 'kind': 'shell', 'description': 'Watch free disk', 'command': 'df'}],
             'crons': [{'id': 'cr1', 'cron': '7 * * * *', 'prompt': 'status', 'recurring': True}],
             'workers': [{'pane_id': 'wT:p2', 'name': 'worker-a', 'kind': 'codex', 'status': 'working'}]}
         self.receipt = {
-            'relay_id': 'R1', 'successor': dict(identity, session_id='N'),
+            'relay_id': self.relay_id, 'successor': dict(identity, session_id='N'),
             'note': {'path': str(self.note), 'sha256': self.checklist['note']['sha256']},
             'tier': 'clean', 'drift': [],
             'tasks': [{'id': 'b4tcyp53v', 'action': 'rearmed', 'marker': self.marker + '1'}],
@@ -247,9 +249,14 @@ class CompareTests(unittest.TestCase):
             self.kill(proc)
         self.tmp.cleanup()
 
-    def assert_alive(self, marker):
+    def assert_alive(self, marker, alive=True):
         r = subprocess.run(['pgrep', '-f', marker], capture_output=True)
-        self.assertEqual(r.returncode, 0, 'no process carries %r: the test would pass for the wrong reason' % marker)
+        self.assertEqual(r.returncode == 0, alive, '%r is %s: the test would pass for the wrong reason'
+                         % (marker, 'not carried by any process' if alive else 'still carried by a process'))
+
+    def fired(self, marker):
+        (self.dir / 'fired').mkdir(exist_ok=True)
+        (self.dir / 'fired' / marker).touch()
 
     def compare(self):
         (self.dir / 'checklist.json').write_text(json.dumps(self.checklist))
@@ -275,8 +282,43 @@ class CompareTests(unittest.TestCase):
         self.assertIn('re-read it', self.compare().stdout)
 
     def test_dead_marker_fails(self):
-        self.receipt['tasks'][0]['marker'] = 'relay-nobody-w9'
-        self.assertIn("no live process carries marker 'relay-nobody-w9'", self.compare().stdout)
+        self.receipt['tasks'][0]['marker'] = self.marker + '9'
+        self.assertIn("no live process carries marker '%s9'" % self.marker, self.compare().stdout)
+
+    def test_a_live_marker_of_another_relay_fails(self):
+        # From the second relay on, the predecessor's own waiters carry the previous relay's markers and stay
+        # alive until the hand-over: copying one must not cover the task.
+        old = 'relay-test%dold-w' % os.getpid()
+        self.spawn(': %s1; while :; do sleep 1; done' % old)
+        self.assert_alive(old + '1')
+        self.receipt['tasks'][0]['marker'] = old + '1'
+        self.receipt['workers'][0]['waiter_marker'] = old + '1'
+        out = self.compare().stdout
+        for what in ('task b4tcyp53v', 'worker wT:p2'):
+            self.assertIn("FAIL %s: marker '%s1' is not this relay's (expected prefix '%s')"
+                          % (what, old, self.marker), out)
+
+    def test_a_generic_string_is_not_a_marker(self):
+        for marker in ('while', ' ', None):
+            with self.subTest(marker=marker):
+                self.receipt['tasks'][0]['marker'] = marker
+                self.assertIn("FAIL task b4tcyp53v: marker %r is not this relay's" % marker, self.compare().stdout)
+
+    def test_a_fired_waiter_counts(self):
+        # A waiter that fired between arming and the compare has exited; its fired file stands in for it.
+        for proc in self.procs:
+            self.kill(proc)
+        for k in (1, 2):
+            self.assert_alive('%s%d' % (self.marker, k), alive=False)
+            self.fired('%s%d' % (self.marker, k))
+        r = self.compare()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'PASS'), r.stdout)
+
+    def test_a_fired_file_does_not_rescue_another_relays_marker(self):
+        old = 'relay-test%dold-w1' % os.getpid()
+        self.fired(old)
+        self.receipt['tasks'][0]['marker'] = old
+        self.assertIn("FAIL task b4tcyp53v: marker '%s' is not this relay's" % old, self.compare().stdout)
 
     def test_a_longer_marker_does_not_stand_in_for_a_shorter_one(self):
         self.kill(self.procs[0])
