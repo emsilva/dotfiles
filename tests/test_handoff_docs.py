@@ -103,6 +103,17 @@ class HandoffDocsTests(unittest.TestCase):
                                             'check the send', 'stop your own waiters')]
         self.assertEqual(order, sorted(order), order)
 
+    def test_the_spec_carries_the_protocol_relay_md_adds(self):
+        # The spec binds piece 2: what relay.md adds to the protocol must be in it too.
+        spec = ' '.join((SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text().split())
+        self.assertFalse('`relay-check.py checklist <relay-dir>`' in spec, 'the spec keeps the old checklist header')
+        for needle in ('`relay-check.py checklist --note PATH [--extra-root DIR ...] [--transcript PATH ...]`',
+                       '`<relay-dir>/fix-<round>`', '(`CronDelete`)', 'Resume the note `checklist.json` names',
+                       'it never types into the old pane', '10-second timeout', '`agent_session.value` equal to',
+                       '`successor_close_reason`', 'check its exit status; retry once', '"stage": "handover"',
+                       'A **disagreement** says the note or `checklist.json` is wrong about reality'):
+            self.assertIn(needle, spec)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):

@@ -88,37 +88,75 @@ this repo). The defects this spec fixes:
    ends 20 minutes after `launch.json` (15 minutes after each fix round's request), when `herdr agent get` reports
    the successor `agent_not_found`, or when its `agent_status` stays `blocked` for 8 consecutive polls (about 2
    minutes; a successor waiting on an approval to write `receipt.json` must not be failed at the first poll).
-   Without a usable receipt the relay stops as in step 6, with `failed.json` `"stage": "receipt"`: the old lead
-   closes the successor it launched, records `successor_closed`, keeps the lead and tells the owner.
-6. **Check.** `relay-check.py compare <relay-dir>`. On failure, the old lead fixes the note or answers the
-   successor's questions in the note's `## Relay Q&A`, and tells the successor to re-read only those items and
-   rewrite the receipt. At most 2 rounds. After that, or on a question only the owner can answer, the relay
-   stops. The old lead writes `failed.json`, closes the successor pane it launched (the successor never received
-   the lead and stayed read-only; a live `lead-<project>-next` would block the next relay's launch with
-   `agent_name_taken`), confirms `herdr agent get <pane>` reports `agent_not_found`, records `successor_closed`
-   (true or false) in `failed.json`, keeps the lead and asks the owner. `receipt.json` and `failed.json` stay for
-   inspection.
+   Each fix round waits on its own anchor, `<relay-dir>/fix-<round>`, touched when the round's request is sent
+   (the receipt is already newer than `launch.json`, so that anchor would pass at once). Every `herdr agent get`
+   in a wait loop runs with a 10-second timeout, and a read that fails, hangs or answers no JSON counts as
+   `unread` (keep waiting), so one hung herdr call cannot hold a loop past its deadline. Without a usable
+   receipt the relay stops as in step 6, with `failed.json` `"stage": "receipt"`: the old lead closes the
+   successor it launched (after the identity check in step 6), records `successor_closed`, keeps the lead and
+   tells the owner.
+6. **Check.** `relay-check.py compare <relay-dir>`. On failure, the old lead fixes the note, and in the note's
+   `## Relay Q&A` answers the successor's questions and disagreements (correcting the note, or showing with
+   evidence why it stands) and explains drift. It then touches `<relay-dir>/fix-<round>` and tells the successor
+   to re-read only those items and rewrite the receipt, and waits as in step 5. At most 2 rounds. After that, or
+   on a question only the owner can answer, the relay stops. The old lead writes `failed.json` and closes the
+   successor pane it launched (the successor never received the lead and stayed read-only; a live
+   `lead-<project>-next` would block the next relay's launch with `agent_name_taken`), but only after checking
+   what that pane hosts now: pane ids can change (a herdr restore renumbers them), and after a successor that
+   went `agent_not_found` the recorded id is least trustworthy. `herdr agent get <launch.json pane_id>` must
+   report `agent_session.value` equal to `launch.json`'s `session_id`, or `name` equal to its `name` (non-empty
+   either way). Then it closes the pane, confirms `herdr agent get <pane>` reports `agent_not_found`, and records
+   `successor_closed: true`. Otherwise (another session and name, `agent_not_found`, a failed read) it does not
+   close the pane, records `successor_closed: false` with `successor_close_reason`, and tells the owner, naming
+   the successor's pane if `herdr agent get <name>` still finds it. It keeps the lead and asks the owner.
+   `receipt.json` and `failed.json` stay for inspection.
 7. **Hand-over (make before break).** The compare PASS proved every task and worker is covered (a live waiter,
-   or one that already fired: `<relay-dir>/fired/<marker>`). Stop the old lead's own waiters (`TaskStop`), write
-   `handover.md`, send the successor one line ("Read `<relay-dir>/handover.md`; you have the lead."), end the
-   turn. From launch on, the old lead writes no memory;
-   late facts go in `handover.md`. If the owner types into the old pane afterwards, it only says where the lead
-   moved.
-8. **Failure.** The successor fails to start twice, or the check fails past its rounds: write `failed.json`,
-   keep driving, tell the owner. Both paths close the pane the old lead launched (`relay-launch.sh` closes its
-   own on a failed start; step 6 on a failed check). The old lead is never closed on a failed relay.
+   or one that already fired: `<relay-dir>/fired/<marker>`) and that the successor re-armed the crons that still
+   apply. In this order:
+   1. Delete the old lead's session crons (`CronDelete`). First, because a cron fire after `handover.md` is
+      written is a prompt after the hand-over, and `relay-close.sh` would refuse to close the old pane.
+   2. Write `handover.md` once; never edit it after sending (`relay-close.sh` dates the hand-over from its mtime).
+   3. Send the successor one line ("Read `<relay-dir>/handover.md`; you have the lead.") with
+      `herdr agent prompt` and check its exit status; retry once.
+   4. Sent: stop the old lead's own waiters (`TaskStop`) and end the turn. The waiters stop only after the
+      confirmed send, so a failed send never leaves the lead with no session holding it; the overlap with the
+      successor's waiters lasts seconds and is harmless while the old lead is frozen.
+   5. Not sent after the retry: the old lead keeps its waiters and the record, stays frozen, writes `failed.json`
+      `"stage": "handover"` (`successor_closed: false`), and tells the owner that the successor holds a valid
+      receipt but never got the lead. The owner decides; if the owner completes the hand-over, the successor's
+      `closed.json` supersedes that `failed.json`.
+
+   From the memory check on, the old lead writes no memory; late facts go in `handover.md`. If the owner types
+   into the old pane afterwards, it only says where the lead moved.
+8. **Failure.** The successor fails to start twice, writes no usable receipt, or the check fails past its
+   rounds: write `failed.json`, keep driving, tell the owner. These paths close the pane the old lead launched
+   (`relay-launch.sh` closes its own on a failed start; step 6, after its identity check, on a failed receipt
+   or check). A failed hand-over send (step 7) closes nothing: the owner decides. The old lead is never closed on
+   a failed relay.
 
 ### 3. RESUME relay sub-mode, the successor's side (`/pickup relay=<dir>`)
 
 1. Normal RESUME (reality outranks the note), plus:
    - **Read-only until the hand-over:** no dispatches, merges or spending; the note is not stamped (D7).
+   - Resume the note `checklist.json` names (`note.path`), not whichever note the sweep finds newest; a newer
+     note is drift.
    - Verify `checklist.json` against reality: git, each worker's status (`herdr agent get`, read-only),
      deliverables, background tasks.
-   - Arm its own waiters, each command prefixed `: relay-<id>-w<k>;` so `pgrep -f` finds it; re-arm crons.
-   - Write `receipt.json`; end the turn addressed to the old lead.
+   - Arm its own waiters, each command prefixed `: relay-<id>-w<k>;` so `pgrep -f` finds it, and ending with
+     `touch <relay-dir>/fired/<marker>`; re-arm crons.
+   - Write `receipt.json`: what it needs answered goes in `questions`; a claim of the note or checklist that its
+     evidence contradicts goes in `disagreements`; a gap it filled itself goes in `gaps`. End the turn addressed
+     to the old lead. Files are the channel: it never types into the old pane (after the hand-over any prompt
+     there makes `relay-close.sh` refuse).
+   - On a fix round: re-read the named items, remove each settled question and disagreement from the receipt
+     (anything only informational moves to `gaps`; one an answer does not settle stays), fill the drift
+     explanations, rewrite the receipt, end the turn.
 2. **On "you have the lead":** read `handover.md`, save its late facts to memory, stamp the note `resumed`. If
    the note carries memory debt, that is the first job.
-3. **Close the old lead:** `relay-close.sh <relay-dir>`.
+3. **Close the old lead:** `relay-close.sh <relay-dir>`. If it refuses because the old lead is still `working`
+   (it has not ended its turn), wait in a background loop for it to leave `working`, bounded at 10 minutes and
+   reading as in §2 step 5 (a hung read is `unread` and keeps waiting), then run `relay-close.sh` again; a second
+   refusal goes to the owner.
 4. **Drive.** Clean pickup: keep going under the standing instruction from `handover.md` (quoted, with its
    time, so it is not stretched). Drift, an unexplained mismatch or an owner-only question: stop and ask.
 5. **First message to the owner:** relay id, check result, what is in flight, memory status, gap proposals.
@@ -128,7 +166,8 @@ this repo). The defects this spec fixes:
 1. **Detection.** Whenever the successor finds the note lacked something: 3+ searches for something the note
    does not name; a question to the owner about pre-relay knowledge; verification contradicting the note;
    re-deriving what the old lead had stated; the old lead's tasks not matching the checklist. During the relay
-   these become receipt questions; afterwards they go straight to the log.
+   these become receipt questions (or disagreements, when the successor's evidence contradicts the note);
+   afterwards they go straight to the log.
 2. **Recording.** One JSON line per gap in `~/.claude/handoff-feedback/gaps.jsonl` (global, outside chezmoi),
    plus a short `## Pickup gaps` section in the consumed note.
 3. **Firing.** A proposal is drafted at once for a **serious** gap (an owner question the old lead could have
@@ -176,10 +215,14 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   transcript record. Reports: headroom; memory files absent from the index (split into written since `--since`
   and older); index lines pointing at missing files. `--fix` applies only the two
   safe fixes, then re-measures. Exit 0 when clean, 1 when debt remains.
-- **`relay-check.py checklist <relay-dir>`** writes `checklist.json`:
-  `relay_id`, `created_at`; `predecessor` {`session_id`, `pane_id`, `herdr_name`, `model` (last main-thread
-  `message.model`), `effort` (`CLAUDE_EFFORT`), `permission_mode`, `pid` (`CLAUDE_PID`)}; `repo`; `git`
-  {`head`, `branch`, `dirty`}; `note` {`path`, `sha256`}; `background_tasks` (from `bg-tasks.py`); `workers`
+- **`relay-check.py checklist --note PATH [--extra-root DIR ...] [--transcript PATH ...]`** creates the relay dir
+  `~/.claude/projects/<enc>/relay/<relay-id>/`, writes `checklist.json` into it and prints the dir. Exit 2, and no
+  relay dir, when a herdr read fails (an error, an answer that is not JSON, or a listing whose `result.panes` or
+  `result.agents` is not a list) or the note is unreadable. `checklist.json`:
+  `relay_id`, `created_at`; `predecessor` {`session_id`, `transcript`, `pane_id`, `herdr_name`, `herdr_session`,
+  `model` (last main-thread `message.model`), `effort` (`CLAUDE_EFFORT`), `permission_mode`, `pid`
+  (`CLAUDE_PID`)}; `repo`; `git` {`head`, `branch`, `dirty`}; `note` {`path`, `sha256`}; `background_tasks`
+  (from `bg-tasks.py`); `workers`
   (herdr panes whose cwd is the repo, a worktree of it, or an `--extra-root`, minus this pane: name, pane,
   kind, status, session); `crons`; `recent_prompts` (the last 3 prompts typed into the session, by the owner or
   through herdr, verbatim, with times: the transcript cannot tell the two apart). It refuses (exit 3, no dir)
@@ -189,9 +232,10 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   effort or permission mode differ; note path or sha256 differ; a checklist task id missing from the receipt,
   marked re-armed with no live `pgrep -f` match for its marker, or dropped without a reason; a worker missing, or
   with neither a live waiter marker nor a reason (status equality is not checked: a worker can finish between
-  the successor's look and the compare); a cron not accounted for; open questions; drift reported
-  without an explanation. Every task and worker marker must start with `relay-<relay-id>-w` for this relay's id,
-  so a live waiter of an earlier relay (the predecessor's own, alive until the hand-over) or a generic string such
+  the successor's look and the compare); a cron not accounted for; open questions or disagreements; drift
+  reported without an explanation; a `relay_id` that is not this relay's; a `tier` other than `clean` or
+  `drift`. Every task and worker marker must start with `relay-<relay-id>-w` for this relay's id, so a live
+  waiter of an earlier relay (the predecessor's own, alive until the hand-over) or a generic string such
   as `while` covers nothing. A marker of this relay is satisfied by a live `pgrep -f` match or by the file
   `<relay-dir>/fired/<marker>`, which the successor's waiters leave when they fire between arming and the compare;
   a fired file never rescues a marker with another prefix. Prints PASS or one line per failure; exit 0 or 1.
@@ -214,11 +258,20 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
 - `receipt.json` (successor): `relay_id`; `successor` identity (same fields as the predecessor's); `note`
   {`path`, `sha256`}; `tier` (`clean` or `drift`) and `drift` items; `tasks` [{`id`, `action`: `rearmed` |
   `watching-exit-file` | `drop`, `marker`, `reason`}]; `workers` [{`pane_id`, `status_seen`, `waiter_marker`,
-  `reason`}]; `crons` [{`id`, `action`, `reason`}]; `disagreements`; `questions`; `gaps`.
+  `reason`}]; `crons` [{`id`, `action`, `reason`}]; `disagreements`; `questions`; `gaps`. A **question** asks
+  for something the note does not say. A **disagreement** says the note or `checklist.json` is wrong about
+  reality: it quotes the claim and the evidence against it (drift, by contrast, is reality moving on after the
+  save, a claim that was true when written). The old lead answers both under the note's `## Relay Q&A`; the
+  successor removes each from the receipt once an answer settles it, moving anything only informational to
+  `gaps`. Both block the compare while non-empty; `gaps` do not.
 - `handover.md` (old lead): the standing instruction (quoted, with its time), deliveries that arrived during
   the relay, late facts for memory.
-- `launch.json`, `closed.json`, `failed.json` (scripts). `failed.json` holds the reason and attempt count
-  (after a failed check also `successor_closed`); piece 2's hook reads it to back off.
+- `launch.json`, `closed.json` (scripts); `failed.json` (`relay-launch.sh`, or the old lead). `launch.json` holds
+  the successor's `pane_id`, `name` and `session_id`, which step 6's identity check compares. `failed.json` holds
+  `stage` (`launch` | `receipt` | `check` | `handover`), `reason`, `attempts` and `at`; after a failed receipt,
+  check or hand-over send also `successor_closed`, with `successor_close_reason` when it is false. Piece 2's hook
+  reads it to back off; a `closed.json` written later in the same relay dir supersedes it.
+- `fix-<round>` (old lead): touched when a fix round's request is sent; the anchor of that round's wait.
 - `gaps.jsonl` line: `date`, `project`, `relay_id`, `predecessor_session`, `successor_session`, `missing`,
   `cost`, `section` (template section or `none`), `kind` (`no-slot` | `slot-empty` | `stale-or-wrong` |
   `check-cannot-fail` | `protocol`), `severity` (`serious` | `minor`), `fixed_by`.
@@ -230,8 +283,10 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
 | Outside herdr | `/relay` refuses; manual `/handoff`, `/clear`, `/pickup` |
 | Subagent or workflow running in the lead, attached work running, git mid-operation | wait; the relay does not start |
 | Successor fails to start | one retry; then `failed.json`, old lead keeps driving and tells the owner |
-| Successor writes no usable receipt (dies, stays `blocked` for about 2 minutes, or 20 minutes pass; 15 per fix round) | `failed.json` `"stage": "receipt"`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and tells the owner |
-| Check fails | up to 2 fix rounds, then `failed.json`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and asks the owner |
+| Successor writes no usable receipt (dies, stays `blocked` for about 2 minutes, or 20 minutes pass; 15 per fix round) | `failed.json` `"stage": "receipt"`; the old lead closes the successor pane it launched if that pane still hosts it, records `successor_closed`, keeps the lead and tells the owner |
+| Check fails | up to 2 fix rounds, then `failed.json`; the old lead closes the successor pane it launched if that pane still hosts it, records `successor_closed`, keeps the lead and asks the owner |
+| A herdr read hangs inside a wait loop | the read times out after 10 s and counts as `unread`; the loop still ends at its bound |
+| The hand-over line cannot be sent (fails twice) | the old lead keeps its waiters and the record, stays frozen, writes `failed.json` `"stage": "handover"` and tells the owner; the successor holds a valid receipt but not the lead; the owner decides |
 | Worker delivers during the relay | old lead notes it in `handover.md`; successor's waiter fires on it |
 | Worker blocked on a question | answered before the freeze if within its brief; otherwise in the note |
 | Owner types into the old pane after the hand-over | old lead points to the new pane; `relay-close.sh` refuses; successor tells the owner |
