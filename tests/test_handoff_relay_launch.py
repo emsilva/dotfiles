@@ -20,10 +20,10 @@ class LaunchTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def launch(self, responses, mode='bypassPermissions', with_env=True):
+    def launch(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh'):
         (self.dir / 'checklist.json').write_text(json.dumps({
             'relay_id': 'R1', 'repo': '/x/repo',
-            'predecessor': {'model': 'claude-opus-5-5', 'effort': 'xhigh', 'permission_mode': mode}}))
+            'predecessor': {'model': 'claude-opus-5-5', 'effort': effort, 'permission_mode': mode}}))
         env, self.log = herdr_stub(self.tmp.name, responses)
         if not with_env:
             env.pop('HERDR_ENV')
@@ -68,6 +68,20 @@ class LaunchTests(unittest.TestCase):
         self.assertIn("banner does not show model 'Opus 5.5'", json.loads((self.dir / 'failed.json').read_text())['reason'])
         self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
         self.assertEqual(self.call(['agent', 'prompt']), [])
+
+    def test_effort_must_appear_as_a_whole_word(self):
+        r = self.launch({'pane split': [SPLIT], 'pane read': [{'out': ' Opus 5.5 with xhigh effort\n'}]}, effort='high')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("banner does not show effort 'high'", json.loads((self.dir / 'failed.json').read_text())['reason'])
+        self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(self.call(['agent', 'prompt']), [])
+        self.assertFalse((self.dir / 'launch.json').exists())
+
+    def test_effort_as_its_own_word_passes(self):
+        for banner in (' Opus 5.5 with high effort · Claude Max\n', ' Opus 5.5 · Claude Max\n ◐ high · /effort\n'):
+            with self.subTest(banner=banner):
+                r = self.launch({'pane split': [SPLIT], 'pane read': [{'out': banner}]}, effort='high')
+                self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_outside_herdr_exits_2(self):
         self.assertEqual(self.launch({}, with_env=False).returncode, 2)

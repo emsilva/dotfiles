@@ -49,16 +49,19 @@ def sha256(path):
         return hashlib.file_digest(fh, 'sha256').hexdigest()
 
 
-def settings_mode(repo):
-    for path in (os.path.join(repo, '.claude', 'settings.local.json'), os.path.join(repo, '.claude', 'settings.json'),
-                 os.path.expanduser('~/.claude/settings.json')):
-        try:
-            mode = json.load(open(path)).get('permissions', {}).get('defaultMode')
-        except (OSError, ValueError, AttributeError):
-            continue
-        if mode:
-            return mode
-    return 'default'
+def settings_mode():
+    """The user's own default permission mode (~/.claude/settings.json), else 'default'.
+
+    Used only when the transcript has no permission-mode record. The repo's .claude/settings*.json
+    are never read: they arrive with the repo, and bypassPermissions there would launch the relayed
+    successor with --dangerously-skip-permissions. Only the observed runtime mode or the user's own
+    settings may grant that.
+    """
+    try:
+        mode = json.load(open(os.path.expanduser('~/.claude/settings.json'))).get('permissions', {}).get('defaultMode')
+    except (OSError, ValueError, AttributeError):
+        mode = None
+    return mode or 'default'
 
 
 class HerdrError(Exception):
@@ -152,7 +155,7 @@ def cmd_identity(a):
     session, tpath = own_transcript(a)
     print(json.dumps({'session_id': session, 'pane_id': os.environ.get('HERDR_PANE_ID'),
                       'model': transcript.last_model(tpath), 'effort': os.environ.get('CLAUDE_EFFORT'),
-                      'permission_mode': transcript.permission_mode(tpath) or settings_mode(repo_root())}))
+                      'permission_mode': transcript.permission_mode(tpath) or settings_mode()}))
     return 0
 
 
@@ -180,7 +183,7 @@ def cmd_checklist(a):
             'session_id': session, 'transcript': tpath, 'pane_id': self_pane, 'herdr_name': me.get('name'),
             'herdr_session': (me.get('agent_session') or {}).get('value'),
             'model': transcript.last_model(tpath), 'effort': os.environ.get('CLAUDE_EFFORT'),
-            'permission_mode': transcript.permission_mode(tpath) or settings_mode(repo),
+            'permission_mode': transcript.permission_mode(tpath) or settings_mode(),
             'pid': int(pid) if pid.isdigit() else None},
         'git': git_state(repo),
         'note': note,

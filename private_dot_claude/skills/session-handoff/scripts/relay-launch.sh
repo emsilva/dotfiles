@@ -67,7 +67,9 @@ print(parts[0].capitalize() + " " + ".".join(parts[1:]))' "$model")
 banner=$(herdr pane read "$pane" --source visible 2>/dev/null) || fail "could not read the new pane"
 case "$banner" in *"$want"*) ;; *) fail "banner does not show model '$want'" ;; esac
 if [ -n "$effort" ]; then
-  case "$banner" in *"$effort"*) ;; *) fail "banner does not show effort '$effort'" ;; esac
+  # Whole words only: every non-word character becomes a space, so "high" is not found in "xhigh effort".
+  words=" ${banner//[^[:alnum:]_]/ } "
+  case "$words" in *" ${effort//[^[:alnum:]_]/ } "*) ;; *) fail "banner does not show effort '$effort'" ;; esac
 fi
 
 session=$(herdr agent get "$name" 2>/dev/null | python3 -I -c 'import json, sys

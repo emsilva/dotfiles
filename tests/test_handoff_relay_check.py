@@ -193,6 +193,44 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(os.path.basename(first), '20261012T202423Z')
         self.assertEqual(os.path.basename(second), '20261012T202423Z-2')
 
+    def mode_without_a_transcript_record(self, project_file, project_mode, home_mode=None):
+        """checklist and identity's permission_mode when the transcript has no permission-mode record.
+        HOME is a temp home, so the real ~/.claude/settings.json is never read."""
+        home = self.root / 'home'
+        (home / '.claude').mkdir(parents=True, exist_ok=True)
+        user = home / '.claude' / 'settings.json'
+        if home_mode:
+            user.write_text(json.dumps({'permissions': {'defaultMode': home_mode}}))
+        elif user.exists():
+            user.unlink()
+        project = self.repo / '.claude' / project_file
+        project.parent.mkdir(exist_ok=True)
+        project.write_text(json.dumps({'permissions': {'defaultMode': project_mode}}))
+        try:
+            env = dict(self.env(self.transcript_recs()[1:]), HOME=str(home))
+            r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects), env=env, cwd=self.repo)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            ident = rc('identity', '--projects', str(self.projects), env=env, cwd=self.repo)
+            self.assertEqual(ident.returncode, 0, ident.stderr)
+        finally:
+            project.unlink()
+        return (json.loads((Path(r.stdout.strip()) / 'checklist.json').read_text())['predecessor']['permission_mode'],
+                json.loads(ident.stdout)['permission_mode'])
+
+    def test_project_settings_never_grant_bypass(self):
+        # A cloned repo's .claude/settings*.json must not put the relayed successor into bypass mode.
+        for project_file in ('settings.json', 'settings.local.json'):
+            with self.subTest(project_file=project_file):
+                self.assertEqual(self.mode_without_a_transcript_record(project_file, 'bypassPermissions'),
+                                 ('default', 'default'))
+
+    def test_the_users_own_settings_give_the_mode(self):
+        for project_file in ('settings.json', 'settings.local.json'):
+            with self.subTest(project_file=project_file):
+                self.assertEqual(self.mode_without_a_transcript_record(project_file, 'acceptEdits',
+                                                                       home_mode='bypassPermissions'),
+                                 ('bypassPermissions', 'bypassPermissions'))
+
     def test_identity_reads_the_current_session(self):
         env = self.env(self.transcript_recs())
         r = rc('identity', '--projects', str(self.projects), env=env, cwd=self.repo)
