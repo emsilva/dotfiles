@@ -46,11 +46,13 @@ predecessor, on failure). The project's current lead is recorded in
    and run it again.
 6. **Launch.**
    `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`,
-   through the Bash tool with `timeout: 300000` (two 90 s start attempts plus
-   clean-up outlast the default). It splits this pane down, starts
-   `lead-<project>-next` with your model and effort, checks that the new pane's
-   banner shows both, sends `/pickup relay=<relay-dir>`, writes `launch.json`
-   and prints the new pane id (exit 0).
+   through the Bash tool with `timeout: 300000` (two 90 s start attempts,
+   their busy-pane retries and clean-up outlast the default). It splits this
+   pane down, starts `lead-<project>-next` with your model and effort, checks
+   that the new pane's banner shows both, sends `/pickup relay=<relay-dir>`,
+   writes `launch.json` and prints the new pane id (exit 0). A start that
+   herdr answers with `agent_pane_busy` (the new pane's shell is not ready
+   yet) is retried every second for up to 15 s before it counts as an attempt.
    - **Permission mode.** It adds `--dangerously-skip-permissions` only when
      the checklist's `permission_mode` is `bypassPermissions`, which
      `checklist` takes from your transcript's permission-mode record, else from
@@ -378,7 +380,7 @@ passes.
 | Outside herdr | `/relay` refuses; manual `/handoff`, `/clear`, `/pickup` |
 | Subagent or workflow running, attached work running, git mid-operation | wait; the relay does not start (`checklist` exit 3) |
 | A herdr read fails or the note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
-| Successor fails to start | one retry; then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
+| Successor fails to start | one retry (a start answered `agent_pane_busy` is retried for up to 15 s before it counts); then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
 | No usable receipt: the successor dies, stays `blocked` for about 2 minutes, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`), keeps the lead and tells the owner |
 | Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`) and asks the owner; its own pane stays open |

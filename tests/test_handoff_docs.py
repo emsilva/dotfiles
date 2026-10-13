@@ -34,10 +34,12 @@ class HandoffDocsTests(unittest.TestCase):
 
     def test_relay_md_states_the_waiter_rules_compare_enforces(self):
         # compare accepts only markers with this relay's prefix, live or with a fired/ file;
-        # relay-launch needs a Bash timeout above its two 90 s start attempts.
+        # relay-launch needs a Bash timeout above its two 90 s start attempts and their busy-pane retries.
         text = (SKILL / 'references/relay.md').read_text()
-        for needle in ('fired/', 'relay-<relay-id>-w', '300000'):
+        for needle in ('fired/', 'relay-<relay-id>-w', '300000', 'agent_pane_busy'):
             self.assertIn(needle, text)
+        spec = (SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text()
+        self.assertIn('agent_pane_busy', spec)
 
     def test_receipt_waits_are_bounded(self):
         # A successor that dies or blocks before its receipt must not hold the predecessor's wait forever.

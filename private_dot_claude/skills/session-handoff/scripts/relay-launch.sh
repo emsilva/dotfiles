@@ -7,10 +7,15 @@
 # Failure (split failed, two failed starts, a banner unread or without the
 # model or effort, /pickup not sent): closes the pane it created, writes
 # <relay-dir>/failed.json and exits 1. Exit 2 outside herdr or without a checklist.
+# A start that herdr answers with agent_pane_busy (the new pane's shell is not
+# ready yet) is retried every second for up to RELAY_LAUNCH_BUSY_WAIT seconds
+# (default 15) before it counts as a failed attempt.
 set -uo pipefail
 dir=${1:?usage: relay-launch.sh <relay-dir> [--slug SLUG]}
 shift
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+busy_wait=${RELAY_LAUNCH_BUSY_WAIT:-15}
+case "$busy_wait" in ''|*[!0-9]*) echo "relay-launch: RELAY_LAUNCH_BUSY_WAIT must be whole seconds, not '$busy_wait'" >&2; exit 2 ;; esac
 [ "${HERDR_ENV:-}" = 1 ] || { echo "relay-launch: not inside herdr" >&2; exit 2; }
 [ -f "$dir/checklist.json" ] || { echo "relay-launch: no checklist.json in $dir" >&2; exit 2; }
 
@@ -54,13 +59,21 @@ pane=$(herdr pane split "$HERDR_PANE_ID" --direction down --cwd "$repo" --no-foc
 [ -n "$pane" ] || fail "pane split failed"
 
 started=""
-while [ "$attempt" -lt 2 ]; do
+while [ -z "$started" ] && [ "$attempt" -lt 2 ]; do
   attempt=$((attempt + 1))
-  if out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout 90000 -- "${args[@]}" 2>&1); then
-    started=1
-    break
-  fi
-  echo "relay-launch: start attempt $attempt failed: $out" >&2
+  # A pane fresh from the split may not host a shell yet: herdr then answers agent_pane_busy. That is retried
+  # within this attempt; any other error ends the attempt.
+  since=$SECONDS
+  while :; do
+    if out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout 90000 -- "${args[@]}" 2>&1); then
+      started=1
+      break
+    fi
+    case "$out" in *agent_pane_busy*) ;; *) break ;; esac
+    [ $((SECONDS - since)) -lt "$busy_wait" ] || break
+    sleep 1
+  done
+  [ -n "$started" ] || echo "relay-launch: start attempt $attempt failed: $out" >&2
 done
 [ -n "$started" ] || fail "agent start failed twice"
 

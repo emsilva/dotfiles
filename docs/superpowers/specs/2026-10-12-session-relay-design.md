@@ -245,9 +245,10 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   one line per failure; exit 0 or 1.
 - **`relay-launch.sh <relay-dir>`**: `herdr pane split $HERDR_PANE_ID --direction down --cwd <repo>
   --no-focus`; `herdr agent start lead-<project>-next --kind claude --pane <new> -- --model <m> --effort <e>
-  [--dangerously-skip-permissions] [--session-id <uuid>]`; retries the start once (no fixed sleeps); asserts the
-  banner shows the model and effort; `herdr agent prompt ... "/pickup relay=<dir>"`; writes `launch.json`
-  (pane, name, session id, time). On a second failure writes `failed.json` and exits 1. `<project>` is the repo
+  [--dangerously-skip-permissions] [--session-id <uuid>]`; retries the start once (a start answered
+  `agent_pane_busy`, the new pane's shell not ready yet, is retried every second for up to 15 s before it counts
+  as an attempt); asserts the banner shows the model and effort; `herdr agent prompt ... "/pickup relay=<dir>"`;
+  writes `launch.json` (pane, name, session id, time). On a second failure writes `failed.json` and exits 1. `<project>` is the repo
   basename, lowercased, non-alphanumerics to `-`, cut so the name fits herdr's 32-character limit; an override
   argument exists.
 - **`relay-close.sh <relay-dir>`** (run by the successor): refuses unless the predecessor's pane reports

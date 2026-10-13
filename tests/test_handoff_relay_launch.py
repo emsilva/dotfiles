@@ -12,6 +12,9 @@ from handoff_fixtures import SCRIPTS, agent_json, herdr_calls, herdr_stub
 LAUNCH = SCRIPTS / 'relay-launch.sh'
 SPLIT = {'out': json.dumps({'result': {'pane': {'pane_id': 'wT:p9'}}})}
 BANNER = {'out': ' Claude Code v2.1.296\n Opus 5.5 with xhigh effort · Claude Max\n ~/code/repo\n'}
+# Real herdr's answer when `agent start` reaches a pane whose shell is not ready yet (stderr, exit 1).
+BUSY = {'out': json.dumps({'error': {'code': 'agent_pane_busy',
+                                     'message': 'agent target pane wT:p9 is not an available shell'}}), 'code': 1}
 
 
 class LaunchTests(unittest.TestCase):
@@ -34,10 +37,12 @@ class LaunchTests(unittest.TestCase):
             env.pop('HERDR_ENV')
         return env
 
-    def launch(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh', locale=None, timeout=None):
+    def launch(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh', locale=None, timeout=None,
+               extra_env=None):
         env = self.prepare(responses, mode, with_env, effort)
         if locale:
             env['LC_ALL'] = locale
+        env.update(extra_env or {})
         return subprocess.run(['bash', str(LAUNCH), str(self.dir)], capture_output=True, text=True, env=env,
                               timeout=timeout)
 
@@ -73,6 +78,37 @@ class LaunchTests(unittest.TestCase):
         failed = json.loads((self.dir / 'failed.json').read_text())
         self.assertEqual((failed['stage'], failed['reason'], failed['attempts']), ('launch', 'agent start failed twice', 2))
         self.assertFalse((self.dir / 'launch.json').exists())
+
+    def test_a_new_pane_not_ready_yet_is_retried_before_the_attempt_counts(self):
+        # Right after the split the new pane may not host a shell yet: herdr answers agent_pane_busy. The start is
+        # retried in the same attempt, so a busy pane does not use up the one retry.
+        r = self.launch({'pane split': [SPLIT], 'agent start': [BUSY, BUSY, {'out': '{}'}], 'pane read': [BANNER],
+                         'agent get': [{'out': agent_json('idle', session='S2', pane='wT:p9')}]}, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        starts = self.call(['agent', 'start'])
+        self.assertEqual(len(starts), 3, starts)
+        self.assertTrue(all(start == starts[0] for start in starts), starts)
+        self.assertFalse((self.dir / 'failed.json').exists())
+        self.assertTrue((self.dir / 'launch.json').exists())
+        self.assertEqual(self.call(['pane', 'close']), [])
+
+    def test_a_pane_that_stays_busy_counts_as_a_failed_attempt(self):
+        # The busy retry is bounded (RELAY_LAUNCH_BUSY_WAIT seconds, 15 by default), then counts as one attempt.
+        began = time.monotonic()
+        r = self.launch({'pane split': [SPLIT], 'agent start': [BUSY]}, extra_env={'RELAY_LAUNCH_BUSY_WAIT': '2'},
+                        timeout=30)
+        self.assertLess(time.monotonic() - began, 12)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertGreater(len(self.call(['agent', 'start'])), 2)
+        failed = json.loads((self.dir / 'failed.json').read_text())
+        self.assertEqual((failed['reason'], failed['attempts']), ('agent start failed twice', 2))
+        self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+
+    def test_a_busy_wait_that_is_not_whole_seconds_starts_nothing(self):
+        r = self.launch({'pane split': [SPLIT]}, extra_env={'RELAY_LAUNCH_BUSY_WAIT': '1.5'})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('RELAY_LAUNCH_BUSY_WAIT', r.stderr)
+        self.assertEqual(herdr_calls(self.log), [])
 
     def test_banner_without_the_model_fails(self):
         r = self.launch({'pane split': [SPLIT], 'pane read': [{'out': ' Haiku 5.5 with xhigh effort\n'}]})
