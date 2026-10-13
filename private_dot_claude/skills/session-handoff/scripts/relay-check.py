@@ -270,8 +270,9 @@ def marker_problem(relay_dir, relay_id, marker, table, successor_pid):
     covers its item only when it descends from the successor's claude (successor_pid): that is what a Bash
     run_in_background task is, and only such a task wakes the session when it ends. A nohup/& waiter is
     re-parented away (to launchd): it fires, but nobody is woken to act on it. table is processes()'s
-    snapshot, or None when ps failed (the caller reports that once). Without a successor pid (also reported
-    once by the caller) descent cannot be checked, and a live carrier is not failed again here."""
+    snapshot, or None when ps failed (the caller reports that once). Without a usable successor pid (missing,
+    or not running: also reported once by the caller) descent cannot be checked, and a live carrier is not
+    failed again here."""
     prefix = 'relay-%s-w' % relay_id
     if not (marker or '').startswith(prefix):
         return "marker %r is not this relay's (expected prefix %r)" % (marker, prefix)
@@ -312,6 +313,12 @@ def cmd_compare(a):
     except PsError as e:
         fails.append('cannot read the process list: %s' % e)
         table = None
+    if successor_pid is not None and table is not None and successor_pid not in table:
+        # The successor died, or herdr resumed it under a new pid: no waiter can descend from this one, and
+        # re-arming them would not help. Reported once; live waiters are not failed again as detached.
+        fails.append('successor pid %d is not running; rewrite the successor block from relay-check.py identity'
+                     % successor_pid)
+        successor_pid = None
     if rec.get('relay_id') != chk.get('relay_id'):
         fails.append('relay_id %r is not %r' % (rec.get('relay_id'), chk.get('relay_id')))
     for key in ('model', 'effort', 'permission_mode'):

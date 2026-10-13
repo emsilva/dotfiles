@@ -127,6 +127,12 @@ class HandoffDocsTests(unittest.TestCase):
         claude = ' '.join((SOURCE / 'private_dot_claude/CLAUDE.md').read_text().split())
         self.assertIn('Waiters are not long work: keep them `run_in_background`', claude)
         self.assertNotIn('Short waiters may stay `run_in_background`', claude)
+        # Long work is detached, but its .exit file is still waited on by a run_in_background waiter.
+        self.assertIn('wait on the `.exit` file with a `run_in_background` waiter, not on the job\'s own task notice',
+                      claude)
+        self.assertNotIn('not on a task notification', claude)
+        for name, text in (('CLAUDE.md', claude), ('SKILL.md', skill)):
+            self.assertNotIn('background until-loop', text.replace('`run_in_background` until-loop', ''), name)
         spec = ' '.join((SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text().split())
         self.assertIn("descends from the receipt's `successor.pid`", spec)
         self.assertNotIn('pgrep -f', spec)

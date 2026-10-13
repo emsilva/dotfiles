@@ -83,7 +83,7 @@ this repo). The defects this spec fixes:
    relay dir `~/.claude/projects/<enc>/relay/<relay-id>/` (a sibling of `memory/`, so it never loads or
    counts against the index cap).
 4. **Launch.** `relay-launch.sh <relay-dir>`.
-5. **Wait.** A background until-loop on: `receipt.json` exists, is newer than `launch.json`, and the successor
+5. **Wait.** A `run_in_background` until-loop on: `receipt.json` exists, is newer than `launch.json`, and the successor
    is `idle` or `done` (`unknown` never counts as finished). No screen reading. The loop is bounded: it also
    ends 20 minutes after `launch.json` (15 minutes after each fix round's request), when `herdr agent get` reports
    the successor `agent_not_found`, or when its `agent_status` stays `blocked` for 8 consecutive polls (about 2
@@ -155,8 +155,8 @@ this repo). The defects this spec fixes:
 2. **On "you have the lead":** read `handover.md`, save its late facts to memory, stamp the note `resumed`. If
    the note carries memory debt, that is the first job.
 3. **Close the old lead:** `relay-close.sh <relay-dir>`. If it refuses because the old lead is still `working`
-   (it has not ended its turn), wait in a background loop for it to leave `working`, bounded at 10 minutes and
-   reading as in §2 step 5 (a hung read is `unread` and keeps waiting), then run `relay-close.sh` again; a second
+   (it has not ended its turn), wait in a `run_in_background` loop for it to leave `working`, bounded at 10
+   minutes and reading as in §2 step 5 (a hung read is `unread` and keeps waiting), then run `relay-close.sh` again; a second
    refusal goes to the owner.
 4. **Drive.** Clean pickup: keep going under the standing instruction from `handover.md` (quoted, with its
    time, so it is not stretched). Drift, an unexplained mismatch or an owner-only question: stop and ask.
@@ -241,7 +241,7 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   the successor's waiters leave when they fire between arming and the compare, or by a live process carrying it
   that descends from the receipt's `successor.pid` (one `ps` snapshot, ppid chains walked): a `run_in_background`
   task does, while a `nohup`/`&` waiter is re-parented away, cannot wake the successor, and FAILs as detached; a
-  receipt without `successor.pid` FAILs. A fired file never rescues a marker with another prefix. Prints PASS or
+  receipt without `successor.pid`, or whose pid is not running, FAILs once. A fired file never rescues a marker with another prefix. Prints PASS or
   one line per failure; exit 0 or 1.
 - **`relay-launch.sh <relay-dir>`**: `herdr pane split $HERDR_PANE_ID --direction down --cwd <repo>
   --no-focus`; `herdr agent start lead-<project>-next --kind claude --pane <new> -- --model <m> --effort <e>

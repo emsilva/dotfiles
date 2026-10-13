@@ -300,8 +300,8 @@ file formats and the failure table. Outline:
    prints the relay dir.
 4. `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`
    (Bash timeout 300000).
-5. Wait on `<relay-dir>/receipt.json` with a background until-loop, never on
-   the screen. It is bounded: 20 minutes, the successor gone, or the
+5. Wait on `<relay-dir>/receipt.json` with a `run_in_background` until-loop,
+   never on the screen. It is bounded: 20 minutes, the successor gone, or the
    successor `blocked` for about 2 minutes; no usable receipt fails the relay
    (`"stage": "receipt"`).
 6. `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.

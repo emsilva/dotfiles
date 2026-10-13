@@ -453,6 +453,21 @@ class CompareTests(unittest.TestCase):
             self.assertIn("FAIL %s: marker '%s%d' is carried only by a process detached from the successor"
                           % (what, self.marker, k), out)
 
+    def test_a_successor_pid_that_is_not_running_is_named_once(self):
+        # A successor that died, or that herdr resumed under a new pid, leaves every live waiter without its
+        # ancestor: the fix is a fresh identity block, not re-arming each waiter.
+        gone = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.kill(gone)
+        self.assertNotEqual(subprocess.run(['ps', '-o', 'pid=', '-p', str(gone.pid)], capture_output=True).returncode,
+                            0, 'pid %d is still listed: the test would pass for the wrong reason' % gone.pid)
+        self.receipt['successor']['pid'] = gone.pid
+        r = self.compare()
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual([line for line in r.stdout.splitlines() if 'pid' in line],
+                         ['FAIL successor pid %d is not running; rewrite the successor block from relay-check.py '
+                          'identity' % gone.pid], r.stdout)
+        self.assertNotIn('detached', r.stdout)
+
     def test_a_receipt_without_a_successor_pid_fails(self):
         for pid in ('absent', None):
             with self.subTest(pid=pid):

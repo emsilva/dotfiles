@@ -357,7 +357,7 @@ unsettled after 2 fix rounds stops the relay, and the owner decides.
 `compare` passes only when all of these hold:
 - `relay_id` is this relay's, and `tier` is `clean` or `drift`;
 - the successor's model, effort and permission mode equal the predecessor's,
-  and its block carries a `pid`;
+  and its block carries the `pid` of a running process;
 - `note.path` is the checklist's and `note.sha256` matches the note on disk now;
 - every checklist task is `rearmed` or `watching-exit-file` with a `marker`
   of this relay that is fired, or live in a process that descends from the
