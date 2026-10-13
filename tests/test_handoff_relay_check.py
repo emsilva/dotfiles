@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, agent_json, herdr_stub, prompt, tool_result, tool_use,
+from handoff_fixtures import (SCRIPTS, agent_json, herdr_calls, herdr_stub, prompt, tool_result, tool_use,
                               write_transcript)
 
 RC = SCRIPTS / 'relay-check.py'
@@ -65,19 +65,22 @@ class ChecklistTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def env(self, recs, panes=None):
+    def env(self, recs, panes=None, herdr=None):
         self.transcript = write_transcript(self.projects, SID, recs)
         panes = panes if panes is not None else [
             {'pane_id': 'wT:p1', 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'claude', 'agent_status': 'working'},
             {'pane_id': 'wT:p2', 'tab_id': 'wT:t1', 'cwd': str(self.repo / 'sub'), 'agent': 'codex',
              'agent_status': 'working', 'agent_session': {'value': 'W2'}},
             {'pane_id': 'wT:p3', 'tab_id': 'wT:t9', 'cwd': '/elsewhere', 'agent': 'claude', 'agent_status': 'idle'}]
-        env, self.log = herdr_stub(self.tmp.name, {
+        env, self.log = herdr_stub(self.tmp.name, dict({
             'agent get': [{'out': agent_json('working', session='S1', pane='wT:p1', name='lead-repo')}],
             'agent list': [{'out': json.dumps({'result': {'agents': [{'pane_id': 'wT:p2', 'name': 'worker-a'}]}})}],
-            'pane list': [{'out': json.dumps({'result': {'panes': panes}})}]})
+            'pane list': [{'out': json.dumps({'result': {'panes': panes}})}]}, **(herdr or {})))
         env.update(CLAUDE_CODE_SESSION_ID=SID, CLAUDE_EFFORT='xhigh', CLAUDE_PID='4242')
         return env
+
+    def relay_root(self):
+        return self.projects / '-tmp-repo' / 'relay'
 
     def transcript_recs(self):
         return [{'type': 'permission-mode', 'permissionMode': 'bypassPermissions'},
@@ -142,6 +145,44 @@ class ChecklistTests(unittest.TestCase):
                env=self.env(self.transcript_recs()), cwd=self.repo)
         self.assertEqual(r.returncode, 3)
         self.assertIn('MERGE_HEAD', r.stderr)
+
+    def test_a_failed_herdr_read_stops_the_checklist(self):
+        # Real herdr reports errors as JSON on stderr with exit 1; an empty observation must not be recorded.
+        error = {'out': json.dumps({'error': {'code': 'server_unavailable', 'message': 'no herdr server'}}),
+                 'code': 1}
+        for cmd in ('agent get', 'agent list', 'pane list'):
+            with self.subTest(cmd=cmd):
+                r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects),
+                       env=self.env(self.transcript_recs(), herdr={cmd: [error]}), cwd=self.repo)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIn('herdr ' + cmd, r.stderr)
+                self.assertIn('no herdr server', r.stderr)
+                self.assertFalse(self.relay_root().exists())
+
+    def test_herdr_output_that_is_not_json_stops_the_checklist(self):
+        r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs(), herdr={'pane list': [{'out': 'garbled'}]}), cwd=self.repo)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('herdr pane list', r.stderr)
+        self.assertFalse(self.relay_root().exists())
+
+    def test_a_missing_note_leaves_no_relay_dir(self):
+        r = rc('checklist', '--note', str(self.root / 'absent.md'), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs()), cwd=self.repo)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('absent.md', r.stderr)
+        self.assertFalse(self.relay_root().exists())
+
+    def test_outside_herdr_the_checklist_reads_no_herdr(self):
+        env = self.env(self.transcript_recs())
+        del env['HERDR_PANE_ID'], env['HERDR_ENV']
+        r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects), env=env, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        c = json.loads((Path(r.stdout.strip()) / 'checklist.json').read_text())
+        self.assertEqual(c['workers'], [])
+        self.assertEqual((c['predecessor']['pane_id'], c['predecessor']['herdr_name']), (None, None))
+        self.assertEqual(herdr_calls(self.log), [])
 
     def test_relay_dir_collision_gets_a_suffix(self):
         module = load_module()

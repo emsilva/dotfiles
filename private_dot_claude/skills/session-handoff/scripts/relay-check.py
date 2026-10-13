@@ -61,14 +61,26 @@ def settings_mode(repo):
     return 'default'
 
 
+class HerdrError(Exception):
+    """A herdr read failed: recording it as an empty answer would hand over a herd with no workers."""
+
+
 def herdr_json(*args):
-    code, out = run(['herdr', *args])
-    if code != 0:
-        return {}
+    """herdr's JSON answer, or HerdrError naming the command and echoing herdr's stderr."""
+    cmd = ' '.join(['herdr', *args])
     try:
-        return json.loads(out)
+        r = subprocess.run(['herdr', *args], capture_output=True, text=True)
+    except OSError as e:
+        raise HerdrError('%s: %s' % (cmd, e))
+    if r.returncode != 0:
+        raise HerdrError('%s exited %d: %s' % (cmd, r.returncode, ' '.join(r.stderr.split()) or '(no stderr)'))
+    try:
+        data = json.loads(r.stdout)
     except ValueError:
-        return {}
+        data = None
+    if not isinstance(data, dict):
+        raise HerdrError('%s printed no JSON object: %s' % (cmd, ' '.join(r.stdout.split())[:200]))
+    return data
 
 
 def repo_root():
@@ -95,6 +107,8 @@ def blockers(repo, tasks):
 
 
 def workers(repo, extra_roots, self_pane):
+    if not self_pane:   # outside herdr there is no herd to read
+        return []
     _, listing = run(['git', '-C', repo, 'worktree', 'list', '--porcelain'])
     roots = [line[len('worktree '):] for line in listing.splitlines() if line.startswith('worktree ')] or [repo]
     roots = [os.path.realpath(r).rstrip('/') for r in roots + list(extra_roots)]
@@ -152,14 +166,15 @@ def cmd_checklist(a):
         for line in blocked:
             print('relay-check: not yet: %s' % line, file=sys.stderr)
         return 3
+    try:
+        note = {'path': os.path.abspath(a.note), 'sha256': sha256(a.note)}
+    except OSError as e:
+        print('relay-check: cannot read the note: %s' % e, file=sys.stderr)
+        return 2
     self_pane = os.environ.get('HERDR_PANE_ID')
     me = herdr_json('agent', 'get', self_pane).get('result', {}).get('agent', {}) if self_pane else {}
-    now = datetime.datetime.now(datetime.timezone.utc)
-    rdir = new_relay_dir(os.path.dirname(tpath), now)
     pid = os.environ.get('CLAUDE_PID', '')
-    data = {
-        'relay_id': os.path.basename(rdir),
-        'created_at': now.isoformat().replace('+00:00', 'Z'),
+    record = {
         'repo': repo,
         'predecessor': {
             'session_id': session, 'transcript': tpath, 'pane_id': self_pane, 'herdr_name': me.get('name'),
@@ -168,12 +183,16 @@ def cmd_checklist(a):
             'permission_mode': transcript.permission_mode(tpath) or settings_mode(repo),
             'pid': int(pid) if pid.isdigit() else None},
         'git': git_state(repo),
-        'note': {'path': os.path.abspath(a.note), 'sha256': sha256(a.note)},
+        'note': note,
         'background_tasks': tasks,
         'crons': transcript.open_crons(paths),
         'workers': workers(repo, a.extra_root, self_pane),
         'recent_prompts': transcript.prompts(tpath)[-3:],
     }
+    # Every read that can fail is done: only now does the relay dir exist.
+    now = datetime.datetime.now(datetime.timezone.utc)
+    rdir = new_relay_dir(os.path.dirname(tpath), now)
+    data = dict({'relay_id': os.path.basename(rdir), 'created_at': now.isoformat().replace('+00:00', 'Z')}, **record)
     with open(os.path.join(rdir, 'checklist.json'), 'w') as fh:
         json.dump(data, fh, indent=1)
     print(rdir)
@@ -195,7 +214,11 @@ def main(argv=None):
     for parser in sub.choices.values():
         parser.add_argument('--projects', default=transcript.PROJECTS, help=argparse.SUPPRESS)
     a = p.parse_args(argv)
-    return {'name': cmd_name, 'identity': cmd_identity, 'checklist': cmd_checklist}[a.cmd](a)
+    try:
+        return {'name': cmd_name, 'identity': cmd_identity, 'checklist': cmd_checklist}[a.cmd](a)
+    except HerdrError as e:
+        print('relay-check: herdr read failed: %s' % e, file=sys.stderr)
+        return 2
 
 
 if __name__ == '__main__':
