@@ -154,6 +154,9 @@ verify even when nobody told you to, even when the note "looks complete".
 
 **Relay sub-mode.** When the arguments carry `relay=<dir>`, you are a relay
 successor: follow `references/relay.md` § Successor on top of the steps below.
+Where they differ, `references/relay.md` wins over the RESUME steps below (it
+re-arms waiters while the predecessor's still run, re-arms crons instead of
+offering to, and does not wait for confirmation after the hand-over).
 In short — read-only until the hand-over (no dispatch, merge or spend; do NOT
 stamp the note yet), resume the note `<dir>/checklist.json` names, arm your own
 waiters marked `relay-<id>-w<k>`, write `<dir>/receipt.json`, end your turn
@@ -297,7 +300,8 @@ file formats and the failure table. Outline:
 4. `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`
    (Bash timeout 300000).
 5. Wait on `<relay-dir>/receipt.json` with a background until-loop, never on
-   the screen.
+   the screen. It is bounded: 20 minutes, or the successor gone or `blocked`;
+   no usable receipt fails the relay (`"stage": "receipt"`).
 6. `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.
    Fix and answer under the note's `## Relay Q&A`, at most 2 rounds; then
    write `failed.json`, close the successor you launched, keep the lead and ask

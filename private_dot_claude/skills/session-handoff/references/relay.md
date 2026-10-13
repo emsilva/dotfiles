@@ -28,8 +28,8 @@ predecessor, on failure). The project's current lead is recorded in
    otherwise record it in the note.
 3. **Freeze.** From here: no new dispatch, merge, spend or score. Note
    arrivals (deliveries, notifications) for `handover.md`; do not act on them.
-4. **SAVE** (SKILL.md), including the memory check. From the launch on you
-   write no memory: late facts go in `handover.md`.
+4. **SAVE** (SKILL.md), including the memory check. From the memory check
+   on (SAVE step 2) you write no memory; late facts go in `handover.md`.
 5. **Checklist.**
    `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py checklist --note <note path>`
    (add `--extra-root <dir>` for each dir outside the repo where this front
@@ -65,11 +65,28 @@ predecessor, on failure). The project's current lead is recorded in
      and the new pane closed. Keep driving and tell the owner.
    - **Exit 2**: not inside herdr, no `checklist.json`, or a checklist that
      names no model. Nothing was started.
-7. **Wait on the receipt**, never on the screen: a background until-loop on
-   `[ <relay-dir>/receipt.json -nt <relay-dir>/launch.json ]` AND
-   `herdr agent get <name>` (the name in `launch.json`,
-   `lead-<project>-next`) not reporting `working`. A failed `herdr agent get`
-   does not count as "not working".
+7. **Wait on the receipt**, never on the screen and never without a bound.
+   Run this through the Bash tool with `run_in_background` (the tool blocks a
+   foreground sleep). `<successor name>` is the `name` in `launch.json`
+   (`lead-<project>-next`):
+
+       anchor=<relay-dir>/launch.json receipt=<relay-dir>/receipt.json name=<successor name>
+       deadline=$(( $(python3 -I -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$anchor") + 1200 ))
+       successor() { python3 -I -c 'import json, subprocess, sys; r = subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True); print(("gone" if "agent_not_found" in r.stderr else "unread") if r.returncode else ((json.loads(r.stdout).get("result") or {}).get("agent") or {}).get("agent_status") or "unread")' "$name" 2>/dev/null || echo unread; }
+       until st=$(successor); { [ "$receipt" -nt "$anchor" ] && [ "$st" != working ] && [ "$st" != unread ]; } \
+         || [ "$st" = gone ] || [ "$st" = blocked ] || [ "$(date +%s)" -ge "$deadline" ]; do sleep 15; done
+       echo "successor=$st receipt=$([ "$receipt" -nt "$anchor" ] && echo new || echo none)"
+
+   It reads the `agent_status` field of `herdr agent get <successor name>`; a
+   failed read prints `unread`, which never counts as "not working". The loop
+   ends on the first of: the receipt is newer than the anchor and the
+   successor is no longer `working`; the successor is gone
+   (`agent_not_found`) or `blocked` (in the default permission mode a prompt
+   to write under `~/.claude` blocks it); 20 minutes past the anchor's mtime
+   (`+ 1200`). Its last line reads `successor=<status> receipt=<new|none>`.
+   `receipt=new` with `successor=idle` or `successor=done`: go to step 8.
+   Anything else: step 8's failure branch with `"stage": "receipt"` and that
+   line as the reason.
 8. **Check.**
    `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.
    - Exit 0 prints `PASS`: go to step 9.
@@ -79,17 +96,21 @@ predecessor, on failure). The project's current lead is recorded in
      time, so after any edit to the note the successor must re-read it and
      record the new sha256. Then `touch <relay-dir>/fix-<round>` and tell the
      successor (`herdr agent prompt <name> "…"`): "Re-read <items> in the note
-     and rewrite <relay-dir>/receipt.json." Wait as in step 7 with
-     `fix-<round>` in place of `launch.json` (the receipt is already newer
-     than `launch.json`, so that condition would pass at once), then compare
-     again. At most **2** fix rounds.
-   - Still failing after 2 rounds, an identity FAIL, or a question only the
-     owner can answer: the relay stops. The successor never received the lead
+     and rewrite <relay-dir>/receipt.json." Wait with step 7's loop, with
+     `anchor=<relay-dir>/fix-<round>` and `+ 900` (15 minutes) in place of
+     `+ 1200` (the receipt is already newer than `launch.json`, so that anchor
+     would pass at once). Read its last line as in step 7, then compare again.
+     At most **2** fix rounds.
+   - Still failing after 2 rounds, an identity FAIL, a question only the
+     owner can answer, or a receipt wait (step 7 or a fix round) that ended
+     without a usable receipt: the relay stops. The successor never received the lead
      and stayed read-only, so close the pane you launched for it; left alive,
      its `lead-<project>-next` name would block the next relay's launch
      (`agent_name_taken`).
      1. Write `<relay-dir>/failed.json`:
-        `{"stage": "check", "reason": "<the FAIL lines>", "attempts": <rounds>, "at": "<UTC ISO time>"}`.
+        `{"stage": "check", "reason": "<the FAIL lines>", "attempts": <rounds>, "at": "<UTC ISO time>"}`,
+        or after a receipt wait
+        `{"stage": "receipt", "reason": "<the waiter's last line>", "attempts": <rounds>, "at": "<UTC ISO time>"}`.
      2. `herdr pane close <pane>` (the `pane_id` in `launch.json`), then
         confirm it: `herdr agent get <pane>` must fail with `agent_not_found`
         (herdr reports it on stderr; allow about 10 s, as `relay-close.sh`
@@ -173,8 +194,11 @@ predecessor, on failure). The project's current lead is recorded in
      your pane: files are the channel, and the predecessor waits on
      `receipt.json`. Never type into the predecessor's pane: after the
      hand-over, any prompt there makes `relay-close.sh` refuse.
-   - Told to re-read items: re-read them (and re-hash the note if it changed),
-     rewrite `receipt.json`, end your turn again.
+   - Told to re-read items: re-read them (and re-hash the note if it
+     changed). Remove each answered entry from `questions` (compare passes
+     only when it is empty), move anything informational to `gaps`, and fill
+     the `explanation` of each drift item the predecessor explained. Rewrite
+     `receipt.json`, end your turn again.
 2. **On "you have the lead":** read `handover.md`, write its late facts to
    memory (then `memory-check.py --fix` as in SAVE), stamp the note `resumed`.
    If the note's Memory section carries debt, fix it first (read MEMORY.md in
@@ -195,9 +219,18 @@ predecessor, on failure). The project's current lead is recorded in
    any close: not inside herdr, `CLAUDE_CODE_SESSION_ID` unset, no checklist,
    or a usage error.
    - Refused because the pane is `working`: the predecessor has not ended its
-     turn yet. Wait a minute and run it again.
+     turn yet. Arm a background until-loop on the old pane's `agent_status`
+     (`herdr agent get <pane>`, read as in Predecessor step 7) leaving
+     `working`, bounded at 10 minutes, then rerun `relay-close.sh`. Still
+     `working` at the bound: tell the owner.
    - Refused because a prompt reached the old pane: tell the owner; the pane
      stays open for them.
+   - If it refused and the owner then closes the old pane by hand, the close
+     happened but the rename and the records did not. Run
+     `herdr agent rename $HERDR_PANE_ID <name>` with the name from
+     `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py name --repo <repo>`
+     (`<repo>` from `checklist.json`), and tell the owner that `closed.json`
+     and `lead.json` were not written.
 4. **Drive.** A clean pickup continues under the standing instruction exactly
    as `handover.md` quotes it, no wider. Drift you cannot resolve, a mismatch
    the predecessor could not explain, or a question only the owner can answer:
@@ -249,6 +282,7 @@ passes.
 | A herdr read fails or the note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
 | Successor fails to start | one retry; then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
+| No usable receipt: the successor dies, sits `blocked`, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched (`successor_closed`), keeps the lead and tells the owner |
 | Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open |
 | Check fails, or a question only the owner can answer | up to 2 fix rounds, then `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open; `receipt.json` and `failed.json` stay for inspection |
 | Worker delivers during the relay | the predecessor notes it in `handover.md`; the successor's waiter fires on it (`fired/<marker>`) |

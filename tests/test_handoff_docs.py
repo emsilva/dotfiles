@@ -39,6 +39,12 @@ class HandoffDocsTests(unittest.TestCase):
         for needle in ('fired/', 'relay-<relay-id>-w', '300000'):
             self.assertIn(needle, text)
 
+    def test_receipt_waits_are_bounded(self):
+        # A successor that dies or blocks before its receipt must not hold the predecessor's wait forever.
+        text = (SKILL / 'references/relay.md').read_text()
+        for needle in ('"stage": "receipt"', '+ 1200 ))', '+ 900', 'agent_status'):
+            self.assertIn(needle, text)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):
