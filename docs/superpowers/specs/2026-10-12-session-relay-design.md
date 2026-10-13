@@ -88,7 +88,11 @@ this repo). The defects this spec fixes:
 6. **Check.** `relay-check.py compare <relay-dir>`. On failure, the old lead fixes the note or answers the
    successor's questions in the note's `## Relay Q&A`, and tells the successor to re-read only those items and
    rewrite the receipt. At most 2 rounds. After that, or on a question only the owner can answer, the relay
-   stops and asks the owner; nothing is closed and the old lead keeps the lead.
+   stops. The old lead writes `failed.json`, closes the successor pane it launched (the successor never received
+   the lead and stayed read-only; a live `lead-<project>-next` would block the next relay's launch with
+   `agent_name_taken`), confirms `herdr agent get <pane>` reports `agent_not_found`, records `successor_closed`
+   (true or false) in `failed.json`, keeps the lead and asks the owner. `receipt.json` and `failed.json` stay for
+   inspection.
 7. **Hand-over (make before break).** The compare PASS proved every task and worker is covered (a live waiter,
    or one that already fired: `<relay-dir>/fired/<marker>`). Stop the old lead's own waiters (`TaskStop`), write
    `handover.md`, send the successor one line ("Read `<relay-dir>/handover.md`; you have the lead."), end the
@@ -96,7 +100,8 @@ this repo). The defects this spec fixes:
    late facts go in `handover.md`. If the owner types into the old pane afterwards, it only says where the lead
    moved.
 8. **Failure.** The successor fails to start twice, or the check fails past its rounds: write `failed.json`,
-   keep driving, tell the owner. The old lead is never closed on a failed relay.
+   keep driving, tell the owner. Both paths close the pane the old lead launched (`relay-launch.sh` closes its
+   own on a failed start; step 6 on a failed check). The old lead is never closed on a failed relay.
 
 ### 3. RESUME relay sub-mode, the successor's side (`/pickup relay=<dir>`)
 
@@ -207,8 +212,8 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   `reason`}]; `crons` [{`id`, `action`, `reason`}]; `disagreements`; `questions`; `gaps`.
 - `handover.md` (old lead): the standing instruction (quoted, with its time), deliveries that arrived during
   the relay, late facts for memory.
-- `launch.json`, `closed.json`, `failed.json` (scripts). `failed.json` holds the reason and attempt count;
-  piece 2's hook reads it to back off.
+- `launch.json`, `closed.json`, `failed.json` (scripts). `failed.json` holds the reason and attempt count
+  (after a failed check also `successor_closed`); piece 2's hook reads it to back off.
 - `gaps.jsonl` line: `date`, `project`, `relay_id`, `predecessor_session`, `successor_session`, `missing`,
   `cost`, `section` (template section or `none`), `kind` (`no-slot` | `slot-empty` | `stale-or-wrong` |
   `check-cannot-fail` | `protocol`), `severity` (`serious` | `minor`), `fixed_by`.
@@ -220,7 +225,7 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
 | Outside herdr | `/relay` refuses; manual `/handoff`, `/clear`, `/pickup` |
 | Subagent or workflow running in the lead, attached work running, git mid-operation | wait; the relay does not start |
 | Successor fails to start | one retry; then `failed.json`, old lead keeps driving and tells the owner |
-| Check fails | up to 2 fix rounds, then stop and ask the owner; nothing closed |
+| Check fails | up to 2 fix rounds, then `failed.json`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and asks the owner |
 | Worker delivers during the relay | old lead notes it in `handover.md`; successor's waiter fires on it |
 | Worker blocked on a question | answered before the freeze if within its brief; otherwise in the note |
 | Owner types into the old pane after the hand-over | old lead points to the new pane; `relay-close.sh` refuses; successor tells the owner |
@@ -263,8 +268,6 @@ the check and leave the old lead driving.
 - Verified 2026-10-12: `herdr agent rename <pane> <name>` fails while a live agent in another tab of the same
   workspace holds `<name>` (exit 1, error `agent_name_taken`, which names the holder's pane and tab). Renaming the
   same pane to a free name succeeds, so `rename` accepts a pane id as target. Not tested across workspaces.
-- Permission mode: no environment variable carries it; take it from settings `permissions.defaultMode` plus the
-  model's own statement, and assert it on the successor's banner.
 - Permission mode: from the transcript's `permission-mode` record, else the owner's `~/.claude/settings.json`; repo
   settings never grant bypass (security review, 2026-10-12).
 - Transcript formats for background launches, task notifications, `TaskStop`, and owner-typed prompts versus

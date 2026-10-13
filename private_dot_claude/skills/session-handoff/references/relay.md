@@ -84,12 +84,24 @@ predecessor, on failure). The project's current lead is recorded in
      than `launch.json`, so that condition would pass at once), then compare
      again. At most **2** fix rounds.
    - Still failing after 2 rounds, an identity FAIL, or a question only the
-     owner can answer: write `<relay-dir>/failed.json`
-     (`{"stage": "check", "reason": "<the FAIL lines>", "attempts": <rounds>, "at": "<UTC ISO time>"}`),
-     keep the lead, tell the owner. Close nothing, and tell the owner that the
-     successor's pane <pane> is still open and holds the name in `launch.json`
-     (a later relay likely cannot start a successor under that name while it
-     lives).
+     owner can answer: the relay stops. The successor never received the lead
+     and stayed read-only, so close the pane you launched for it; left alive,
+     its `lead-<project>-next` name would block the next relay's launch
+     (`agent_name_taken`).
+     1. Write `<relay-dir>/failed.json`:
+        `{"stage": "check", "reason": "<the FAIL lines>", "attempts": <rounds>, "at": "<UTC ISO time>"}`.
+     2. `herdr pane close <pane>` (the `pane_id` in `launch.json`), then
+        confirm it: `herdr agent get <pane>` must fail with `agent_not_found`
+        (herdr reports it on stderr; allow about 10 s, as `relay-close.sh`
+        does).
+     3. Add `"successor_closed": true` to `failed.json`, or `false` when the
+        close was not confirmed.
+     4. Keep the lead and tell the owner, naming the pane if it is still open.
+        `receipt.json` and `failed.json` stay in the relay dir for inspection.
+
+     This matches a failed launch, where `relay-launch.sh` closes the pane it
+     created (that path does not confirm the close or record it in
+     `failed.json`). Your own pane is never closed on a failed relay.
 9. **Hand-over** (make before break). The compare PASS already proved that
    every checklist task and worker is covered by a successor waiter, live or
    fired (`<relay-dir>/fired/<marker>`): do not re-check them. Stop your own
@@ -237,8 +249,8 @@ passes.
 | A herdr read fails or the note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
 | Successor fails to start | one retry; then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
-| Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, ask the owner; nothing closed |
-| Check fails | up to 2 fix rounds, then `failed.json`, ask the owner; nothing closed |
+| Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open |
+| Check fails, or a question only the owner can answer | up to 2 fix rounds, then `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open; `receipt.json` and `failed.json` stay for inspection |
 | Worker delivers during the relay | the predecessor notes it in `handover.md`; the successor's waiter fires on it (`fired/<marker>`) |
 | Worker blocked on a question | answered before the freeze if within its brief; otherwise in the note |
 | Owner types into the old pane after the hand-over | the predecessor points to the new pane; `relay-close.sh` refuses; the successor tells the owner |
