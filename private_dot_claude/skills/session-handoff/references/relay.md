@@ -70,20 +70,31 @@ predecessor, on failure). The project's current lead is recorded in
    foreground sleep). `<successor name>` is the `name` in `launch.json`
    (`lead-<project>-next`):
 
-       anchor=<relay-dir>/launch.json receipt=<relay-dir>/receipt.json name=<successor name>
+       anchor=<relay-dir>/launch.json receipt=<relay-dir>/receipt.json name=<successor name> n=0
        deadline=$(( $(python3 -I -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$anchor") + 1200 ))
        successor() { python3 -I -c 'import json, subprocess, sys; r = subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True, text=True); print(("gone" if "agent_not_found" in r.stderr else "unread") if r.returncode else ((json.loads(r.stdout).get("result") or {}).get("agent") or {}).get("agent_status") or "unread")' "$name" 2>/dev/null || echo unread; }
-       until st=$(successor); { [ "$receipt" -nt "$anchor" ] && [ "$st" != working ] && [ "$st" != unread ]; } \
-         || [ "$st" = gone ] || [ "$st" = blocked ] || [ "$(date +%s)" -ge "$deadline" ]; do sleep 15; done
+       until st=$(successor)
+         case $st in blocked) n=$((n + 1)) ;; *) n=0 ;; esac
+         case $st in idle|done) [ "$receipt" -nt "$anchor" ] ;; gone) true ;; blocked) [ "$n" -ge 8 ] ;; *) false ;; esac \
+           || [ "$(date +%s)" -ge "$deadline" ]
+       do sleep 15; done
        echo "successor=$st receipt=$([ "$receipt" -nt "$anchor" ] && echo new || echo none)"
 
    It reads the `agent_status` field of `herdr agent get <successor name>`; a
-   failed read prints `unread`, which never counts as "not working". The loop
-   ends on the first of: the receipt is newer than the anchor and the
-   successor is no longer `working`; the successor is gone
-   (`agent_not_found`) or `blocked` (in the default permission mode a prompt
-   to write under `~/.claude` blocks it); 20 minutes past the anchor's mtime
-   (`+ 1200`). Its last line reads `successor=<status> receipt=<new|none>`.
+   failed read prints `unread`. The loop ends on the first of:
+   - the receipt is newer than the anchor and the successor is `idle` or
+     `done` (`working`, `unknown`, `unread` and any other status keep it
+     waiting);
+   - the successor is gone (`agent_not_found`);
+   - the successor stays `blocked` for 8 consecutive polls, about 2 minutes
+     (any other status resets the count). A successor waiting on an approval
+     shows `blocked` while the owner answers (writing `receipt.json` under
+     `~/.claude` can prompt, in the default mode and reportedly in bypass
+     mode for protected `.claude/` directories), and it must not be failed
+     and closed at the first poll;
+   - 20 minutes past the anchor's mtime (`+ 1200`).
+
+   Its last line reads `successor=<status> receipt=<new|none>`.
    `receipt=new` with `successor=idle` or `successor=done`: go to step 8.
    Anything else: step 8's failure branch with `"stage": "receipt"` and that
    line as the reason.
@@ -282,7 +293,7 @@ passes.
 | A herdr read fails or the note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
 | Successor fails to start | one retry; then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
-| No usable receipt: the successor dies, sits `blocked`, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched (`successor_closed`), keeps the lead and tells the owner |
+| No usable receipt: the successor dies, stays `blocked` for about 2 minutes, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched (`successor_closed`), keeps the lead and tells the owner |
 | Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open |
 | Check fails, or a question only the owner can answer | up to 2 fix rounds, then `failed.json`, the predecessor closes the successor it launched (`successor_closed`) and asks the owner; its own pane stays open; `receipt.json` and `failed.json` stay for inspection |
 | Worker delivers during the relay | the predecessor notes it in `handover.md`; the successor's waiter fires on it (`fired/<marker>`) |

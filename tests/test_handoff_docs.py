@@ -45,6 +45,13 @@ class HandoffDocsTests(unittest.TestCase):
         for needle in ('"stage": "receipt"', '+ 1200 ))', '+ 900', 'agent_status'):
             self.assertIn(needle, text)
 
+    def test_receipt_wait_tolerates_a_brief_blocked_or_unknown_successor(self):
+        # A successor waiting on an approval shows `blocked`; only a persistent block ends the wait,
+        # and only idle or done with a fresh receipt counts as finished (never `unknown`).
+        text = (SKILL / 'references/relay.md').read_text()
+        for needle in ('blocked) [ "$n" -ge 8 ]', 'idle|done) [ "$receipt" -nt "$anchor" ]'):
+            self.assertIn(needle, text)
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):

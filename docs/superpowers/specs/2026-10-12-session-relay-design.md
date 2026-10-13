@@ -84,11 +84,12 @@ this repo). The defects this spec fixes:
    counts against the index cap).
 4. **Launch.** `relay-launch.sh <relay-dir>`.
 5. **Wait.** A background until-loop on: `receipt.json` exists, is newer than `launch.json`, and the successor
-   is not `working`. No screen reading. The loop is bounded: it also ends 20 minutes after `launch.json` (15
-   minutes after each fix round's request), or when `herdr agent get` reports the successor `agent_not_found` or
-   its `agent_status` `blocked`. Without a usable receipt the relay stops as in step 6, with `failed.json`
-   `"stage": "receipt"`: the old lead closes the successor it launched, records `successor_closed`, keeps the lead
-   and tells the owner.
+   is `idle` or `done` (`unknown` never counts as finished). No screen reading. The loop is bounded: it also
+   ends 20 minutes after `launch.json` (15 minutes after each fix round's request), when `herdr agent get` reports
+   the successor `agent_not_found`, or when its `agent_status` stays `blocked` for 8 consecutive polls (about 2
+   minutes; a successor waiting on an approval to write `receipt.json` must not be failed at the first poll).
+   Without a usable receipt the relay stops as in step 6, with `failed.json` `"stage": "receipt"`: the old lead
+   closes the successor it launched, records `successor_closed`, keeps the lead and tells the owner.
 6. **Check.** `relay-check.py compare <relay-dir>`. On failure, the old lead fixes the note or answers the
    successor's questions in the note's `## Relay Q&A`, and tells the successor to re-read only those items and
    rewrite the receipt. At most 2 rounds. After that, or on a question only the owner can answer, the relay
@@ -229,7 +230,7 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
 | Outside herdr | `/relay` refuses; manual `/handoff`, `/clear`, `/pickup` |
 | Subagent or workflow running in the lead, attached work running, git mid-operation | wait; the relay does not start |
 | Successor fails to start | one retry; then `failed.json`, old lead keeps driving and tells the owner |
-| Successor writes no usable receipt (dies, `blocked`, or 20 minutes pass; 15 per fix round) | `failed.json` `"stage": "receipt"`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and tells the owner |
+| Successor writes no usable receipt (dies, stays `blocked` for about 2 minutes, or 20 minutes pass; 15 per fix round) | `failed.json` `"stage": "receipt"`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and tells the owner |
 | Check fails | up to 2 fix rounds, then `failed.json`; the old lead closes the successor pane it launched, records `successor_closed`, keeps the lead and asks the owner |
 | Worker delivers during the relay | old lead notes it in `handover.md`; successor's waiter fires on it |
 | Worker blocked on a question | answered before the freeze if within its brief; otherwise in the note |
