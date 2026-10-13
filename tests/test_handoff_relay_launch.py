@@ -1,7 +1,10 @@
 import json
+import os
 from pathlib import Path
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 from handoff_fixtures import SCRIPTS, agent_json, herdr_calls, herdr_stub
@@ -20,14 +23,23 @@ class LaunchTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def launch(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh'):
+    def prepare(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh'):
         (self.dir / 'checklist.json').write_text(json.dumps({
             'relay_id': 'R1', 'repo': '/x/repo',
             'predecessor': {'model': 'claude-opus-5-5', 'effort': effort, 'permission_mode': mode}}))
+        for name in ('launch.json', 'failed.json'):
+            (self.dir / name).unlink(missing_ok=True)
         env, self.log = herdr_stub(self.tmp.name, responses)
         if not with_env:
             env.pop('HERDR_ENV')
-        return subprocess.run(['bash', str(LAUNCH), str(self.dir)], capture_output=True, text=True, env=env)
+        return env
+
+    def launch(self, responses, mode='bypassPermissions', with_env=True, effort='xhigh', locale=None, timeout=None):
+        env = self.prepare(responses, mode, with_env, effort)
+        if locale:
+            env['LC_ALL'] = locale
+        return subprocess.run(['bash', str(LAUNCH), str(self.dir)], capture_output=True, text=True, env=env,
+                              timeout=timeout)
 
     def call(self, verb):
         return [c for c in herdr_calls(self.log) if c[:2] == verb]
@@ -82,6 +94,38 @@ class LaunchTests(unittest.TestCase):
             with self.subTest(banner=banner):
                 r = self.launch({'pane split': [SPLIT], 'pane read': [{'out': banner}]}, effort='high')
                 self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_pane_sized_banner_is_checked_in_linear_time(self):
+        # bash 3.2 took about a minute to rewrite a 200x50 banner word by word under a UTF-8 locale.
+        rows = ['\u2502' + '\u2500' * 198 + '\u2502'] * 50
+        rows[3] = ' Opus 5.5 with xhigh effort \u00b7 Claude Max'.ljust(200)
+        big = {'out': '\n'.join(rows) + '\n'}
+        for effort, code in (('xhigh', 0), ('high', 1)):
+            with self.subTest(effort=effort):
+                began = time.monotonic()
+                r = self.launch({'pane split': [SPLIT], 'pane read': [big]}, effort=effort,
+                                locale='en_US.UTF-8', timeout=60)
+                self.assertLess(time.monotonic() - began, 5)
+                self.assertEqual(r.returncode, code, r.stderr)
+
+    def test_a_killed_launch_closes_its_pane_and_records_failure(self):
+        # Killing the whole tree (as a tool timeout does) must not wait out the start; killing only the
+        # script lets the start return first. Either way the created pane is closed and the failure recorded.
+        for group, sleep in ((True, 30), (False, 1)):
+            with self.subTest(kill='process group' if group else 'script only'):
+                env = self.prepare({'pane split': [SPLIT], 'agent start': [{'out': '{}', 'sleep': sleep}]})
+                proc = subprocess.Popen(['bash', str(LAUNCH), str(self.dir)], env=env, start_new_session=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                deadline = time.monotonic() + 10
+                while not self.call(['agent', 'start']) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(self.call(['agent', 'start']), 'the script never reached agent start')
+                (os.killpg if group else os.kill)(proc.pid, signal.SIGTERM)
+                _, err = proc.communicate(timeout=15)
+                self.assertEqual(proc.returncode, 1, err)
+                self.assertEqual(json.loads((self.dir / 'failed.json').read_text())['reason'], 'interrupted')
+                self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+                self.assertFalse((self.dir / 'launch.json').exists())
 
     def test_outside_herdr_exits_2(self):
         self.assertEqual(self.launch({}, with_env=False).returncode, 2)

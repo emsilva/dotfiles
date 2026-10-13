@@ -25,6 +25,7 @@ print("" if d is None else d)' "$dir/checklist.json" "$1"
 pane=""
 attempt=0
 fail() {
+  trap '' INT TERM HUP   # a second signal must neither re-enter fail nor cut its clean-up short
   echo "relay-launch: $1" >&2
   [ -n "$pane" ] && herdr pane close "$pane" >/dev/null 2>&1
   python3 -I -c 'import datetime, json, sys
@@ -45,6 +46,9 @@ args=(--model "$model" --session-id "$sid")
 [ -n "$effort" ] && args+=(--effort "$effort")
 [ "$mode" = bypassPermissions ] && args+=(--dangerously-skip-permissions)
 
+# From the split on, a kill (Ctrl-C, a caller's timeout) still closes the pane and writes failed.json.
+# bash defers the trap until the running command returns, so a pane id already printed is assigned first.
+trap 'fail "interrupted"' INT TERM HUP
 pane=$(herdr pane split "$HERDR_PANE_ID" --direction down --cwd "$repo" --no-focus 2>/dev/null \
   | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])' 2>/dev/null) || pane=""
 [ -n "$pane" ] || fail "pane split failed"
@@ -67,9 +71,12 @@ print(parts[0].capitalize() + " " + ".".join(parts[1:]))' "$model")
 banner=$(herdr pane read "$pane" --source visible 2>/dev/null) || fail "could not read the new pane"
 case "$banner" in *"$want"*) ;; *) fail "banner does not show model '$want'" ;; esac
 if [ -n "$effort" ]; then
-  # Whole words only: every non-word character becomes a space, so "high" is not found in "xhigh effort".
-  words=" ${banner//[^[:alnum:]_]/ } "
-  case "$words" in *" ${effort//[^[:alnum:]_]/ } "*) ;; *) fail "banner does not show effort '$effort'" ;; esac
+  # Whole words only, so "high" is not found in "xhigh effort". In python: bash 3.2 rewriting a
+  # pane-sized banner with ${banner//...} under a UTF-8 locale takes a minute.
+  printf '%s' "$banner" | python3 -I -c 'import re, sys
+text = sys.stdin.buffer.read().decode("utf-8", "replace")
+sys.exit(0 if re.search(r"(?<![A-Za-z0-9_])" + re.escape(sys.argv[1]) + r"(?![A-Za-z0-9_])", text) else 1)' \
+    "$effort" || fail "banner does not show effort '$effort'"
 fi
 
 session=$(herdr agent get "$name" 2>/dev/null | python3 -I -c 'import json, sys
@@ -84,4 +91,5 @@ data["session_id"] = data["session_id"] or data["requested_session_id"]
 data["at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 json.dump(data, open(sys.argv[1], "w"), indent=1)' \
   "$dir/launch.json" "$pane" "$name" "$session" "$sid" "$model" "$effort" "$mode"
+trap - INT TERM HUP   # launched: a kill from here on must not close the successor
 echo "$pane"

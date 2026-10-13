@@ -75,10 +75,11 @@ def write_transcript(projects, session_id, recs, torn_tail=False, project='-tmp-
 
 STUB = r'''#!/usr/bin/env python3
 """Fake herdr for tests. Answers from $HERDR_STUB_STATE and logs argv to $HERDR_STUB_LOG.
-State maps "<arg1> <arg2>" (e.g. "agent get") to a list of {"out", "code"}; entries are used
-in order and the last one repeats. Like real herdr, "out" goes to stdout on code 0 and to
-stderr otherwise (its errors are JSON on stderr with exit 1)."""
-import json, os, sys
+State maps "<arg1> <arg2>" (e.g. "agent get") to a list of {"out", "code", "sleep"}; entries are
+used in order and the last one repeats. Like real herdr, "out" goes to stdout on code 0 and to
+stderr otherwise (its errors are JSON on stderr with exit 1). "sleep" (seconds, default none)
+delays the answer after the call is logged, so a test can act while the call is in flight."""
+import json, os, sys, time
 key = ' '.join(sys.argv[1:3])
 with open(os.environ['HERDR_STUB_LOG'], 'a') as log:
     log.write(json.dumps(sys.argv[1:]) + '\n')
@@ -88,6 +89,7 @@ queue = state.get(key) or [{'out': '{"result": {}}', 'code': 0}]
 resp = queue.pop(0) if len(queue) > 1 else queue[0]
 state[key] = queue
 json.dump(state, open(path, 'w'))
+time.sleep(resp.get('sleep', 0))
 code = resp.get('code', 0)
 (sys.stderr if code else sys.stdout).write(resp.get('out', ''))
 sys.exit(code)
