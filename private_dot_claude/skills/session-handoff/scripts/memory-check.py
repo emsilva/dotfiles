@@ -6,11 +6,13 @@ Usage: python3 -I memory-check.py <memory-dir> [--since ISO | --session ID] [--f
 Measures MEMORY.md the way Claude Code 2.1.296 loads it: trimmed, at most 200
 lines and 25,000 UTF-16 units, cut at the last newline before the cap. Reports
 headroom, memory files missing from the index (written since --since, and
-older), and index lines whose links point at missing files. --since defaults
-to the first record of $CLAUDE_CODE_SESSION_ID's transcript (or --session's).
---fix adds an index line for each missing file written since --since and
-removes index lines whose every link is dead, then measures again.
-Exit 0 when no debt remains, 1 when it does, 2 on a usage error.
+older), and index lines whose links point at missing files. Only links to
+memory files are checked: a target with a URL scheme (https:, mailto:) is
+skipped, and a #fragment is dropped (file.md#part checks file.md). --since
+defaults to the first record of $CLAUDE_CODE_SESSION_ID's transcript (or
+--session's). --fix adds an index line for each missing file written since
+--since and removes index lines whose every checked link is dead, then
+measures again. Exit 0 when no debt remains, 1 when it does, 2 on a usage error.
 """
 import argparse
 import datetime
@@ -26,6 +28,17 @@ import transcript  # noqa: E402
 
 CAP_LINES, CAP_UNITS = 200, 25000
 LINK = re.compile(r'\]\(([^)\s]+)\)')
+SCHEME = re.compile(r'[A-Za-z][A-Za-z0-9+.-]*:')
+
+
+def file_links(line):
+    """The line's link targets that name a file in the memory dir, without any #fragment."""
+    paths = (target.split('#', 1)[0] for target in LINK.findall(line) if not SCHEME.match(target))
+    return [path for path in paths if path]
+
+
+class UsageError(Exception):
+    """A bad argument: main reports it on one line and exits 2."""
 
 
 def units(text):
@@ -68,13 +81,13 @@ def read_index(mem):
 def check(mem, since):
     text, exists = read_index(mem)
     lines = text.split('\n')
-    linked = {target for line in lines for target in LINK.findall(line)}
+    linked = {target for line in lines for target in file_links(line)}
     files = sorted(f for f in os.listdir(mem) if f.endswith('.md') and f != 'MEMORY.md')
     missing = [f for f in files if f not in linked]
     recent = [f for f in missing if since is not None and os.path.getmtime(os.path.join(mem, f)) >= since]
     dead = []
     for n, line in enumerate(lines, 1):
-        targets = LINK.findall(line)
+        targets = file_links(line)
         gone = [t for t in targets if not os.path.exists(os.path.join(mem, t))]
         if gone:
             dead.append({'line': n, 'targets': gone, 'removable': len(gone) == len(targets)})
@@ -100,8 +113,12 @@ def fix(mem, report):
 
 
 def since_from(args):
-    if args.since:
-        return datetime.datetime.fromisoformat(args.since.replace('Z', '+00:00')).timestamp()
+    if args.since is not None:
+        try:
+            return datetime.datetime.fromisoformat(args.since.replace('Z', '+00:00')).timestamp()
+        except (ValueError, OverflowError):
+            raise UsageError('invalid --since %r: expected an ISO 8601 time such as 2026-10-12T00:00:00Z'
+                             % args.since) from None
     session = args.session or os.environ.get('CLAUDE_CODE_SESSION_ID')
     if not session:
         return None
@@ -129,7 +146,11 @@ def main(argv=None):
     if not os.path.isdir(args.memory_dir):
         print('memory-check: no such directory: %s' % args.memory_dir, file=sys.stderr)
         return 2
-    since = since_from(args)
+    try:
+        since = since_from(args)
+    except UsageError as e:
+        print('memory-check: %s' % e, file=sys.stderr)
+        return 2
     report = check(args.memory_dir, since)
     if args.fix:
         fixed = fix(args.memory_dir, report)

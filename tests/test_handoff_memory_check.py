@@ -12,10 +12,18 @@ import unittest
 from handoff_fixtures import SCRIPTS
 
 MC = SCRIPTS / 'memory-check.py'
+# Without --since the CLI looks up $CLAUDE_CODE_SESSION_ID's transcript under --projects
+# (default ~/.claude/projects): tests give it no session and a projects dir with no transcripts.
+ENV = {k: v for k, v in os.environ.items() if k != 'CLAUDE_CODE_SESSION_ID'}
+
+
+def mc(mem, *args):
+    return subprocess.run(['python3', '-I', str(MC), str(mem), '--projects', str(Path(mem, 'no-projects')), *args],
+                          capture_output=True, text=True, env=ENV)
 
 
 def run_mc(mem, *args):
-    r = subprocess.run(['python3', '-I', str(MC), str(mem), '--json', *args], capture_output=True, text=True)
+    r = mc(mem, '--json', *args)
     return r.returncode, json.loads(r.stdout)
 
 
@@ -81,8 +89,48 @@ class MemoryCheckTests(unittest.TestCase):
             self.assertEqual(code, 0)
 
     def test_not_a_directory_exits_2(self):
-        r = subprocess.run(['python3', '-I', str(MC), '/nonexistent/memory'], capture_output=True, text=True)
+        r = mc('/nonexistent/memory')
         self.assertEqual(r.returncode, 2)
+
+    def test_invalid_since_exits_2_with_one_line(self):
+        with tempfile.TemporaryDirectory() as mem:
+            r = mc(mem, '--since', 'yesterday')
+            self.assertEqual((r.returncode, r.stdout), (2, ''))
+            self.assertTrue(r.stderr.startswith('memory-check: invalid --since '), r.stderr)
+            self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+
+    def test_url_only_lines_are_kept_and_not_reported(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            index = '- [kept](kept.md) — x\n- [Docs](https://example.com/x) — external\n- [Mail](mailto:a@example.com)\n'
+            Path(mem, 'MEMORY.md').write_text(index)
+            code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z')
+            self.assertEqual((code, rep['dead_links']), (0, []))
+            code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z', '--fix')
+            self.assertEqual(rep['fixed']['removed'], [])
+            self.assertEqual(Path(mem, 'MEMORY.md').read_text(), index)
+            self.assertEqual(code, 0)
+
+    def test_anchor_links_count_for_the_file_they_name(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            Path(mem, 'MEMORY.md').write_text('- [x](kept.md#section) — x\n- [y](missing.md#part) — y\n')
+            code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z')
+            self.assertEqual((rep['unindexed_recent'], rep['unindexed_older']), ([], []))
+            self.assertEqual(rep['dead_links'], [{'line': 2, 'targets': ['missing.md'], 'removable': True}])
+            self.assertEqual(code, 1)
+
+    def test_a_dead_file_link_beside_a_url_is_removable(self):
+        # Only links to memory files are checkable; a URL neither keeps a line alive nor makes it dead.
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            line = '- [Gone](gone.md) — see [docs](https://example.com/x)'
+            Path(mem, 'MEMORY.md').write_text('- [kept](kept.md) — x\n%s\n' % line)
+            code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z')
+            self.assertEqual(rep['dead_links'], [{'line': 2, 'targets': ['gone.md'], 'removable': True}])
+            code, rep = run_mc(mem, '--since', '2026-01-01T00:00:00Z', '--fix')
+            self.assertEqual(rep['fixed']['removed'], [line])
+            self.assertEqual(code, 0)
 
     def test_loader_constants_match_the_installed_claude_code(self):
         exe = shutil.which('claude')
