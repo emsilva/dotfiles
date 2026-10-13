@@ -305,8 +305,8 @@ file formats and the failure table. Outline:
    (`"stage": "receipt"`).
 6. `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py compare <relay-dir>`.
    Fix and answer under the note's `## Relay Q&A`, at most 2 rounds; then
-   write `failed.json`, close the successor you launched, keep the lead and ask
-   the owner.
+   write `failed.json`, close the successor you launched (only once its pane
+   is shown to still host it), keep the lead and ask the owner.
 7. Hand-over: stop your own waiters (the compare PASS proved the successor
    covers every task and worker) and delete your session crons, write
    `<relay-dir>/handover.md` once (never

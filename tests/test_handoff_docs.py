@@ -74,6 +74,18 @@ class HandoffDocsTests(unittest.TestCase):
                        'Remove each answered entry from `questions` and `disagreements`'):
             self.assertIn(needle, text)
 
+    def test_the_failure_branch_checks_the_panes_session_before_closing_it(self):
+        # Pane ids can change after a herdr restore: closing launch.json's pane_id unchecked could close a worker.
+        text = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        check = text.index("Check the pane's session before closing it")
+        identity = text.index("the answer's `agent_session.value` equals `launch.json`'s `session_id`, or its "
+                              "`name` equals `launch.json`'s `name`")
+        close = text.index('herdr pane close <pane>')
+        self.assertLess(check, identity)
+        self.assertLess(identity, close)
+        for needle in ('do not close the pane', '"successor_close_reason"'):
+            self.assertIn(needle, text[check:])
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):
