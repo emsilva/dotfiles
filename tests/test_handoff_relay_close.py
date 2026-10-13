@@ -197,6 +197,41 @@ class CloseTests(unittest.TestCase):
         self.assertIn("the predecessor pane wT:p0 is this agent's own pane", r.stderr)
         self.assertEqual(self.closes(), [])
 
+    # Usage errors surface before the close: after it, a bad name could only be recorded, not refused.
+
+    def test_a_bad_name_argument_exits_2_before_the_close(self):
+        for args in (('--slug',), ('--bogus',)):
+            r = self.close({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]}, args=args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('could not settle the lead name', r.stderr)
+            self.assertEqual(self.closes(), [], args)
+            self.assertFalse((self.dir / 'closed.json').exists(), args)
+
+    def test_a_checklist_without_a_repo_exits_2_before_the_close(self):
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        chk = json.loads((self.dir / 'checklist.json').read_text())
+        del chk['repo']
+        (self.dir / 'checklist.json').write_text(json.dumps(chk))
+        r = self.close(None, env=env)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('the checklist names no repo', r.stderr)
+        self.assertEqual(self.closes(), [])
+
+    def test_without_a_claude_session_id_exits_2_before_the_close(self):
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        env.pop('CLAUDE_CODE_SESSION_ID')
+        r = self.close(None, env=env)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('CLAUDE_CODE_SESSION_ID is not set', r.stderr)
+        self.assertEqual(herdr_calls(self.log), [])
+
+    def test_a_failed_record_write_exits_1(self):
+        (self.dir.parent / 'lead.json').mkdir()
+        r = self.close({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('relay-close: closed wT:p0 but could not write the records', r.stderr)
+        self.assertEqual(self.closes(), [['pane', 'close', 'wT:p0']])
+
     def test_outside_herdr_exits_2(self):
         for var in ('HERDR_ENV', 'HERDR_PANE_ID'):
             env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})

@@ -9,7 +9,9 @@
 # Then closes the pane, confirms the pane and the predecessor's process are
 # gone (exit 1 if either outlives RELAY_CLOSE_WAIT seconds, default 10),
 # renames this agent lead-<project>, and writes <relay-dir>/closed.json and
-# <relay-dir>/../lead.json. Exit 2 outside herdr or on a usage error.
+# <relay-dir>/../lead.json (exit 1 if they cannot be written). Exit 2, before
+# any close, outside herdr, without CLAUDE_CODE_SESSION_ID, for a checklist
+# that names no repo, or for arguments that give no lead name.
 set -uo pipefail
 [ $# -ge 1 ] || { echo "usage: relay-close.sh <relay-dir> [--slug SLUG]" >&2; exit 2; }
 dir=$1
@@ -37,6 +39,8 @@ pane_gone() {
 }
 
 { [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ]; } || { echo "relay-close: not inside herdr" >&2; exit 2; }
+[ -n "${CLAUDE_CODE_SESSION_ID:-}" ] \
+  || { echo "relay-close: CLAUDE_CODE_SESSION_ID is not set; run this inside the Claude session" >&2; exit 2; }
 [ -f "$dir/checklist.json" ] || { echo "relay-close: no checklist.json in $dir" >&2; exit 2; }
 [ -f "$dir/handover.md" ] || refuse "no handover.md in $dir"
 pane=$(field predecessor.pane_id)
@@ -45,6 +49,10 @@ old_session=$(field predecessor.session_id)
 old_pid=$(field predecessor.pid)
 repo=$(field repo)
 relay_id=$(field relay_id)
+# Settle the lead name now: once the pane is closed, a usage error could only be recorded, not refused.
+[ -n "$repo" ] || { echo "relay-close: the checklist names no repo" >&2; exit 2; }
+name=$(python3 -I "$here/relay-check.py" name --repo "$repo" "$@") && [ -n "$name" ] \
+  || { echo "relay-close: could not settle the lead name (arguments: ${*:-none})" >&2; exit 2; }
 [ -n "$pane" ] || refuse "the checklist names no predecessor pane"
 [ "$pane" != "$HERDR_PANE_ID" ] || refuse "the predecessor pane $pane is this agent's own pane"
 
@@ -91,7 +99,6 @@ if [ -n "$old_pid" ]; then
   done
 fi
 
-name=$(python3 -I "$here/relay-check.py" name --repo "$repo" "$@")
 if ! err=$(herdr agent rename "$HERDR_PANE_ID" "$name" 2>&1 >/dev/null); then
   # Record the name this agent actually kept, not the one it was meant to get.
   kept=$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null | python3 -I -c 'import json, sys
@@ -110,5 +117,6 @@ json.dump({"closed_at": now, "predecessor": {"pane_id": pane, "session_id": old}
           open(os.path.join(d, "closed.json"), "w"), indent=1)
 json.dump({"session_id": new_session, "pane_id": new_pane, "name": name or None, "since": now, "relay_id": relay_id},
           open(os.path.join(os.path.dirname(os.path.abspath(d)), "lead.json"), "w"), indent=1)' \
-  "$dir" "$pane" "$old_session" "$HERDR_PANE_ID" "${CLAUDE_CODE_SESSION_ID:-}" "$name" "$relay_id"
+  "$dir" "$pane" "$old_session" "$HERDR_PANE_ID" "$CLAUDE_CODE_SESSION_ID" "$name" "$relay_id" \
+  || { echo "relay-close: closed $pane but could not write the records" >&2; exit 1; }
 echo "relay-close: closed $pane; this agent is ${name:-unnamed}"
