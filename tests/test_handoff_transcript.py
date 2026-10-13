@@ -5,8 +5,8 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, SOURCE, monitor_event, notice, prompt, queued_notice, tool_result,
-                              tool_use, ts, write_transcript)
+from handoff_fixtures import (SCRIPTS, SOURCE, cron_create, cron_delete, monitor_event, notice, prompt,
+                              queued_notice, tool_result, tool_use, ts, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import transcript  # noqa: E402
@@ -188,19 +188,20 @@ class TranscriptModuleTests(unittest.TestCase):
                 queued_notice('b2', 'killed', 4),
                 {'type': 'permission-mode', 'permissionMode': 'default'},
                 {'type': 'permission-mode', 'permissionMode': 'bypassPermissions'},
-                tool_use('c1', 'CronCreate', {'cron': '7 * * * *', 'prompt': 'check', 'recurring': True}, 5),
-                tool_result('c1', 'Scheduled recurring task ab12cd34 (7 * * * *).', 5),
-                tool_use('c2', 'CronCreate', {'cron': '17 3 1 1 *', 'prompt': 'once', 'recurring': False}, 6),
-                tool_result('c2', 'Scheduled one-shot task ef56ab78 (17 3 1 1 *). Session-only.', 6),
-                tool_use('c3', 'CronDelete', {'id': 'ab12cd34'}, 7),
-                tool_result('c3', 'Cancelled job ab12cd34.', 7),
+                *cron_create('c1', 'ab12cd34', '7 * * * *', 'check', True, 5),
+                *cron_create('c2', 'ef56ab78', '17 3 1 1 *', 'once', False, 6),
+                *cron_delete('c3', 'ab12cd34', 7),
+                *cron_create('c4', '95049f8d', '7,27,47 * * * *', 'heartbeat', True, 8),
+                *cron_delete('c5', 'nosuch01', 9, found=False),
                 {'type': 'assistant', 'isSidechain': True, 'message': {'model': 'claude-haiku-5-5', 'content': []}},
                 {'type': 'assistant', 'message': {'model': '<synthetic>', 'content': []}}]
         with tempfile.TemporaryDirectory() as tmp:
             path = str(write_transcript(tmp, SID, recs))
             self.assertEqual([p['text'] for p in transcript.prompts(path)], ['first', 'typed while busy'])
             self.assertEqual(transcript.open_crons([path]),
-                             [{'id': 'ef56ab78', 'cron': '17 3 1 1 *', 'prompt': 'once', 'recurring': False}])
+                             [{'id': 'ef56ab78', 'cron': '17 3 1 1 *', 'prompt': 'once', 'recurring': False},
+                              {'id': '95049f8d', 'cron': '7,27,47 * * * *', 'prompt': 'heartbeat',
+                               'recurring': True}])
             self.assertEqual(transcript.last_model(path), 'claude-opus-5-5')
             self.assertEqual(transcript.permission_mode(path), 'bypassPermissions')
             self.assertEqual(transcript.first_timestamp(path), ts(1))

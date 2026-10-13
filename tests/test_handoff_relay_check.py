@@ -9,8 +9,8 @@ import subprocess
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, agent_json, herdr_calls, herdr_stub, prompt, tool_result, tool_use,
-                              write_transcript)
+from handoff_fixtures import (SCRIPTS, agent_json, cron_create, herdr_calls, herdr_stub, prompt, tool_result,
+                              tool_use, write_transcript)
 
 RC = SCRIPTS / 'relay-check.py'
 SID = '33333333-3333-4333-8333-333333333333'
@@ -90,8 +90,7 @@ class ChecklistTests(unittest.TestCase):
                                         'run_in_background': True}, 2),
                 tool_result('t1', 'Command running in background with ID: bwait0001. Output is being written to: '
                             '/tmp/x/bwait0001.output', 2, tool_use_result={'backgroundTaskId': 'bwait0001'}),
-                tool_use('c1', 'CronCreate', {'cron': '7 * * * *', 'prompt': 'status'}, 3),
-                tool_result('c1', 'Scheduled recurring task cr000001 (7 * * * *).', 3)]
+                *cron_create('c1', 'cr000001', '7 * * * *', 'status', True, 3)]
 
     def test_checklist_records_identity_tasks_crons_workers_and_prompts(self):
         env = self.env(self.transcript_recs())

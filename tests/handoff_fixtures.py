@@ -31,6 +31,28 @@ def tool_result(tid, text, second=0, tool_use_result=None):
     return rec
 
 
+def cron_create(tid, cron_id, cron, prompt_text, recurring=True, second=0):
+    """A CronCreate call and its result as Claude Code 2.1.296 writes them: the text says `job` for a
+    recurring cron and `task` for a one-shot, so only toolUseResult.id names the cron reliably."""
+    text = ('Scheduled recurring job %s (%s). Session-only (not written to disk, dies when Claude exits). '
+            'Auto-expires after 7 days. Use CronDelete to cancel sooner.' % (cron_id, cron) if recurring else
+            'Scheduled one-shot task %s (%s). Session-only (not written to disk, dies when Claude exits). '
+            'It will fire once then auto-delete.' % (cron_id, cron))
+    return [tool_use(tid, 'CronCreate', {'cron': cron, 'prompt': prompt_text, 'recurring': recurring}, second),
+            tool_result(tid, text, second, tool_use_result={'id': cron_id, 'humanSchedule': cron,
+                                                            'recurring': recurring, 'durable': False})]
+
+
+def cron_delete(tid, cron_id, second=0, found=True):
+    """A CronDelete call and its result; a delete of an unknown id carries an error string, not an id."""
+    if found:
+        result = tool_result(tid, 'Cancelled job %s.' % cron_id, second, tool_use_result={'id': cron_id})
+    else:
+        result = tool_result(tid, "<tool_use_error>No scheduled job with id '%s'</tool_use_error>" % cron_id,
+                             second, tool_use_result="Error: No scheduled job with id '%s'" % cron_id)
+    return [tool_use(tid, 'CronDelete', {'id': cron_id}, second), result]
+
+
 def _notice_text(task_id, status, payload=None):
     """A terminal notice as Claude Code 2.1.296 writes it: header tags, then the payload."""
     if payload is None:

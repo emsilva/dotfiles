@@ -26,8 +26,12 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   verbatim.
 - Typed prompts (by the owner, or by herdr into the pane) are `user` records
   whose origin.kind is "human", or `queue-operation` enqueues while busy.
-- CronCreate results read `Scheduled <one-shot|recurring> task <id>`; CronDelete
-  results read `Cancelled job <id>`.
+- A cron is read from the structured `toolUseResult.id`, never from the result
+  text: a recurring create reads `Scheduled recurring job <id>` and a one-shot
+  `Scheduled one-shot task <id>`, so a text pattern missed every recurring cron.
+  Measured 2026-10-13 over every local transcript (2.1.273 to 2.1.296): `id` on
+  58 of 58 CronCreate and 52 of 52 CronDelete successes; the one failed delete
+  carries an error string instead.
 """
 import datetime
 import glob
@@ -50,8 +54,6 @@ TASK_ID = re.compile(r'<task-id>(\w+)</task-id>')
 STATUS = re.compile(r'<status>(\w+)</status>')
 STOPPED = re.compile(r'Successfully stopped task: (\w+)')
 TERMINAL = frozenset({'completed', 'failed', 'killed', 'stopped'})
-CRON_MADE = re.compile(r'Scheduled [\w-]+ task (\w+)')
-CRON_GONE = re.compile(r'Cancelled job (\w+)')
 
 
 def find_transcript(session_id, projects=PROJECTS):
@@ -183,18 +185,19 @@ def open_tasks(paths, until_line=None):
 def open_crons(paths, until_line=None):
     """Session crons created and not deleted in these transcripts (a fired one-shot is still listed)."""
     made, gone = {}, set()
-    for _, _, _, call in _events(paths, until_line):
-        if call is None:
+    for _, _, rec, call in _events(paths, until_line):
+        if call is None or call[0] not in ('CronCreate', 'CronDelete'):
             continue
-        name, args, result = call
+        name, args, _ = call
+        result = rec.get('toolUseResult')
+        cron_id = result.get('id') if isinstance(result, dict) else None
+        if not isinstance(cron_id, str) or not cron_id:
+            continue
         if name == 'CronCreate':
-            m = CRON_MADE.match(result.lstrip())
-            if m:
-                made[m.group(1)] = {'id': m.group(1), 'cron': args.get('cron', ''),
-                                    'prompt': args.get('prompt', ''),
-                                    'recurring': args.get('recurring', True) is not False}
-        elif name == 'CronDelete':
-            gone.update(CRON_GONE.findall(result))
+            made[cron_id] = {'id': cron_id, 'cron': args.get('cron', ''), 'prompt': args.get('prompt', ''),
+                             'recurring': args.get('recurring', True) is not False}
+        else:
+            gone.add(cron_id)
     return [cron for cid, cron in made.items() if cid not in gone]
 
 
