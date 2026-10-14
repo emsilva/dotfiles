@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import resource
 import signal
 import subprocess
 import tempfile
@@ -15,6 +16,12 @@ BANNER = {'out': ' Claude Code v2.1.296\n Opus 5.5 with xhigh effort · Claude M
 # Real herdr's answer when `agent start` reaches a pane whose shell is not ready yet (stderr, exit 1).
 BUSY = {'out': json.dumps({'error': {'code': 'agent_pane_busy',
                                      'message': 'agent target pane wT:p9 is not an available shell'}}), 'code': 1}
+
+
+def children_cpu():
+    """CPU seconds used so far by this process's finished children, and theirs."""
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
 
 
 class LaunchTests(unittest.TestCase):
@@ -133,15 +140,17 @@ class LaunchTests(unittest.TestCase):
 
     def test_a_pane_sized_banner_is_checked_in_linear_time(self):
         # bash 3.2 took about a minute to rewrite a 200x50 banner word by word under a UTF-8 locale.
+        # Measured in CPU time, not wall time: at load ~40 (other test runs, endpoint agents scanning every exec) a
+        # launch took 5-12 s of wall time on unchanged code, at about 0.7 s of CPU (2026-10-14).
         rows = ['\u2502' + '\u2500' * 198 + '\u2502'] * 50
         rows[3] = ' Opus 5.5 with xhigh effort \u00b7 Claude Max'.ljust(200)
         big = {'out': '\n'.join(rows) + '\n'}
         for effort, code in (('xhigh', 0), ('high', 1)):
             with self.subTest(effort=effort):
-                began = time.monotonic()
+                began = children_cpu()
                 r = self.launch({'pane split': [SPLIT], 'pane read': [big]}, effort=effort,
                                 locale='en_US.UTF-8', timeout=60)
-                self.assertLess(time.monotonic() - began, 5)
+                self.assertLess(children_cpu() - began, 5)
                 self.assertEqual(r.returncode, code, r.stderr)
 
     def test_a_killed_launch_closes_its_pane_and_records_failure(self):
