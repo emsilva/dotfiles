@@ -54,6 +54,7 @@ task status       # source/installed drift, visible containers and TCP listeners
 task preview      # review rendered changes
 task test         # isolated rendering, backup and divergence tests
 task apply        # test, private backup, then apply
+task scan         # deny-list and gitleaks scan of all history and the tree
 ```
 
 `task up` and `task deploy` apply this machine's configuration. This repository
@@ -144,6 +145,17 @@ accidentally copied into the source checkout. `task test` checks this with a rea
 trackable. These rules do not inspect file contents, remove previously tracked
 files, or prevent `git add --force`. `.chezmoiignore` and the `private_` filename
 prefix do not provide Git publication protection.
+
+Content is checked before publication by `scripts/scan.py`. It matches a private
+deny-list kept outside the repository (`~/.config/dotfiles/denylist`, mode `0600`,
+or `$DOTFILES_DENYLIST`) case-insensitively against commit messages and added
+lines, never author headers, and runs `gitleaks git` on the same commits. One
+entry per line, `#` comments allowed: `term` or `term==>replacement`; the
+replacement form lets the same file drive `git filter-repo --replace-text`. A
+missing or empty deny-list, or a missing `gitleaks`, fails the scan
+(`DOTFILES_SCAN_ALLOW_NO_GITLEAKS=1` downgrades the latter to a warning).
+`task scan` covers all history and the tracked tree; `task hooks:install` sets
+`core.hooksPath` so `scripts/hooks/pre-push` scans every outgoing range.
 
 `csalive [name]` accepts an explicit Codespace, then `DOTFILES_CODESPACE`, then
 the optional machine profile default. It refuses to guess when none is set.

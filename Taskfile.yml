@@ -45,6 +45,18 @@ tasks:
     desc: Test rendering, private backup recovery and divergence refusal in isolated homes/repos
     cmds:
       - python3 -m unittest discover -s tests -v
+  scan:
+    desc: Scan all history and the tracked tree for deny-listed terms and secrets before a push
+    cmds:
+      - |
+        status=0
+        python3 scripts/scan.py history || status=1
+        python3 scripts/scan.py tree || status=1
+        exit $status
+  hooks:install:
+    desc: Scan every outgoing push in this clone (sets core.hooksPath to scripts/hooks)
+    cmds:
+      - git config core.hooksPath scripts/hooks
   build:
     desc: Validate the dotfiles and render a dry run
     cmds:
