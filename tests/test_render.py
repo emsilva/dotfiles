@@ -132,6 +132,26 @@ class RenderTests(unittest.TestCase):
             self.assertFalse(path.startswith(('tests', 'scripts', 'docs', '.config/chezmoi', '.ssh', '.codex/skills')), path)
             self.assertNotIn(path, ['Taskfile.yml', 'README.md', 'LICENSE'])
 
+    def test_repository_tooling_is_never_managed(self):
+        folders, files = ['tmp', 'scripts', 'tests', 'docs'], ['Taskfile.yml', 'README.md', 'LICENSE']
+        # The real checkout may lack a directory (tmp/ is local scratch), so also render a fixture
+        # source that has every tooling path next to the real ignore rules.
+        fixture = self.home / 'fixture-source'
+        fixture.mkdir()
+        (fixture / '.chezmoiignore').write_text((SOURCE / '.chezmoiignore').read_text())
+        (fixture / 'dot_fixture').write_text('managed\n')
+        for name in folders:
+            (fixture / name).mkdir()
+            (fixture / name / 'file').write_text('tooling\n')
+        for name in files:
+            (fixture / name).write_text('tooling\n')
+        command = [self.command[0], '--source', str(fixture), *self.command[3:]]
+        for source, managed in [(SOURCE, self.command), (fixture, command)]:
+            listed = subprocess.check_output(managed + ['managed'], text=True).splitlines()
+            with self.subTest(source=source.name):
+                self.assertEqual([p for p in listed if p.split('/')[0] in folders + files], [])
+        self.assertIn('.fixture', subprocess.check_output(command + ['managed'], text=True).splitlines())
+
     def test_codespace_default_is_host_data(self):
         self.profile({'codespace': 'fixture-codespace'})
         shell = self.render('.zshrc')

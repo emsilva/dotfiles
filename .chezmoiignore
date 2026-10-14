@@ -110,6 +110,7 @@ Taskfile.yml
 scripts
 tests
 docs
+tmp
 .gitignore
 .task
 .config/chezmoi
