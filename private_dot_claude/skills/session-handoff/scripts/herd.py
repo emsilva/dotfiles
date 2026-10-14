@@ -26,7 +26,7 @@ import relaylib  # noqa: E402
 import transcript  # noqa: E402
 
 # Each command is the module herd_<command>.py, with add_arguments(parser) and run(args) -> exit code.
-COMMANDS = ('launch', 'dispatch')
+COMMANDS = ('launch', 'dispatch', 'status')
 
 
 def main(argv=None):

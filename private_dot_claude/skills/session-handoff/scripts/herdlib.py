@@ -285,8 +285,8 @@ def in_scope(cwd, roots):
 def herd(pdir, repo, extra_roots=(), self_pane=None, panes=None):
     """The record joined with live panes: {'launches', 'workers': [(launch, pane)], 'unclassified': [pane],
     'lost': [launch], 'roots'}. unclassified: panes in scope matching no open launch, never this session's own.
-    panes: herdr's live panes (live_panes()); read here when None."""
-    launches = replay(read(pdir))
+    pdir None: no record (every pane in scope is unclassified). panes: herdr's live panes; read here when None."""
+    launches = replay(read(pdir)) if pdir else {}
     panes = live_panes() if panes is None else panes
     pairs, free, lost = match(launches, panes)
     roots = scope_roots(repo, launches, extra_roots)
