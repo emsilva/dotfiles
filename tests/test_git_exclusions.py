@@ -29,7 +29,7 @@ class GitExclusionTests(unittest.TestCase):
         ]
         public = [
             '.chezmoitemplates/machine.json.tmpl', '.chezmoitemplates/claude-settings.json',
-            'private_dot_claude/private_settings.json.tmpl',
+            'private_dot_claude/modify_private_settings.json',
             'dot_config/git/identity-personal.tmpl', 'dot_codex/AGENTS.md',
             'dot_codex/agents/ship_worker.toml', 'private_dot_claude/CLAUDE.md',
             'dot_gitconfig.tmpl', 'dot_zshrc.tmpl', 'README.md', 'Taskfile.yml',

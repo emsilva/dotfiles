@@ -20,6 +20,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I ~/.claude/skills/session-handoff/scripts/relay-gate.py stop || true",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

@@ -1,0 +1,21 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /* ~/.claude/settings.json is co-owned. The repo enforces the keys in
+       .chezmoitemplates/claude-settings.json plus machine.json "claudeSettings";
+       $seedOnly keys are written only when absent; every other key is Claude Code's.
+       Maps merge per key; arrays (e.g. one hook event) are replaced whole. */ -}}
+{{- $machine := includeTemplate "machine.json.tmpl" . | mustFromJson -}}
+{{- $owned := include ".chezmoitemplates/claude-settings.json" | mustFromJson -}}
+{{- $owned = mustMergeOverwrite $owned (get $machine "claudeSettings" | default dict) -}}
+{{- $seedOnly := list "model" "effortLevel" "modelSettings" "advisorModel" "theme" "tui" -}}
+{{- $retired := list -}}
+{{- $live := dict -}}
+{{- if trim .chezmoi.stdin -}}{{- $live = .chezmoi.stdin | mustFromJson -}}{{- end -}}
+{{- $before := $live | toJson -}}
+{{- range $seedOnly -}}{{- if hasKey $live . -}}{{- $_ := unset $owned . -}}{{- end -}}{{- end -}}
+{{- $result := mustMergeOverwrite $live $owned -}}
+{{- range $retired -}}{{- $result = $result | deleteValueAtPath . -}}{{- end -}}
+{{- if eq $before ($result | toJson) -}}
+{{- .chezmoi.stdin -}}
+{{- else -}}
+{{ $result | mustToPrettyJson }}
+{{- end -}}

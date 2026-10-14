@@ -90,6 +90,35 @@ Absent profile keys use shared defaults. Remove a key from the shared defaults
 if it should exist only on selected machines. Legacy chezmoi `gitName/gitEmail`
 data remain supported when the profile does not supply identity.
 
+### Claude Code settings ownership
+
+Claude Code rewrites `~/.claude/settings.json` itself (`/model`, `/plugin`,
+permission answers), so the file is co-owned. `private_dot_claude/modify_private_settings.json`
+reads the live file and sets only the keys the repository owns. When none of those
+has drifted it returns the live bytes unchanged, so app writes never show up in
+`chezmoi status` or block `task sync`.
+
+| Class | Keys |
+|---|---|
+| Enforced on every apply (`.chezmoitemplates/claude-settings.json`) | `attribution`, `includeCoAuthoredBy`, `skipDangerousModePermissionPrompt`, `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, `env.PLAYWRIGHT_MCP_HEADLESS`, `hooks.PreCompact`, `hooks.Stop`, `statusLine`, `teammateMode`, `agentPushNotifEnabled`, `feedbackDrafts`, `skipWorkflowUsageWarning`, and each baseline `enabledPlugins`/`extraKnownMarketplaces` entry |
+| Enforced per machine (`machine.json` `claudeSettings`) | machine choices such as `permissions.defaultMode`, `worktree.baseRef`, machine-only plugins |
+| Seeded once, then the app's (`$seedOnly`) | `model`, `effortLevel`, `modelSettings`, `advisorModel`, `theme`, `tui` |
+| App-owned, never in the repository | everything else: `permissions.allow`/`deny`, `outputStyle`, plugins added with `/plugin`, future keys |
+
+Maps merge key by key, but an array is replaced whole. Hooks for an event the
+repository owns (`PreCompact`, `Stop`) therefore go in the repository: a hook
+added by hand to an owned event is reverted on the next apply. Disabling a
+baseline plugin with `/plugin` is reverted too; set it `false` in `machine.json`
+or remove it from the shared JSON. A seeded default does not reach a machine that
+already has the key: delete the live key, then apply.
+
+Removing a key from the repository does not remove it from the live file. Add
+its path to `$retired` in the modify template (for example
+`list "someOldKey" "env.OLD_VARIABLE"`) and take it off once every machine has
+applied. `chezmoi merge` is unusable on this target; reconcile by editing the
+shared JSON or `machine.json`. Invalid live JSON stops the apply instead of
+overwriting the file.
+
 Herdr uses one shared configuration from `.chezmoitemplates/herdr.json` on every
 machine, including the `preview` update channel. Legacy `herdr` keys in a machine
 profile are ignored and can be removed. Applying dotfiles does not upgrade the

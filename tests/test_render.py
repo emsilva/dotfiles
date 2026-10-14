@@ -40,6 +40,44 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(data['permissions']['defaultMode'], 'default')
         self.assertFalse(data['enabledPlugins']['fixture@local'])
 
+    def test_claude_settings_are_co_owned_with_the_app(self):
+        self.profile({'claudeSettings': {'permissions': {'defaultMode': 'default'}}})
+        target = self.home / '.claude/settings.json'
+        target.parent.mkdir()
+        app_hook = [{'hooks': [{'type': 'command', 'command': 'app-hook.sh'}]}]
+        target.write_text(json.dumps({
+            'model': 'sonnet', 'includeCoAuthoredBy': True,
+            'attribution': {'commit': 'Co-Authored-By: Fixture <fixture@example.invalid>', 'pr': 'Generated'},
+            'permissions': {'allow': ['Bash(ls:*)']}, 'outputStyle': 'Explanatory',
+            'enabledPlugins': {'fixture@local': True, 'superpowers@claude-plugins-official': False},
+            'hooks': {'SessionStart': app_hook}}))
+        data = json.loads(self.render('.claude/settings.json'))
+        self.assertEqual(data['model'], 'sonnet')
+        self.assertIs(data['includeCoAuthoredBy'], False)
+        self.assertEqual(data['attribution'], {'commit': '', 'pr': ''})
+        self.assertEqual(data['permissions'], {'allow': ['Bash(ls:*)'], 'defaultMode': 'default'})
+        self.assertEqual(data['outputStyle'], 'Explanatory')
+        self.assertTrue(data['enabledPlugins']['fixture@local'])
+        self.assertTrue(data['enabledPlugins']['superpowers@claude-plugins-official'])
+        self.assertEqual(data['hooks']['SessionStart'], app_hook)
+        self.assertIn('PreCompact', data['hooks'])
+        self.assertNotIn('PostToolUse', data['hooks'])
+        self.assertEqual(data['hooks']['Stop'], [{'hooks': [{
+            'type': 'command', 'timeout': 10,
+            'command': 'python3 -I ~/.claude/skills/session-handoff/scripts/relay-gate.py stop || true'}]}])
+
+    def test_claude_settings_in_app_key_order_are_left_untouched(self):
+        target = self.home / '.claude/settings.json'
+        target.parent.mkdir()
+        seeded = json.loads(self.render('.claude/settings.json'))
+        self.assertEqual(seeded['model'], 'opus[1m]')
+        target.write_text(json.dumps(seeded, indent=2))
+        subprocess.run(self.command + ['apply', str(target)], check=True, capture_output=True)
+        app = dict(reversed(list(seeded.items())), permissions={'allow': ['Bash(ls:*)']})
+        target.write_text(json.dumps(app, indent=4))
+        self.assertEqual(self.render('.claude/settings.json'), target.read_text())
+        self.assertEqual(subprocess.check_output(self.command + ['status', str(target)], text=True), '')
+
     def test_herdr_settings_are_shared_despite_legacy_host_overrides(self):
         shared = self.render('.config/herdr/config.toml')
         self.profile({'herdr': {'theme': {'custom': {'green': '#123456'}},
