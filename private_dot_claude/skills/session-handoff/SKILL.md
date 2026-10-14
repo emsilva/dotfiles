@@ -85,8 +85,9 @@ them in the note.
    forces the successor to guess.
 
 Discipline: hand off at 50% of the context meter, not at the wire. Inside
-herdr, relay to a new session (`/relay`); outside it, `/handoff`, then `/clear`,
-then `/pickup`. A lead never compacts instead.
+herdr, relay to a new session (`/relay`; the relay gate asks a lead to, once
+switched on); outside it, `/handoff`, then `/clear`, then `/pickup`. A lead
+never compacts instead.
 
 ### Note template (copy this — it is THE format)
 
@@ -316,6 +317,12 @@ file formats and the failure table. Outline:
    failed sends: keep your waiters, write `failed.json` (`"stage": "handover"`)
    and tell the owner. Never close your own pane: the successor does, with
    `bash ~/.claude/skills/session-handoff/scripts/relay-close.sh <relay-dir>`.
+
+**Automatic relays.** Once the owner registers `scripts/relay-gate.py` as a
+Stop and PostToolUse hook, a lead (named `lead-…`) is blocked at its first safe
+turn end at or above 50% with "Run /relay now": run it, or end your turn if a
+listed task is long work that must finish first. Details:
+`references/relay.md` § Automatic relays.
 
 ## Red flags — you are about to violate this skill
 

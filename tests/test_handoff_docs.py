@@ -1,4 +1,8 @@
+import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 
 from handoff_fixtures import SCRIPTS, SOURCE
@@ -136,6 +140,39 @@ class HandoffDocsTests(unittest.TestCase):
         spec = ' '.join((SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text().split())
         self.assertIn("descends from the receipt's `successor.pid`", spec)
         self.assertNotIn('pgrep -f', spec)
+
+    def test_automatic_relays_are_documented_where_a_lead_looks(self):
+        # The gate is switched on by hand: relay.md must carry the exact registration the spec designs, and a
+        # coordinator must learn to name itself lead-<project>, or the gate never sees it.
+        relay = (SKILL / 'references/relay.md').read_text()
+        spec = (SOURCE / 'docs/superpowers/specs/2026-10-13-relay-gate-design.md').read_text()
+        registration = [line.strip() for line in relay.splitlines() if 'relay-gate.py' in line and '"command"' in line]
+        self.assertEqual(len(registration), 2, registration)
+        for line in registration:
+            self.assertIn(line, spec)
+        flat = ' '.join(relay.split())
+        for needle in ('## Automatic relays (the relay gate)', 'Run /relay now, automatic relay attempt k of 2',
+                       'retried once, after 30 minutes', '`select:PushNotification`', 'One lead per project'):
+            self.assertIn(needle, flat)
+        skill = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        self.assertIn('`references/relay.md` § Automatic relays', skill)
+        claude = ' '.join((SOURCE / 'private_dot_claude/CLAUDE.md').read_text().split())
+        self.assertIn('**Name the coordinator.**', claude)
+        self.assertIn('relay-check.py name --repo <repo>', claude)
+
+    def test_the_registration_exits_0_when_the_script_cannot_start(self):
+        # A hook's exit 2 blocks: registered before the script is deployed, or after it moved, a Stop hook that
+        # cannot start would block every turn end of every session (python3 exits 2 on a missing file).
+        spec = (SOURCE / 'docs/superpowers/specs/2026-10-13-relay-gate-design.md').read_text()
+        lines = [line.strip() for line in spec.splitlines() if 'relay-gate.py' in line and '"command"' in line]
+        self.assertEqual(len(lines), 2, lines)
+        with tempfile.TemporaryDirectory() as home:    # a ~ without ~/.claude/skills/session-handoff
+            for line in lines:
+                [(event, [entry])] = json.loads('{%s}' % line).items()
+                command = entry['hooks'][0]['command']
+                r = subprocess.run(['sh', '-c', command], input='{}', capture_output=True, text=True,
+                                   env={'HOME': home, 'PATH': os.environ['PATH']}, timeout=30)
+                self.assertEqual(r.returncode, 0, (event, command, r.stderr))
 
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.

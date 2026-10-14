@@ -53,6 +53,25 @@ def cron_delete(tid, cron_id, second=0, found=True):
     return [tool_use(tid, 'CronDelete', {'id': cron_id}, second), result]
 
 
+def usage(message_tokens, second=0, model='claude-opus-5-5', advisor=False, sidechain=False):
+    """A main-thread assistant record carrying usage as Claude Code 2.1.296 writes it.
+
+    message_tokens: the context of the final API call (input + cache_read + cache_creation of the last
+    `message` iteration). advisor=True adds an earlier `message` iteration and an `advisor_message` one, as an
+    advisor turn does, so the top-level usage (the sum of the message iterations) reads about twice the context."""
+    last = {'type': 'message', 'input_tokens': 2, 'cache_read_input_tokens': message_tokens - 1002,
+            'cache_creation_input_tokens': 1000, 'output_tokens': 50}
+    steps = [last]
+    if advisor:
+        steps = [dict(last, cache_read_input_tokens=message_tokens - 3002),
+                 {'type': 'advisor_message', 'input_tokens': 91782, 'cache_read_input_tokens': 0,
+                  'cache_creation_input_tokens': 0, 'output_tokens': 4394}, last]
+    top = {k: sum(s[k] for s in steps if s['type'] == 'message')
+           for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens')}
+    return {'type': 'assistant', 'timestamp': ts(second), 'isSidechain': sidechain,
+            'message': {'model': model, 'content': [], 'usage': dict(top, iterations=steps)}}
+
+
 def _notice_text(task_id, status, payload=None):
     """A terminal notice as Claude Code 2.1.296 writes it: header tags, then the payload."""
     if payload is None:
@@ -77,6 +96,20 @@ def monitor_event(task_id, event_text, second=0):
     return {'type': 'user', 'timestamp': ts(second), 'origin': {'kind': 'task-notification'},
             'message': {'content': '<task-notification>\n<task-id>%s</task-id>\n<summary>Monitor event: '
                         '"watch"</summary>\n<event>%s</event>\n</task-notification>' % (task_id, event_text)}}
+
+
+def hook_context(tool_use_id, content, hook='PostToolUse:Bash'):
+    """A PostToolUse hook's additionalContext as Claude Code 2.1.296 records its delivery: content is a list of
+    strings, and the attachment names the tool call it followed."""
+    return {'type': 'attachment', 'attachment': {'type': 'hook_additional_context', 'hookName': hook,
+                                                 'hookEvent': 'PostToolUse', 'toolUseID': tool_use_id,
+                                                 'content': content}}
+
+
+def hook_cancelled(tool_use_id, hook='PostToolUse:Bash'):
+    """A PostToolUse hook Claude Code killed past its timeout: its output was discarded, never delivered."""
+    return {'type': 'attachment', 'attachment': {'type': 'hook_cancelled', 'hookName': hook,
+                                                 'hookEvent': 'PostToolUse', 'toolUseID': tool_use_id}}
 
 
 def prompt(text, second=0, source='typed'):

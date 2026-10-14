@@ -22,8 +22,13 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   closes the one <task-id> there when the header's <status> is terminal.
   Payloads quote other tasks' tags, and monitor events carry no <status>. A
   task also closes on a TaskStop result `Successfully stopped task: <id>`.
-  `attachment` records are never read: prompt snapshots quote notifications
-  verbatim.
+  `attachment` records are never read for a close: prompt snapshots quote
+  notifications verbatim.
+- What became of a hook's output for one tool call is read from the
+  `attachment` object naming that call's `toolUseID` (2.1.296, 2026-10-13):
+  type `hook_additional_context` (delivered; `content` a list of strings) or
+  `hook_cancelled` (Claude Code killed the hook past its timeout and dropped
+  its output).
 - Typed prompts (by the owner, or by herdr into the pane) are `user` records
   whose origin.kind is "human", or `queue-operation` enqueues while busy.
 - A cron is read from the structured `toolUseResult.id`, never from the result
@@ -32,6 +37,10 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   Measured 2026-10-13 over every local transcript (2.1.273 to 2.1.296): `id` on
   58 of 58 CronCreate and 52 of 52 CronDelete successes; the one failed delete
   carries an error string instead.
+- Context fill is read from the newest main-thread assistant record's last
+  `usage.iterations` entry of type `message`: input + cache_read +
+  cache_creation. The top-level usage sums every iteration, so an advisor turn
+  counts the context twice (57.9% shown for 29.2% real, 2026-10-12).
 """
 import datetime
 import glob
@@ -54,6 +63,9 @@ TASK_ID = re.compile(r'<task-id>(\w+)</task-id>')
 STATUS = re.compile(r'<status>(\w+)</status>')
 STOPPED = re.compile(r'Successfully stopped task: (\w+)')
 TERMINAL = frozenset({'completed', 'failed', 'killed', 'stopped'})
+# Context window per model id, in tokens: only measured ones. An unknown model has no fill.
+WINDOWS = {'claude-opus-5-5': 1_000_000}
+FILL_KEYS = ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
 
 
 def find_transcript(session_id, projects=PROJECTS):
@@ -215,6 +227,26 @@ def prompts(path):
     return out
 
 
+def hook_outcome(path, tool_use_id, marker):
+    """What became of a hook's output after the tool call tool_use_id: 'delivered', 'cancelled' or None (neither yet).
+
+    Delivered: a hook_additional_context attachment whose content contains marker (another hook's context for the
+    same call is not ours). Cancelled: a hook_cancelled attachment. Delivered wins over cancelled."""
+    outcome = None
+    for _, rec in records(path):
+        att = rec.get('attachment')
+        if not isinstance(att, dict) or att.get('toolUseID') != tool_use_id:
+            continue
+        if att.get('type') == 'hook_additional_context':
+            content = att.get('content')
+            parts = [content] if isinstance(content, str) else content if isinstance(content, list) else []
+            if any(isinstance(p, str) and marker in p for p in parts):
+                return 'delivered'
+        elif att.get('type') == 'hook_cancelled':
+            outcome = 'cancelled'
+    return outcome
+
+
 def last_model(path):
     model = None
     for _, rec in records(path):
@@ -223,6 +255,30 @@ def last_model(path):
             if value and not value.startswith('<'):
                 model = value
     return model
+
+
+def context_fill(path, window=None):
+    """How full the session's context is: {'pct', 'tokens', 'model'}, or None.
+
+    None when no main-thread assistant record carries usage, or the window is unknown. window (tokens)
+    overrides WINDOWS; the relay gate passes RELAY_GATE_WINDOW."""
+    last = None
+    for _, rec in records(path):
+        if rec.get('type') == 'assistant' and not rec.get('isSidechain'):
+            msg = rec.get('message') or {}
+            model = msg.get('model')
+            if isinstance(msg.get('usage'), dict) and isinstance(model, str) and model and not model.startswith('<'):
+                last = msg
+    if last is None:
+        return None
+    usage = last['usage']
+    steps = [i for i in usage.get('iterations') or [] if isinstance(i, dict) and i.get('type') == 'message']
+    source = steps[-1] if steps else usage
+    tokens = sum(v for v in (source.get(k) for k in FILL_KEYS) if isinstance(v, int) and not isinstance(v, bool))
+    size = window or WINDOWS.get(last['model'])
+    if not size:
+        return None
+    return {'pct': 100.0 * tokens / size, 'tokens': tokens, 'model': last['model']}
 
 
 def permission_mode(path):

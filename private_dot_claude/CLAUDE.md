@@ -108,7 +108,7 @@ The rule above, pointed inward — and the one I break most. Established 2026-08
   → `superpowers:writing-plans` → `superpowers:subagent-driven-development`
 - **save / resume a session** (wrap up · fresh window · after a crash or limit) →
   `/handoff`, `/pickup` — a session-opening "where do we stand?" goes to `/pickup`.
-- **hand the lead to a new session** (at 50% context, or when asked) → `/relay`
+- **hand the lead to a new session** (at 50% context, or when asked; the relay gate asks a lead at 50% once switched on) → `/relay`
 - **capture / check todos** ("remember to do X") → `/todo` (global `~/TODO.md`)
 
 Other surfaces exist; these win on ambiguity.
@@ -133,6 +133,7 @@ How multi-agent work runs in herdr, in every project. Established 2026-09-28/29 
 
 - **Load the `herdr` skill first** (`/herdr`) before driving any pane. It is the authority for how herdr works and for its command syntax; the commands below are the pattern, not a substitute for it.
 - **Layout.** The coordinator owns the full-height **left** pane and does not implement. Workers live in the **right** column as **down-splits** stacked under each other: `herdr pane split <right-column pane> --direction down --cwd <repo> --no-focus`. Focus stays on the coordinator. Never split right again: a third column is too narrow to read.
+- **Name the coordinator.** At start, name the coordinator `lead-<project>`: `herdr agent rename $HERDR_PANE_ID $(python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py name --repo <repo>)`. The relay gate relays only a session named `lead-…` or recorded in the project's `relay/lead.json`, so an unnamed coordinator is never relayed automatically. One lead per project.
 - **Launch and verify.** Claude workers spawn at **high** effort: `herdr agent start <role>-high --kind claude --pane <id> -- --model <id> --effort high --dangerously-skip-permissions`. The name says role and effort (`cs-review-high`, `runkit-v10-high`). Pass model and effort explicitly (another effort only when I name one for the task), then read the pane's banner (`herdr pane read <id> --source visible`) and confirm both before the first brief.
 - **Dispatch by file, never by chat.** Write a self-contained brief to disk (grants, write scope, spend/network limits, inputs, deliverable) and send one line: "Read and execute `<brief>` (sha256 …). Deliver `<report>`, reply with its path and sha256, then end your turn." Self-contained means a cleared or respawned worker can execute it cold. The deliverable is a file: long chat replies truncate, and `herdr agent read` cannot scroll a working agent's alternate screen.
 - **Wait on the deliverable, not the agent.** A `run_in_background` until-loop or Monitor on "a report written by this dispatch (mtime after the dispatch) AND agent status is not `working`": a bare file-exists check passes on a stale report from an earlier run. No sleep-polling. Never poke an idle-but-alive worker with "continue": it becomes a second writer. A worker finishes inside its turn; one that ends its turn waiting on its own background event never wakes.

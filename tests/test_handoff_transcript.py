@@ -3,10 +3,11 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
-from handoff_fixtures import (SCRIPTS, SOURCE, cron_create, cron_delete, monitor_event, notice, prompt,
-                              queued_notice, tool_result, tool_use, ts, write_transcript)
+from handoff_fixtures import (SCRIPTS, SOURCE, cron_create, cron_delete, hook_cancelled, hook_context, monitor_event,
+                              notice, prompt, queued_notice, tool_result, tool_use, ts, usage, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import transcript  # noqa: E402
@@ -206,6 +207,86 @@ class TranscriptModuleTests(unittest.TestCase):
             self.assertEqual(transcript.permission_mode(path), 'bypassPermissions')
             self.assertEqual(transcript.first_timestamp(path), ts(1))
             self.assertAlmostEqual(transcript.epoch(ts(1)) - transcript.epoch(ts(0)), 1.0)
+
+
+class ContextFillTests(unittest.TestCase):
+    def fill(self, recs, window=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            return transcript.context_fill(str(write_transcript(tmp, SID, recs)), window)
+
+    def test_the_newest_main_thread_record_decides(self):
+        got = self.fill([usage(100_000, 1), usage(520_000, 2), usage(900_000, 3, sidechain=True)])
+        self.assertEqual(got, {'pct': 52.0, 'tokens': 520_000, 'model': 'claude-opus-5-5'})
+
+    def test_an_advisor_turn_reads_the_last_message_iteration_not_the_doubled_top_level(self):
+        rec = usage(292_000, 1, advisor=True)
+        top = rec['message']['usage']
+        self.assertGreater(sum(top[k] for k in transcript.FILL_KEYS), 570_000)
+        self.assertAlmostEqual(self.fill([rec])['pct'], 29.2)
+
+    def test_no_iterations_falls_back_to_the_top_level(self):
+        rec = usage(300_000, 1)
+        del rec['message']['usage']['iterations']
+        self.assertAlmostEqual(self.fill([rec])['pct'], 30.0)
+
+    def test_synthetic_and_unknown_models(self):
+        synthetic = usage(990_000, 2, model='<synthetic>')
+        self.assertAlmostEqual(self.fill([usage(400_000, 1), synthetic])['pct'], 40.0)
+        self.assertIsNone(self.fill([usage(400_000, 1, model='claude-sonnet-5-5')]))
+        self.assertAlmostEqual(self.fill([usage(100_000, 1, model='claude-sonnet-5-5')], window=200_000)['pct'],
+                               50.0)
+
+    def test_a_10_mb_transcript_is_read_well_inside_the_stop_budget(self):
+        filler = [prompt('x' * 2000, n % 3000) for n in range(5000)]
+        started = time.time()
+        got = self.fill(filler + [usage(520_000, 9)])
+        self.assertLess(time.time() - started, 2.0)
+        self.assertEqual(got['tokens'], 520_000)
+
+    def test_no_usage_yet(self):
+        self.assertIsNone(self.fill([prompt('hi', 1), tool_use('t1', 'Bash', {'command': 'ls'}, 2)]))
+
+
+class HookOutcomeTests(unittest.TestCase):
+    NUDGE = 'relay-gate: context is 54%. A relay is due.'
+
+    def outcome(self, recs, tid='toolu_A'):
+        with tempfile.TemporaryDirectory() as tmp:
+            return transcript.hook_outcome(str(write_transcript(tmp, SID, [usage(540_000, 1)] + recs)), tid,
+                                           'relay-gate:')
+
+    def test_delivered(self):
+        self.assertEqual(self.outcome([hook_context('toolu_A', [self.NUDGE])]), 'delivered')
+
+    def test_delivered_is_read_from_the_attachment_not_the_record_type(self):
+        rec = hook_context('toolu_A', [self.NUDGE])
+        del rec['type']
+        self.assertEqual(self.outcome([rec]), 'delivered')
+
+    def test_cancelled(self):
+        self.assertEqual(self.outcome([hook_cancelled('toolu_A')]), 'cancelled')
+
+    def test_none(self):
+        self.assertIsNone(self.outcome([tool_use('toolu_A', 'Bash', {'command': 'ls'}, 2)]))
+
+    def test_delivered_wins_over_cancelled_for_the_same_id(self):
+        delivered, cancelled = hook_context('toolu_A', [self.NUDGE]), hook_cancelled('toolu_A')
+        self.assertEqual(self.outcome([delivered, cancelled]), 'delivered')
+        self.assertEqual(self.outcome([cancelled, delivered]), 'delivered')
+
+    def test_another_hooks_context_without_the_marker_is_not_delivered(self):
+        self.assertIsNone(self.outcome([hook_context('toolu_A', ['lint: 3 warnings'])]))
+        self.assertEqual(self.outcome([hook_context('toolu_A', ['lint: 3 warnings']), hook_cancelled('toolu_A')]),
+                         'cancelled')
+
+    def test_string_content(self):
+        self.assertEqual(self.outcome([hook_context('toolu_A', self.NUDGE)]), 'delivered')
+        self.assertIsNone(self.outcome([hook_context('toolu_A', 'lint: 3 warnings')]))
+
+    def test_records_of_another_tool_use_id_are_ignored(self):
+        self.assertIsNone(self.outcome([hook_context('toolu_B', [self.NUDGE]), hook_cancelled('toolu_B')]))
+        self.assertEqual(self.outcome([hook_context('toolu_B', [self.NUDGE]), hook_cancelled('toolu_A')]),
+                         'cancelled')
 
 
 class ChezmoiPackagingTests(unittest.TestCase):

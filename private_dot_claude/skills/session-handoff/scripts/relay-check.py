@@ -23,10 +23,10 @@ import sys
 # In development this dir is chezmoi source: bytecode written beside the script would be deployed.
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import relaylib  # noqa: E402
 import transcript  # noqa: E402
 
 NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
-GIT_BUSY = ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply')
 
 
 def run(cmd):
@@ -109,16 +109,6 @@ def git_state(repo):
     return {'head': head, 'branch': branch, 'dirty': [line[3:] for line in porcelain.splitlines() if line]}
 
 
-def blockers(repo, tasks):
-    out = ['%s %s is running inside this session (%s)' % (t['kind'], t['id'], t['description'] or t['command'][:60])
-           for t in tasks if t['kind'] in ('agent', 'workflow')]
-    code, gitdir = run(['git', '-C', repo, 'rev-parse', '--absolute-git-dir'])
-    if code == 0:
-        out += ['git is mid-operation (%s present)' % name for name in GIT_BUSY
-                if os.path.exists(os.path.join(gitdir, name))]
-    return out
-
-
 def workers(repo, extra_roots, self_pane):
     if not self_pane:   # outside herdr there is no herd to read
         return []
@@ -180,7 +170,7 @@ def cmd_checklist(a):
     repo = os.path.realpath(repo_root())
     paths = a.transcript + [tpath]
     tasks = transcript.open_tasks(paths)
-    blocked = blockers(repo, tasks)
+    blocked = relaylib.blockers(repo, tasks)
     if blocked:
         for line in blocked:
             print('relay-check: not yet: %s' % line, file=sys.stderr)

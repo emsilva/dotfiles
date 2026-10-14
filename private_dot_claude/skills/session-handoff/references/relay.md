@@ -373,6 +373,57 @@ unsettled after 2 fix rounds stops the relay, and the owner decides.
 explanation (in the note's `## Relay Q&A`, copied into the receipt) before it
 passes.
 
+## Automatic relays (the relay gate)
+
+`scripts/relay-gate.py` is a Claude Code hook that has a lead run `/relay` at
+50% context. It acts only once the owner registers it in
+`~/.claude/settings.json`:
+
+    "Stop":        [{"hooks": [{"type": "command", "command": "python3 -I ~/.claude/skills/session-handoff/scripts/relay-gate.py stop || true", "timeout": 10}]}]
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "python3 -I ~/.claude/skills/session-handoff/scripts/relay-gate.py tool || true", "timeout": 5}]}]
+
+Keep the `|| true`: without it a missing script exits 2, and a Stop hook that
+exits 2 blocks every turn end of every session.
+
+- **Who.** Only a lead: a herdr session whose name starts with `lead-`, or the
+  session in `relay/lead.json`. Name a coordinator `lead-<project>` at start
+  (`relay-check.py name --repo <repo>` prints the name). One lead per project:
+  successors are named `lead-<slug>-next`, then `lead-<slug>`. Workers,
+  subagents and teammates are never gated.
+- **When.** At the end of a turn at or above 50%, once it is safe: no subagent,
+  teammate or workflow running and git not mid-operation (the rules `checklist`
+  refuses on, plus any non-shell task still open in the hook's live task list,
+  a teammate included; a missing list counts as not safe). Below 60%, a prompt
+  typed in the last 10 minutes defers it. The turn is blocked with "relay-gate:
+  context is N% (threshold 50%). Run /relay now, automatic relay attempt k of
+  2." and the open background tasks: run `/relay`. If a listed task is long work
+  that must finish first, end your turn instead: the gate asks again when a
+  listed task closes or the next 10% band starts, at most 3 times per band and
+  attempt.
+- **Nudge.** After a tool call past 50%, once per band, the gate adds a line: a
+  relay is due, finish the current step, start nothing new in-session (no
+  subagents, no attached runs), end your turn.
+- **Not safe at 60%,** and at each later band, the gate alerts the owner: a herdr
+  toast, and the block asks you to load PushNotification (ToolSearch
+  `select:PushNotification`) and push the same text. Keep draining (start
+  nothing new in-session), end your turn, and do not run `/relay` yet. A lead
+  that is safe at 60% or later (it declined at 50%) gets the ask, with an owner
+  alert once per band.
+- **Back-off.** A failed relay (`failed.json`, or a relay dir with no activity
+  for 25 minutes) is retried once, after 30 minutes. A second failure, or one
+  that would repeat (an identity mismatch, a taken agent name), stops the gate
+  for this session with one owner alert; the owner relays by hand. A hand-over
+  failure (`failed.json` beside `handover.md`, whatever stage it names) is never
+  retried and takes precedence over that rule: the gate stays silent, because
+  the relay protocol has already told the owner. Otherwise a hand-over not
+  closed 30 minutes after `handover.md` raises one owner alert. A predecessor
+  the owner resumes after a hand-over is never gated again: the owner relays it
+  by hand.
+- **State.** `relay/gate/<session-id>.json`, for leads only; errors go to
+  `relay/gate/errors.log` (`~/.claude/relay-gate-errors.log` when the project
+  is unknown). The gate never fails closed: an error is logged and toasted once
+  per session, in any session (workers included), and the turn ends normally.
+
 ## Failure table
 
 | Situation | Behaviour |
@@ -391,6 +442,7 @@ passes.
 | Owner types into the old pane after the hand-over | the predecessor points to the new pane; `relay-close.sh` refuses; the successor tells the owner |
 | Successor dies after the hand-over | the old pane is still open (only the successor closes it); the owner resumes it |
 | Memory index over the cap | the relay proceeds; debt in the note; the successor's first job |
+| An automatic relay fails | the gate retries once after 30 minutes; a second failure, or one that would repeat, stops it for this session with one owner alert; a hand-over failure is never retried |
 
 ## Script exit codes
 
