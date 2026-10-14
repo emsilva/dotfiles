@@ -9,12 +9,14 @@ matched here, case-insensitively (casefold, non-ASCII included). A line that
 tool `scan.py replacements`, never the raw file, whose comments it would take
 for rules.
 
-History scans read commit messages, author and committer names and emails,
+History scans read commit messages, every commit header but tree and parent
+(author and committer names and emails, mergetag, gpgsig, any extra header),
 the lines each commit adds, the paths of the files it adds, every ref name and
 every annotated tag (name, tagger, message). Removed lines are skipped: their
 text was added by an earlier commit, which a full scan reports, and a scrub
 commit must not block itself. Merge commits are diffed against their first
-parent. Tree scans read tracked paths and every line of tracked files.
+parent. Tree scans read tracked paths, every line of tracked files and symlink
+targets. Replace refs are ignored everywhere: a push sends the real objects.
 """
 import argparse
 import os
@@ -78,15 +80,13 @@ def scan_history(repo, revisions, terms):
     marker = ('\x1escan-' + uuid.uuid4().hex).encode()
     log = git(repo, 'log', '-p', '--text', '--no-textconv', '--no-color', '--no-ext-diff', '--no-renames',
               '--no-relative', '--no-show-signature', '--diff-merges=first-parent', '--src-prefix=a/', '--dst-prefix=b/',
-              f'--format={marker.decode()}C %H%x00%an <%ae>%x00%cn <%ce>%n%B{marker.decode()}E', *revisions, '--')
-    hits = []
+              f'--format={marker.decode()}C %H%n%B{marker.decode()}E', *revisions, '--')
+    hits, commits = [], []
     commit, state, path, name, number = '', 'patch', None, b'', 0
     for line in log.split(b'\n'):
         if line.startswith(marker + b'C '):
-            sha, author, committer = line[len(marker) + 2:].split(b'\0')
-            commit, state, number = sha.decode()[:12], 'message', 0
-            hits += [(f'{commit}:<author>', t) for t in matches(terms, author)]
-            hits += [(f'{commit}:<committer>', t) for t in matches(terms, committer)]
+            commits.append(line[len(marker) + 2:].decode())
+            commit, state, number = commits[-1][:12], 'message', 0
             continue
         if state == 'message':
             end = line.find(marker + b'E')
@@ -115,6 +115,28 @@ def scan_history(repo, revisions, terms):
                 number += 1
             elif line.startswith(b' '):
                 number += 1
+    return hits + scan_headers(repo, commits, terms)
+
+def scan_headers(repo, commits, terms):
+    """Every raw commit header but tree and parent; author and committer without their timestamp."""
+    hits = []
+    batch = subprocess.run(['git', '-C', str(repo), 'cat-file', '--batch'], input=''.join(f'{c}\n' for c in commits).encode(),
+                           capture_output=True, check=True).stdout
+    for sha in commits:
+        info, batch = batch.split(b'\n', 1)
+        size = int(info.split()[2])
+        raw, batch = batch[:size], batch[size + 1:]
+        field = None
+        for line in raw.split(b'\n\n', 1)[0].split(b'\n'):
+            if not line.startswith(b' '):
+                field, _, line = line.partition(b' ')
+            if field in (b'tree', b'parent'):
+                continue
+            if field in (b'author', b'committer'):
+                line = line[:line.rfind(b'>') + 1]
+            label = f'<{field.decode(errors="replace")}>' if field in (b'author', b'committer') else \
+                f'<header:{field.decode(errors="replace")}>'
+            hits += [(f'{sha[:12]}:{label}', t) for t in matches(terms, line)]
     return hits
 
 def scan_tag(repo, sha, terms):
@@ -155,6 +177,14 @@ def scan_tree(repo, revision, terms):
     names = git(repo, *(['ls-tree', '-r', '-z', '--name-only', revision] if revision else ['ls-files', '-z']))
     for name in filter(None, names.split(b'\0')):
         hits += [(f'{prefix}{name.decode(errors="replace")}', t) for t in matches(terms, name)]
+    # git grep skips symlinks; their target is pushed as a blob
+    entries = git(repo, *(['ls-tree', '-r', '-z', revision] if revision else ['ls-files', '-s', '-z']))
+    for entry in filter(None, entries.split(b'\0')):
+        info, name = entry.split(b'\t', 1)
+        fields = info.split(b' ')  # ls-tree: mode type sha; ls-files -s: mode sha stage
+        if fields[0] == b'120000':
+            target = git(repo, 'cat-file', 'blob', (fields[2] if revision else fields[1]).decode())
+            hits += [(f'{prefix}{name.decode(errors="replace")}:1', t) for t in matches(terms, target)]
     # every line of every tracked file, matched here so that every mode folds case the same way
     command = ['git', '-C', str(repo), '-c', 'core.quotePath=false', 'grep', '-z', '-n', '--text', '--no-textconv',
                '--no-color', '--basic-regexp', '-e', '^'] + ([revision] if revision else []) + ['--']
@@ -208,6 +238,7 @@ def main():
     modes.add_parser('replacements', help='the deny-list in git filter-repo --replace-text syntax: '
                      'feed this to filter-repo, never the raw file')
     args = parser.parse_args()
+    os.environ['GIT_NO_REPLACE_OBJECTS'] = '1'  # for every git below and for gitleaks: a push sends the real objects
     denylist = os.environ.get('DOTFILES_DENYLIST') or DEFAULT_DENYLIST
     if args.mode == 'replacements':
         for term, replacement in load_entries(denylist):

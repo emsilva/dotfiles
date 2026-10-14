@@ -217,6 +217,42 @@ class ScanTests(unittest.TestCase):
         self.assertIn(f'{sha[:12]}:notes.txt:1: fixture-host', r.stdout)
         self.assertIn('notes.txt:1: fixture-host', self.scan('tree').stdout)
 
+    def test_every_raw_commit_header_is_read(self):
+        self.commit('notes.txt', 'clean\n')
+        header, message = self.git('cat-file', 'commit', 'HEAD').split('\n\n', 1)
+        forged = self.root / 'forged'
+        forged.write_text(f'{header}\nx-note see Fixture-Host\n\n{message}')
+        sha = self.git('hash-object', '-t', 'commit', '-w', str(forged)).strip()
+        self.git('update-ref', 'refs/heads/main', sha)
+        r = self.scan('history')
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(f'{sha[:12]}:<header:x-note>: fixture-host', r.stdout)
+
+    def test_a_replace_ref_cannot_hide_a_pushed_commit(self):
+        base = self.commit('notes.txt', 'clean\n')
+        self.git('switch', '-q', '-c', 'decoy')
+        decoy = self.commit('notes.txt', 'clean again\n')
+        self.git('switch', '-q', 'main')
+        leak = self.commit('notes.txt', 'fixture-host\n')
+        self.git('replace', leak, decoy)
+        self.git('branch', '-D', 'decoy')
+        self.assertNotIn('fixture-host', self.git('log', '-p', 'main'))  # git log now shows the decoy
+        for args in (('history',), ('range', f'{base}..main')):
+            r = self.scan(*args)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn(f'{leak[:12]}:notes.txt:1: fixture-host', r.stdout)
+
+    def test_a_symlink_target_is_scanned_in_history_and_tree(self):
+        (self.repo / 'link').symlink_to('/srv/Fixture-Host/data')
+        self.git('add', 'link')
+        self.git('commit', '-qm', 'Link')
+        sha = self.git('rev-parse', 'HEAD').strip()
+        self.assertIn(f'{sha[:12]}:link:1: fixture-host', self.scan('history').stdout)
+        r = self.scan('tree')
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn('link:1: fixture-host', r.stdout)
+        self.assertIn('HEAD:link:1: fixture-host', self.scan('tree', 'HEAD').stdout)
+
     def test_history_reads_ref_names_and_annotated_tags(self):
         self.commit('notes.txt', 'clean\n')
         self.assertEqual(self.scan('history').returncode, 0)

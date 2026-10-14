@@ -178,8 +178,10 @@ prefix do not provide Git publication protection.
 Content is checked before publication by `scripts/scan.py`. It matches a private
 deny-list kept outside the repository (`~/.config/dotfiles/denylist`, mode `0600`,
 or `$DOTFILES_DENYLIST`) case-insensitively, non-ASCII included, against commit
-messages, author and committer names and emails, added lines, added file paths,
-ref names and annotated tags, and runs `gitleaks git` on the same commits. One
+messages, every commit header (author and committer names and emails
+included), added lines, added file paths, symlink targets, ref names and
+annotated tags, ignoring replace refs, and runs `gitleaks git` on the same
+commits. One
 entry per line, `#` comments allowed: `term` or `term==>replacement`. A line
 that `git filter-repo --replace-text` would read differently (whitespace around
 the term or `==>`, a `regex:`/`glob:`/`literal:` prefix, `==>` twice) fails the
