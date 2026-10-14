@@ -58,39 +58,16 @@ pane=$(herdr pane split "$HERDR_PANE_ID" --direction down --cwd "$repo" --no-foc
   | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])' 2>/dev/null) || pane=""
 [ -n "$pane" ] || fail "pane split failed"
 
-started=""
-while [ -z "$started" ] && [ "$attempt" -lt 2 ]; do
-  attempt=$((attempt + 1))
-  # A pane fresh from the split may not host a shell yet: herdr then answers agent_pane_busy. That is retried
-  # within this attempt; any other error ends the attempt.
-  since=$SECONDS
-  while :; do
-    if out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout 90000 -- "${args[@]}" 2>&1); then
-      started=1
-      break
-    fi
-    case "$out" in *agent_pane_busy*) ;; *) break ;; esac
-    [ $((SECONDS - since)) -lt "$busy_wait" ] || break
-    sleep 1
-  done
-  [ -n "$started" ] || echo "relay-launch: start attempt $attempt failed: $out" >&2
-done
-[ -n "$started" ] || fail "agent start failed twice"
+# A pane fresh from the split may not host a shell yet: herdr then answers agent_pane_busy, which relaylib
+# retries inside the attempt; any other error ends the attempt.
+attempt=1
+python3 -I "$here/relaylib.py" start-agent "$name" claude "$pane" "$busy_wait" -- "${args[@]}" \
+  || { attempt=2; fail "agent start failed twice"; }
 
-want=$(python3 -I -c 'import sys
-parts = sys.argv[1].removeprefix("claude-").split("-")
-print(parts[0].capitalize() + " " + ".".join(parts[1:]))' "$model")
-# herdr answers on stdout and reports errors on stderr: a failed read is not a banner.
-banner=$(herdr pane read "$pane" --source visible 2>/dev/null) || fail "could not read the new pane"
-case "$banner" in *"$want"*) ;; *) fail "banner does not show model '$want'" ;; esac
-if [ -n "$effort" ]; then
-  # Whole words only, so "high" is not found in "xhigh effort". In python: bash 3.2 rewriting a
-  # pane-sized banner with ${banner//...} under a UTF-8 locale takes a minute.
-  printf '%s' "$banner" | python3 -I -c 'import re, sys
-text = sys.stdin.buffer.read().decode("utf-8", "replace")
-sys.exit(0 if re.search(r"(?<![A-Za-z0-9_])" + re.escape(sys.argv[1]) + r"(?![A-Za-z0-9_])", text) else 1)' \
-    "$effort" || fail "banner does not show effort '$effort'"
-fi
+# The banner must show the model and the effort (a whole word, so "high" is not found in "xhigh effort").
+# relaylib reads the pane again for up to 10 s while it does not: a pane fresh from the start can read blank.
+problem=$(python3 -I "$here/relaylib.py" check-banner "$pane" claude "$model" "$effort") \
+  || fail "${problem:-the banner check failed}"
 
 session=$(herdr agent get "$name" 2>/dev/null | python3 -I -c 'import json, sys
 agent = (json.load(sys.stdin).get("result") or {}).get("agent") or {}

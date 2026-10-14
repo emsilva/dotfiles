@@ -24,6 +24,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import relaylib  # noqa: E402
+from relaylib import HerdrError, herdr_json, herdr_list  # noqa: E402
 import transcript  # noqa: E402
 
 NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
@@ -62,38 +63,6 @@ def settings_mode():
     except (OSError, ValueError, AttributeError):
         mode = None
     return mode or 'default'
-
-
-class HerdrError(Exception):
-    """A herdr read failed: recording it as an empty answer would hand over a herd with no workers."""
-
-
-def herdr_json(*args):
-    """herdr's JSON answer, or HerdrError naming the command and echoing herdr's stderr."""
-    cmd = ' '.join(['herdr', *args])
-    try:
-        r = subprocess.run(['herdr', *args], capture_output=True, text=True)
-    except OSError as e:
-        raise HerdrError('%s: %s' % (cmd, e))
-    if r.returncode != 0:
-        raise HerdrError('%s exited %d: %s' % (cmd, r.returncode, ' '.join(r.stderr.split()) or '(no stderr)'))
-    try:
-        data = json.loads(r.stdout)
-    except ValueError:
-        data = None
-    if not isinstance(data, dict):
-        raise HerdrError('%s printed no JSON object: %s' % (cmd, ' '.join(r.stdout.split())[:200]))
-    return data
-
-
-def herdr_list(key, *args):
-    """herdr's result.<key> list, or HerdrError: a listing of another shape is not an empty herd."""
-    result = herdr_json(*args).get('result')
-    items = result.get(key) if isinstance(result, dict) else None
-    if not isinstance(items, list):
-        raise HerdrError('%s: result.%s is not a list (herdr answered %s)'
-                         % (' '.join(['herdr', *args]), key, json.dumps(result)[:200]))
-    return items
 
 
 def repo_root():

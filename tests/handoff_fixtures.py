@@ -162,8 +162,12 @@ def herdr_stub(tmp, responses):
     state.write_text(json.dumps(responses))
     log = Path(tmp) / 'herdr-log.jsonl'
     log.write_text('')
+    # RELAYLIB_HERDR_BOUND: a test is about its herdr answers, not the machine's speed; the tests of the bound pass
+    # their own timeout. RELAYLIB_BANNER_SECONDS=0: a banner is read once, so a wrong one fails at once; a test that
+    # waits for a late banner sets a long bound itself (HerdCase sets 120).
     env = dict(os.environ, PATH='%s:%s' % (bindir, os.environ['PATH']), HERDR_STUB_STATE=str(state),
-               HERDR_STUB_LOG=str(log), HERDR_ENV='1', HERDR_PANE_ID='wT:p1')
+               HERDR_STUB_LOG=str(log), HERDR_ENV='1', HERDR_PANE_ID='wT:p1', RELAYLIB_HERDR_BOUND='120',
+               RELAYLIB_BANNER_SECONDS='0')
     return env, log
 
 
