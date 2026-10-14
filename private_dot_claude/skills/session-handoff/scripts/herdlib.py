@@ -39,6 +39,27 @@ class RecordError(Exception):
     """The record cannot be read or written as a record."""
 
 
+class Refusal(Exception):
+    """A herd command refuses or fails: herd.py exits 1 with this message, nothing recorded."""
+
+
+def require_herdr():
+    """This session's herdr pane id, or Refusal outside herdr."""
+    if os.environ.get('HERDR_ENV') != '1' or not os.environ.get('HERDR_PANE_ID'):
+        raise Refusal('not inside herdr (HERDR_ENV or HERDR_PANE_ID unset)')
+    return os.environ['HERDR_PANE_ID']
+
+
+def git_toplevel(path):
+    """The git top level of path, or None."""
+    try:
+        r = subprocess.run(['git', '-C', path, 'rev-parse', '--show-toplevel'], capture_output=True, text=True,
+                           timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return os.path.realpath(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+
+
 def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
 
@@ -48,8 +69,11 @@ def epoch(iso):
     return datetime.datetime.fromisoformat(iso.replace('Z', '+00:00')).timestamp()
 
 
-def project_dir(projects=transcript.PROJECTS):
-    """The lead's project dir: where its own transcript lives (as relay-check.py resolves it)."""
+def project_dir(projects=transcript.PROJECTS, override=None):
+    """The lead's project dir: where its own transcript lives (as relay-check.py resolves it). override (herd.py's
+    hidden --record-dir) keeps a trial run's record away from the real one."""
+    if override:
+        return override
     session = os.environ.get('CLAUDE_CODE_SESSION_ID')
     if not session:
         raise RecordError("CLAUDE_CODE_SESSION_ID is not set: run herd.py inside the lead's Claude session")
