@@ -185,9 +185,9 @@ class CloseTests(unittest.TestCase):
         self.assertEqual(json.loads((self.dir.parent / 'lead.json').read_text())['name'], 'lead-repo-next')
 
     def test_slug_names_the_lead(self):
-        r = self.close({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]}, args=('--slug', 'Alpha'))
+        r = self.close({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]}, args=('--slug', 'Sample'))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-alpha'], herdr_calls(self.log))
+        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-sample'], herdr_calls(self.log))
 
     def test_refuses_to_close_its_own_pane(self):
         env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})

@@ -51,7 +51,7 @@ class NameTests(unittest.TestCase):
             self.assertEqual(nxt, canonical + '-next')
             for name in (got, nxt):
                 self.assertRegex(name, HERDR_NAME)
-        self.assertEqual(rc('name', '--repo', '/x/anything', '--slug', 'alpha').stdout.strip(), 'lead-alpha')
+        self.assertEqual(rc('name', '--repo', '/x/anything', '--slug', 'sample').stdout.strip(), 'lead-sample')
 
 
 class ChecklistTests(unittest.TestCase):
