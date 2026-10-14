@@ -177,14 +177,22 @@ prefix do not provide Git publication protection.
 
 Content is checked before publication by `scripts/scan.py`. It matches a private
 deny-list kept outside the repository (`~/.config/dotfiles/denylist`, mode `0600`,
-or `$DOTFILES_DENYLIST`) case-insensitively against commit messages and added
-lines, never author headers, and runs `gitleaks git` on the same commits. One
-entry per line, `#` comments allowed: `term` or `term==>replacement`; the
-replacement form lets the same file drive `git filter-repo --replace-text`. A
+or `$DOTFILES_DENYLIST`) case-insensitively, non-ASCII included, against commit
+messages, author and committer names and emails, added lines, added file paths,
+ref names and annotated tags, and runs `gitleaks git` on the same commits. One
+entry per line, `#` comments allowed: `term` or `term==>replacement`. A line
+that `git filter-repo --replace-text` would read differently (whitespace around
+the term or `==>`, a `regex:`/`glob:`/`literal:` prefix, `==>` twice) fails the
+scan. To rewrite history, feed filter-repo `python3 scripts/scan.py
+replacements`, never the raw file: filter-repo takes its comments for rules. A
 missing or empty deny-list, or a missing `gitleaks`, fails the scan
 (`DOTFILES_SCAN_ALLOW_NO_GITLEAKS=1` downgrades the latter to a warning).
 `task scan` covers all history and the tracked tree; `task hooks:install` sets
-`core.hooksPath` so `scripts/hooks/pre-push` scans every outgoing range.
+`core.hooksPath` so `scripts/hooks/pre-push` scans every outgoing range, ref
+name and tag, counting as published only what the target remote already has.
+UTF-16 files are not scanned: the deny-list matches UTF-8 text only.
+An in-repo `.gitleaksignore` or `.gitleaks.toml` can silence gitleaks, so
+review any commit that adds or edits one.
 
 `csalive [name]` accepts an explicit Codespace, then `DOTFILES_CODESPACE`, then
 the optional machine profile default. It refuses to guess when none is set.
