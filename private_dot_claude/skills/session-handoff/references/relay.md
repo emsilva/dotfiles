@@ -453,7 +453,7 @@ exits 2 blocks every turn end of every session.
 |---|---|
 | Outside herdr | `/relay` refuses; manual `/handoff`, `/clear`, `/pickup` |
 | Subagent or workflow running, attached work running, git mid-operation | wait; the relay does not start (`checklist` exit 3) |
-| A herdr read fails or the note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
+| A herdr read fails, or the herd record or note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
 | Successor fails to start | one retry (a start answered `agent_pane_busy` is retried for up to 15 s before it counts); then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
 | No usable receipt: the successor dies, stays `blocked` for about 2 minutes, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`), keeps the lead and tells the owner |
@@ -471,7 +471,7 @@ exits 2 blocks every turn end of every session.
 
 | Script | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `relay-check.py checklist` | relay dir printed | not run inside a Claude session (`CLAUDE_CODE_SESSION_ID` unset or its transcript not found) | a herdr read failed inside herdr, or the note is unreadable; no relay dir | a blocker (agent or workflow running in this session, git mid-operation); no relay dir |
+| `relay-check.py checklist` | relay dir printed | not run inside a Claude session (`CLAUDE_CODE_SESSION_ID` unset or its transcript not found) | a herdr read failed inside herdr, or the herd record or note is unreadable; no relay dir | a blocker (agent or workflow running in this session, git mid-operation); no relay dir |
 | `relay-check.py identity` | identity JSON printed | not run inside a Claude session | | |
 | `relay-check.py compare` | `PASS` | `FAIL` lines | | |
 | `relay-check.py quiet` | no prompt after `handover.md` | a prompt reached the predecessor after `handover.md` (one it cannot date counts) | no `handover.md` yet | |

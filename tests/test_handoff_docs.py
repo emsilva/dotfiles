@@ -11,6 +11,20 @@ SKILL = SOURCE / 'private_dot_claude/skills/session-handoff'
 
 
 class HandoffDocsTests(unittest.TestCase):
+    def test_both_checklist_tables_include_an_unreadable_herd_record(self):
+        text = (SKILL / 'references/relay.md').read_text()
+        failure = text[text.index('## Failure table'):text.index('## Script exit codes')]
+        row = next(line for line in failure.splitlines() if '`checklist` exit 2' in line)
+        self.assertIn('herd record', row)
+        exits = text[text.index('## Script exit codes'):]
+        row = next(line for line in exits.splitlines() if line.startswith('| `relay-check.py checklist`'))
+        self.assertIn('herd record', row.split('|')[4])
+
+    def test_the_pane_reuse_launch_example_supplies_the_role(self):
+        text = (SOURCE / 'private_dot_claude/CLAUDE.md').read_text()
+        row = next(line for line in text.splitlines() if line.startswith('- **Reuse panes, recycle context.**'))
+        self.assertIn('`herd.py launch <role> --pane <id>`', row)
+
     def test_every_script_the_docs_name_exists(self):
         text = ''.join((SKILL / name).read_text() for name in ('SKILL.md', 'references/relay.md', 'references/feedback.md'))
         named = set(re.findall(r'scripts/([\w.-]+\.(?:py|sh))', text))
