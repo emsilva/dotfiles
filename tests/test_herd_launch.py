@@ -39,6 +39,23 @@ class PlacementTests(unittest.TestCase):
 
 
 class LaunchTests(HerdCase):
+    def test_a_builder_name_redraw_recreates_matching_resources(self):
+        r = self.herd(self.answers(**{'agent start': [TAKEN, ok()], 'pane split': [split('wT:p9'), split('wT:p10')],
+                                      'agent get': [agent('idle', 'wT:p10')]}),
+                      'launch', 'build', '--builder', '--base', 'HEAD')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads(r.stdout)
+        self.assertEqual(os.path.basename(row['worktree']), row['name'])
+        self.assertEqual(row['cwd'], row['worktree'])
+        self.assertEqual(row['branch'], 'feat/%s-%s' % (row['name'], datetime.date.today().strftime('%Y%m%d')))
+        self.assertEqual(row['launch_id'][:4], row['name'][-4:])
+        self.assertEqual(os.listdir(self.repo / '.claude' / 'worktrees'), [row['name']])
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(row['pane_id'], 'wT:p10')
+        head = subprocess.run(['git', '-C', row['cwd'], 'branch', '--show-current'], capture_output=True, text=True)
+        self.assertEqual(head.stdout.strip(), row['branch'])
+        self.assertIn('projects={"%s"={trust_level="trusted"}}' % row['cwd'], self.start_tail())
+
     def test_record_write_failures_undo_the_started_worker_and_exit_two(self):
         for error in ("OSError('record disk failed')", "herdlib.RecordError('record refused')"):
             with self.subTest(error=error):

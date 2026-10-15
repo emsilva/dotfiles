@@ -130,7 +130,7 @@ def herdr_failure(message, text):
     return herdlib.Refusal('%s (pane shows: %s)' % (message, relaylib.screen_tail(text)))
 
 
-def run(a):
+def run(a, taken_names=(), attempts=3):
     self_pane = herdlib.require_herdr()
     pdir = herdlib.project_dir(a.projects, a.record_dir)
     rows = herdlib.read(pdir)
@@ -150,7 +150,7 @@ def run(a):
         model = transcript.last_model(transcript.find_transcript(session, a.projects))
         if not model:
             raise herdlib.Refusal("the lead's transcript names no model: pass --model")
-    taken = {agent.get('name') for agent in relaylib.herdr_list('agents', 'agent', 'list')}
+    taken = {agent.get('name') for agent in relaylib.herdr_list('agents', 'agent', 'list')} | set(taken_names)
     try:
         lid, name = herdlib.new_name(a.role, effort, rows, taken)
     except ValueError as e:
@@ -187,13 +187,14 @@ def run(a):
                 raise relaylib.HerdrError('herdr pane split: result.pane.pane_id is not a nonempty string')
             created_pane = pane
         started_at = herdlib.now_iso()   # a Codex session file is stamped with its start, before this row's `at`
-        for _ in range(3):
-            ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,
-                                                                           session_id), stop_on=STOP_ON)
-            if ok or relaylib.error_code(out) != 'agent_name_taken':
-                break
-            taken.add(name)   # a live agent elsewhere got the name first: a new launch id and name
-            lid, name = herdlib.new_name(a.role, effort, rows, taken)
+        ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,
+                                                                   session_id), stop_on=STOP_ON)
+        if not ok and relaylib.error_code(out) == 'agent_name_taken' and attempts > 1:
+            # Redraw the whole launch: its worktree, branch, pane cwd and trust override carry the name too.
+            undo(created_pane, repo, worktree if created_worktree else None,
+                 branch if created_worktree else None, a.base)
+            created_pane, created_worktree = None, False
+            return run(a, taken | {name}, attempts - 1)
         if not ok and relaylib.error_code(out) == 'agent_not_ready':
             answer_startup_dialog(a.kind, pane, cwd)
             agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
