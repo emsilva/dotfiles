@@ -278,8 +278,8 @@ def scope_roots(repo, launches, extra_roots=()):
 
 
 def in_scope(cwd, roots):
-    cwd = os.path.realpath(cwd or '/').rstrip('/')
-    return any(cwd == root or cwd.startswith(root + '/') for root in roots)
+    cwd = os.path.realpath(cwd or '/').rstrip('/') or '/'
+    return any(cwd == root or cwd.startswith(root.rstrip('/') + '/') for root in roots)
 
 
 def herd(pdir, repo, extra_roots=(), self_pane=None, panes=None):

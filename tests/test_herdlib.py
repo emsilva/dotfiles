@@ -170,6 +170,12 @@ class MatchTests(unittest.TestCase):
 
 
 class HerdTests(unittest.TestCase):
+    def test_root_scope_includes_root_and_descendants(self):
+        for cwd in ('/', '/x', '/x/repo'):
+            with self.subTest(cwd=cwd):
+                self.assertTrue(herdlib.in_scope(cwd, ['/']))
+        self.assertFalse(herdlib.in_scope('/other', ['/x']))
+
     def test_scope_self_and_lost(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(os.path.realpath(tmp)) / 'repo'
