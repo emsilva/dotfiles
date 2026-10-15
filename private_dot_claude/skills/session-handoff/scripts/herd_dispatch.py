@@ -65,16 +65,28 @@ def session_meta(path):
     return payload if isinstance(payload, dict) else None
 
 
-def holds_prompt(path, line):
-    """The rollout records line as a user message."""
+def holds_prompt(path, line, offset=0, kind='codex'):
+    """The file records line as a user prompt in bytes appended after offset."""
     try:
-        with open(path) as fh:
+        with open(path, 'rb') as fh:
+            fh.seek(offset)
             for raw in fh:
                 try:
                     rec = json.loads(raw)
                 except ValueError:
                     continue
-                payload = rec.get('payload') if isinstance(rec, dict) else None
+                if not isinstance(rec, dict):
+                    continue
+                if kind == 'claude':
+                    if (rec.get('type') == 'user' and (rec.get('origin') or {}).get('kind') == 'human'
+                            and line in transcript._user_text(rec)):
+                        return True
+                    if (rec.get('type') == 'queue-operation' and rec.get('operation') == 'enqueue'
+                            and not transcript._is_notice(str(rec.get('content', '')))
+                            and line in str(rec.get('content', ''))):
+                        return True
+                    continue
+                payload = rec.get('payload')
                 if (rec.get('type') == 'response_item' and isinstance(payload, dict)
                         and payload.get('type') == 'message' and payload.get('role') == 'user'
                         and any(line in (c.get('text') or '') for c in payload.get('content') or []
@@ -94,7 +106,7 @@ def codex_candidates(before, cwd, not_before, claimed, line):
     """{id: path} of session files that did not exist before the prompt, for cwd, stamped at or after not_before,
     claimed by no row of the record, the worker's own thread, and holding the prompt."""
     out = {}
-    for path in rollouts() - before:
+    for path in rollouts() - set(before):
         meta = session_meta(path)
         if not meta or meta.get('cwd') != cwd or not own_thread(meta) or meta.get('id') in claimed:
             continue
@@ -129,12 +141,12 @@ def arrived(launch, pane, line, known, stale, before, not_before, claimed, proje
             path = transcript.find_transcript(session, projects) if session else None
         except LookupError:
             path = None
-        if path and any(line in p['text'] for p in transcript.prompts(path)):
+        if path and holds_prompt(path, line, before.get(path, 0), kind='claude'):
             return session, None
         return None
     if known:   # the session is running and was not reset: the prompt lands in its file
         path = codex_file(known)
-        return (known, None) if path and holds_prompt(path, line) else None
+        return (known, None) if path and holds_prompt(path, line, before.get(path, 0)) else None
     found = codex_candidates(before, launch['cwd'], not_before, claimed, line)
     if len(found) > 1:
         return None   # the per-cwd lock keeps herd dispatches apart; another Codex in cwd: wait for herdr
@@ -145,7 +157,7 @@ def arrived(launch, pane, line, known, stale, before, not_before, claimed, proje
         return session, None
     if reported and reported not in claimed:
         path = codex_file(reported)
-        if path and holds_prompt(path, line):
+        if path and holds_prompt(path, line, before.get(path, 0)):
             return reported, 'no new session file passed the checks; herdr reports %s' % reported
     return None
 
@@ -227,7 +239,12 @@ def run(a):
     claimed |= {d['session_id'] for l in launches.values() if l is not launch for d in l['dispatches']
                 if d['session_id']}
     with herdlib.locked(pdir, 'herd.lock.' + hashlib.sha1(launch['cwd'].encode()).hexdigest()):
-        before = rollouts() if launch['kind'] == 'codex' else set()
+        paths = (rollouts() if launch['kind'] == 'codex' else
+                 glob.glob(os.path.join(glob.escape(a.projects), '*', '*.jsonl')))
+        try:
+            before = {path: os.path.getsize(path) for path in paths}
+        except OSError as e:
+            raise herdlib.RecordError('cannot bound delivery to new transcript bytes: %s' % e)
         sent_at = herdlib.now_iso()
         result = None
         for attempt in (1, 2):

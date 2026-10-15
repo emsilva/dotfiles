@@ -1,6 +1,7 @@
 """herd.py dispatch: the one-line brief, delivery confirmed in the worker's own files, the session read-back."""
 import hashlib
 import json
+from pathlib import Path
 import time
 import unittest
 
@@ -55,6 +56,31 @@ class DispatchCase(HerdCase):
 
 
 class CodexDispatchTests(DispatchCase):
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.codex_worker(session='C1')
+        path, text = self.rollout('C1', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_redispatch_confirms_a_newly_appended_identical_prompt(self):
+        panes, agents = self.codex_worker(session='C1')
+        path, text = self.rollout('C1', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        new_prompt = text.split('\n', 1)[1]
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}'}, {'out': '{}', 'write': [[path, new_prompt]]}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+
     def test_the_first_brief_reads_the_session_from_herdr_and_the_new_file(self):
         panes, agents = self.codex_worker()
         r = self.dispatch({'pane list': [panes], 'agent list': [agents],
@@ -247,6 +273,31 @@ class RefusalTests(DispatchCase):
 
 
 class ClaudeDispatchTests(DispatchCase):
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('W1'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_redispatch_confirms_a_newly_appended_identical_prompt(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('W1'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(prompt(self.line)) + '\n'
+        path.write_text(text)
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}'}, {'out': '{}', 'write': [[str(path), text]]}],
+                           'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+
     def claude_worker(self, session):
         self.record(dict(self.launch_row('one-xhigh-aaaa', 'wT:p2', session=session, kind='claude'),
                          model='claude-opus-5-5'))
