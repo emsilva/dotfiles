@@ -8,12 +8,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import uuid
 
-from handoff_fixtures import (SCRIPTS, agent_json, cron_fire, herdr_calls, herdr_stub, hook_cancelled, hook_context, prompt,
-                              tool_result, tool_use, usage, write_transcript)
+from handoff_fixtures import (SCRIPTS, agent_json, agents_killed, cron_fire, herdr_calls, herdr_stub, hook_cancelled,
+                              hook_context, prompt, teammate_spawn, tool_result, tool_use, usage, write_transcript)
 from test_relaylib import make_relay, slow_git
 
 GATE = SCRIPTS / 'relay-gate.py'
@@ -574,6 +575,35 @@ class StopTests(GateCase):
         self.at(61)
         self.assertIn('workflow w1 is running', self.gate(tasks=[{'id': 'w1', 'type': 'workflow',
                                                                    'status': 'running'}])['reason'])
+
+    def teammate_unsafe(self, tasks):
+        path = write_transcript(self.projects, SID, self.recs)
+        call = SimpleNamespace(inp={'cwd': str(self.repo)}, project=str(self.project), transcript=str(path))
+        return load_gate().unsafe(call, tasks)
+
+    def test_ended_transcript_teammates_allow_the_gate_to_ask(self):
+        self.make_lead()
+        self.at(52, *teammate_spawn('mate1'), *teammate_spawn('mate2'), agents_killed())
+        self.assertEqual(self.teammate_unsafe([]), [])
+        self.assertAsk(self.gate())
+
+    def test_a_running_transcript_teammate_still_holds_the_gate(self):
+        self.make_lead()
+        self.at(52, *teammate_spawn())
+        self.assertEqual(self.teammate_unsafe([]),
+                         ['teammate mate1 is running inside this session (review)'])
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.state()['hold']['reasons'], self.teammate_unsafe([]))
+
+    def test_a_live_running_teammate_holds_after_transcript_teammates_ended(self):
+        self.make_lead()
+        self.at(52, *teammate_spawn(), agents_killed())
+        running = [{'id': 'mate1', 'type': 'teammate', 'status': 'running', 'description': 'review'}]
+        self.assertEqual(self.teammate_unsafe(running), ['teammate mate1 is running (review)'])
+        self.assertIsNone(self.gate(tasks=running))
+        self.assertEqual(self.state()['hold']['reasons'], self.teammate_unsafe(running))
+        self.assertEqual(self.teammate_unsafe([dict(running[0], status='killed')]), [])
+        self.assertAsk(self.gate(tasks=[dict(running[0], status='killed')]))
 
     def test_a_task_entry_that_is_not_an_object_is_not_safe(self):
         # An entry the gate cannot read is unknown, and unknown counts as not safe: it may be a running subagent.

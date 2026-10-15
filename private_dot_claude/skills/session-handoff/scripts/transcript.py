@@ -23,6 +23,9 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   closes the one <task-id> there when the header's <status> is terminal.
   Payloads quote other tasks' tags, and monitor events carry no <status>. A
   task also closes on a TaskStop result `Successfully stopped task: <id>`.
+  A main-thread system `agents_killed` record ends all agents and teammates
+  launched before it: it names the session-wide stop, not individual ids.
+  Later launches remain open; workflows, shells and monitors are unaffected.
   `attachment` records are never read for a close: prompt snapshots quote
   notifications verbatim.
 - What became of a hook's output for one tool call is read from the
@@ -186,6 +189,10 @@ def open_tasks(paths, until_line=None):
     launched, closed = {}, set()
     for path, line, rec, call in _events(paths, until_line):
         if call is None:
+            if (rec.get('type') == 'system' and rec.get('subtype') == 'agents_killed'
+                    and not rec.get('isSidechain')):
+                launched = {tid: task for tid, task in launched.items()
+                            if task['kind'] not in ('agent', 'teammate')}
             closed.update(filter(None, [_closed_by_notice(rec)]))
             continue
         name, args, result = call

@@ -31,6 +31,21 @@ def tool_result(tid, text, second=0, tool_use_result=None):
     return rec
 
 
+def teammate_spawn(task_id='mate1', second=0):
+    """A split-pane teammate launch; all names and ids here are synthetic."""
+    tid = 'spawn-' + task_id
+    return [tool_use(tid, 'Agent', {'name': task_id, 'description': 'review'}, second),
+            tool_result(tid, 'Spawned successfully.', second, tool_use_result={
+                'status': 'teammate_spawned', 'agent_id': task_id, 'teammate_id': task_id,
+                'name': task_id, 'team_name': 'team1', 'is_splitpane': True, 'tmux_pane_id': '%1'})]
+
+
+def agents_killed(second=0):
+    """A main-thread terminal record: Claude stopped all existing background agents."""
+    return {'type': 'system', 'subtype': 'agents_killed', 'isSidechain': False,
+            'timestamp': ts(second), 'isMeta': False}
+
+
 def cron_create(tid, cron_id, cron, prompt_text, recurring=True, second=0):
     """A CronCreate call and its result as Claude Code 2.1.296 writes them: the text says `job` for a
     recurring cron and `task` for a one-shot, so only toolUseResult.id names the cron reliably."""

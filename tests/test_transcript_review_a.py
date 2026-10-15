@@ -3,8 +3,8 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, cron_create, cron_fire, notice, prompt, tool_result, tool_use, usage,
-                              write_transcript)
+from handoff_fixtures import (SCRIPTS, agents_killed, cron_create, cron_fire, notice, prompt, teammate_spawn,
+                              tool_result, tool_use, usage, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import relaylib  # noqa: E402
@@ -12,6 +12,47 @@ import transcript  # noqa: E402
 
 
 class TeammateTests(unittest.TestCase):
+    def read(self, recs, until_line=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            return transcript.open_tasks([str(path)], until_line)
+
+    def test_all_teammates_ended_by_agents_killed_are_not_blockers(self):
+        recs = [*teammate_spawn('mate1'), *teammate_spawn('mate2'), agents_killed()]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            tasks = transcript.open_tasks([str(path)])
+            self.assertEqual(relaylib.blockers(tmp, tasks), [])
+            self.assertEqual(tasks, [])
+
+    def test_agents_killed_does_not_close_a_later_teammate_even_with_the_same_id(self):
+        recs = [*teammate_spawn(), agents_killed(), *teammate_spawn()]
+        self.assertEqual([t['id'] for t in self.read(recs)], ['mate1'])
+
+    def test_a_running_teammate_without_agents_killed_remains_open(self):
+        self.assertEqual([t['id'] for t in self.read(teammate_spawn())], ['mate1'])
+
+    def test_agents_killed_closes_agents_but_preserves_other_background_kinds(self):
+        recs = [*teammate_spawn()]
+        for name, result in [('Agent', {'agentId': 'agent1', 'status': 'async_launched'}),
+                             ('Workflow', {'taskId': 'flow1', 'status': 'async_launched'}),
+                             ('Bash', {'backgroundTaskId': 'shell1'}), ('Monitor', {'taskId': 'monitor1'})]:
+            recs += [tool_use(name, name, {}), tool_result(name, 'started', tool_use_result=result)]
+        self.assertEqual([t['kind'] for t in self.read([*recs, agents_killed()])],
+                         ['workflow', 'shell', 'monitor'])
+
+    def test_agents_killed_only_takes_effect_at_its_record(self):
+        recs = [*teammate_spawn(), agents_killed()]
+        self.assertEqual([t['id'] for t in self.read(recs, until_line=1)], ['mate1'])
+        self.assertEqual(self.read(recs, until_line=2), [])
+
+    def test_a_quoted_or_sidechain_agents_killed_record_does_not_close_teammates(self):
+        for rec in [prompt('agents_killed'),
+                    {'type': 'attachment', 'attachment': agents_killed()},
+                    dict(agents_killed(), isSidechain=True)]:
+            with self.subTest(rec=rec):
+                self.assertEqual([t['id'] for t in self.read([*teammate_spawn(), rec])], ['mate1'])
+
     def test_a_structured_teammate_blocks_until_a_terminal_notice(self):
         # Real Agent results use snake-case ids, unlike async_launched's agentId.
         recs = [tool_use('spawn1', 'Agent', {'name': 'reviewer', 'description': 'review'}),
