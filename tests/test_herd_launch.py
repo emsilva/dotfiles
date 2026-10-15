@@ -32,6 +32,11 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(self.place((LEAD, 0, 0, 53, 51), ('wT:p2', 53, 0, 53, 51), ('wT:p3', 106, 0, 53, 51)),
                          ('wT:p2', 'down'))
 
+    def test_a_short_lead_still_uses_the_bottom_of_the_right_column(self):
+        self.assertEqual(self.place((LEAD, 0, 0, 80, 12), ('wT:p2', 80, 0, 79, 26),
+                                    ('wT:p3', 80, 26, 79, 25), ('wT:p4', 159, 0, 79, 51)),
+                         ('wT:p3', 'down'))
+
 
 class LaunchTests(HerdCase):
     def answers(self, **extra):

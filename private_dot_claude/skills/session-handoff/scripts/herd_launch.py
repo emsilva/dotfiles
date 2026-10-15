@@ -45,8 +45,7 @@ def placement(layout, self_pane):
     me = next((p['rect'] for p in panes if p['pane_id'] == self_pane), None)
     if me is None:
         raise herdlib.Refusal('the lead pane %s is not in its own layout' % self_pane)
-    right = [p for p in panes if p['rect']['x'] >= me['x'] + me['width']
-             and p['rect']['y'] < me['y'] + me['height'] and me['y'] < p['rect']['y'] + p['rect']['height']]
+    right = [p for p in panes if p['rect']['x'] >= me['x'] + me['width']]
     if not right:
         return self_pane, 'right'
     column = min(p['rect']['x'] for p in right)
