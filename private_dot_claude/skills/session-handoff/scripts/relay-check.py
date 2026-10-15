@@ -167,7 +167,7 @@ def cmd_checklist(a):
         return 2
     self_pane = os.environ.get('HERDR_PANE_ID')
     me = herdr_json('agent', 'get', self_pane).get('result', {}).get('agent', {}) if self_pane else {}
-    roots = a.extra_root + ([git_repo] if git_repo != repo else [])
+    roots = a.extra_root + (herdlib.scope_roots(git_repo, {}) if git_repo != repo else [])
     herd_workers, unclassified, lost = herd_lists(os.path.dirname(tpath), repo, roots, self_pane)
     record = {
         'version': 2,

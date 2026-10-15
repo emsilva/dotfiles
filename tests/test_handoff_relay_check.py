@@ -210,6 +210,18 @@ class ChecklistTests(unittest.TestCase):
         # (wT:p1 is this session's own pane, never listed).
         self.assertEqual([p['pane_id'] for p in c['unclassified']], ['wT:p2'])
 
+    def test_git_repo_includes_unrecorded_workers_in_sibling_worktrees(self):
+        wt = self.root / 'sibling'
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', str(wt), '-b', 'feat/sibling'],
+                       check=True)
+        panes = [{'pane_id': 'wT:p4', 'cwd': str(wt / 'sub'), 'agent': 'codex', 'agent_status': 'idle'}]
+        r = rc('checklist', '--note', str(self.note), '--git-repo', str(self.repo), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs(), panes=panes), cwd=self.home())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        checklist = json.loads((Path(r.stdout.strip()) / 'checklist.json').read_text())
+        self.assertEqual([p['pane_id'] for p in checklist['unclassified']], ['wT:p4'])
+        self.assertEqual(checklist['workers'], [])
+
     def test_git_repo_refuses_mid_merge_in_the_fronts_repo(self):
         (self.repo / '.git' / 'MERGE_HEAD').write_text('0' * 40 + '\n')
         r = rc('checklist', '--note', str(self.note), '--git-repo', str(self.repo), '--projects', str(self.projects),
