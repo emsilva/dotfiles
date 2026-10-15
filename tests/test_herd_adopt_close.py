@@ -97,6 +97,21 @@ class AdoptTests(HerdCase):
 
 
 class CloseTests(HerdCase):
+    def test_an_adopted_builder_without_worktree_checks_its_own_checkout(self):
+        sub = self.repo / 'sub'
+        sub.mkdir()
+        self.record(dict(self.launch_row('one-xhigh-aaaa', 'wT:p2', mode='builder', cwd=sub), adopted=True))
+        dirty = self.repo / 'wip.txt'
+        dirty.write_text('unfinished\n')
+        r = self.herd(self.herd_of(), 'close', 'one-xhigh-aaaa')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('?? wip.txt', r.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.closes(), [])
+        dirty.unlink()
+        r = self.herd(self.herd_of(), 'close', 'one-xhigh-aaaa')
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def herd_of(self, status='idle', pane='wT:p2', **extra):
         panes, agents = listing({'pane_id': pane, 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'codex',
                                  'agent_status': status, 'name': 'one-xhigh-aaaa'})
