@@ -194,6 +194,13 @@ class IdentityTests(GateCase):
 
 
 class StateTests(GateCase):
+    def test_an_old_state_without_hold_keeps_its_existing_bands(self):
+        gate = load_gate()
+        path = Path(self.tmp.name) / 'old-state.json'
+        older = {k: v for k, v in dict(gate.fresh(), nudged=[50]).items() if k != 'hold'}
+        path.write_text(json.dumps(older))
+        self.assertEqual(gate.load_state(str(path)), dict(older, hold=None))
+
     def test_a_wrong_shaped_state_is_a_fresh_one(self):
         self.make_lead()
         self.at(52)
@@ -404,6 +411,49 @@ class FailOpenTests(GateCase):
 
 
 class StopTests(GateCase):
+    def test_a_hold_records_unsafe_tasks_and_the_time(self):
+        self.make_lead()
+        self.at(52)
+        self.assertIsNone(self.gate(tasks=[{'id': 'a1', 'type': 'subagent', 'status': 'running',
+                                          'description': 'review'}]))
+        held = self.state().get('hold')
+        self.assertIsNotNone(held)
+        self.assertEqual(held['reasons'], ['subagent a1 is running (review)'])
+        self.assertLess(abs(ago(held['at'])), 30)
+        self.assertAsk(self.gate())
+        self.assertIsNone(self.state()['hold'])
+
+    def test_a_hold_records_transcript_blockers(self):
+        self.make_lead()
+        self.at(52, tool_use('a1', 'Agent', {'description': 'review'}),
+                tool_result('a1', 'running', tool_use_result={'status': 'async_launched', 'agentId': 'agent1'}))
+        self.assertIsNone(self.gate())
+        self.assertEqual((self.state().get('hold') or {}).get('reasons'),
+                         ['agent agent1 is running inside this session (review)'])
+
+    def test_a_hold_records_owner_recent(self):
+        self.make_lead()
+        self.at(52, dict(prompt('status?'), timestamp=iso(1)))
+        self.assertIsNone(self.gate())
+        self.assertEqual((self.state().get('hold') or {}).get('reasons'), ['owner_recent'])
+
+    def test_a_hold_records_the_relay_hold(self):
+        self.make_lead()
+        self.at(52)
+        make_relay(self.project, 'R-active', session=SID)
+        self.assertIsNone(self.gate())
+        held = self.state().get('hold')
+        self.assertIsNotNone(held)
+        self.assertEqual(held['reasons'], ['relay_hold:in_progress'])
+        self.assertLess(abs(ago(held['at'])), 30)
+
+    def test_a_hold_from_a_tool_hook_records_the_relay_hold(self):
+        self.make_lead()
+        self.at(52)
+        make_relay(self.project, 'R-active', session=SID)
+        self.assertIsNone(self.gate('tool'))
+        self.assertEqual((self.state().get('hold') or {}).get('reasons'), ['relay_hold:in_progress'])
+
     def setUp(self):
         super().setUp()
         self.make_lead()
@@ -569,6 +619,15 @@ class StopTests(GateCase):
         (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
         self.at(61, typed)
         self.assertAsk(self.gate())
+
+    def test_empty_queued_entries_do_not_defer_the_owner_check(self):
+        self.make_lead()
+        for content in ('', ' \t', None):
+            with self.subTest(content=content):
+                self.at(52, {'type': 'queue-operation', 'operation': 'enqueue',
+                             'timestamp': iso(1), 'content': content})
+                self.assertAsk(self.gate())
+                (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
 
     def test_a_prompt_without_a_readable_time_does_not_defer(self):
         self.at(52, dict(prompt('hi'), timestamp='yesterday'))

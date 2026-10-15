@@ -40,7 +40,7 @@ PENDING_EXPIRY = 120       # seconds a printed nudge waits for the transcript to
 NUDGE_MARK = 'relay-gate:'   # the nudge's prefix: its delivery is recognised by it in the transcript (settle)
 STATE_TYPES = {'version': int, 'meter': (dict, type(None)), 'nudged': list, 'drain_owed': bool, 'alerted': list,
                'asked': (dict, type(None)), 'given_up': bool, 'handover_alerted': list, 'toasted': list,
-               'pending': (dict, type(None))}
+               'pending': (dict, type(None)), 'hold': (dict, type(None))}
 
 
 class Late(Exception):
@@ -93,7 +93,7 @@ def band_of(pct, cfg):
 
 def fresh():
     return {'version': 1, 'meter': None, 'nudged': [], 'drain_owed': False, 'alerted': [], 'asked': None,
-            'given_up': False, 'handover_alerted': [], 'toasted': [], 'pending': None}
+            'given_up': False, 'handover_alerted': [], 'toasted': [], 'pending': None, 'hold': None}
 
 
 def _shape_ok(state):
@@ -101,6 +101,11 @@ def _shape_ok(state):
         if not isinstance(state[key], kind) or (kind is int and isinstance(state[key], bool)):
             return False
     meter, asked, pending = state['meter'], state['asked'], state['pending']
+    hold = state['hold']
+    if hold is not None and not (isinstance(hold.get('reasons'), list) and hold['reasons']
+                                 and all(isinstance(r, str) for r in hold['reasons'])
+                                 and isinstance(hold.get('at'), str)):
+        return False
     if meter is not None and not (isinstance(meter.get('pct'), (int, float)) and isinstance(meter.get('read_at'), str)):
         return False
     if asked is not None and not (isinstance(asked.get('band'), (int, float)) and isinstance(asked.get('attempt'), int)
@@ -333,6 +338,7 @@ def decide(call, state, pct, band):
     relays = relaylib.relays_of(call.project, call.session, now)
     failures = failures_of(relays)
     hold = relay_hold(relays, cfg, now)
+    state['hold'] = {'reasons': ['relay_hold:' + hold], 'at': utc_now()} if hold else None
     if hold == 'frozen':
         for r in relays:
             if r['state'] == 'frozen' and now - r['handover_at'] >= HANDOVER_ALERT_AFTER \
@@ -350,6 +356,7 @@ def decide(call, state, pct, band):
     tasks = call.inp.get('background_tasks')
     reasons = unsafe(call, tasks)
     if reasons:
+        state['hold'] = {'reasons': reasons, 'at': utc_now()}
         if band < cfg.cap:
             pending = state['pending']    # printed, not yet confirmed: if lost, tool mode prints the band again anyway
             if band not in state['nudged'] and not (pending and pending['band'] == band):
@@ -361,6 +368,7 @@ def decide(call, state, pct, band):
         return call.alert('Lead %s is at %d%% and cannot relay yet: %s.' % (call.label, pct, '; '.join(reasons)),
                           'keep draining (start nothing new in-session) and end your turn; do not run /relay yet')
     if band < cfg.cap and owner_recent(call):
+        state['hold'] = {'reasons': ['owner_recent'], 'at': utc_now()}
         return None
     open_tasks = [t for t in tasks if isinstance(t, dict) and t.get('status') not in transcript.TERMINAL]
     ids = sorted(str(t.get('id')) for t in open_tasks)
@@ -474,7 +482,10 @@ def settle(call, state):
 
 def nudge(call, state, pct, band):
     relays = relaylib.relays_of(call.project, call.session, call.now)
-    if relay_hold(relays, call.cfg, call.now) or state['given_up'] or asked_lately(call, state, relays):
+    hold = relay_hold(relays, call.cfg, call.now)
+    if hold:
+        state['hold'] = {'reasons': ['relay_hold:' + hold], 'at': utc_now()}
+    if hold or state['given_up'] or asked_lately(call, state, relays):
         return None
     if state['pending'] and not settle(call, state):
         return None    # one nudge awaits its outcome: print nothing, even for a higher band

@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import SCRIPTS, notice, tool_result, tool_use, write_transcript
+from handoff_fixtures import SCRIPTS, notice, prompt, tool_result, tool_use, write_transcript
 
 sys.path.insert(0, str(SCRIPTS))
 import relaylib  # noqa: E402
@@ -31,6 +31,18 @@ class TeammateTests(unittest.TestCase):
             tasks = [{'kind': 'teammate', 'id': 'mate1', 'description': 'review', 'command': ''}]
             self.assertEqual(relaylib.blockers(tmp, tasks),
                              ['teammate mate1 is running inside this session (review)'])
+
+
+class PromptTests(unittest.TestCase):
+    def test_empty_queued_and_human_entries_are_not_prompts(self):
+        recs = [{'type': 'queue-operation', 'operation': 'enqueue', **extra}
+                for extra in ({}, {'content': ''}, {'content': ' \t\n'}, {'content': None})]
+        recs += [prompt(''), prompt(' \n'), prompt('owner text'),
+                 {'type': 'queue-operation', 'operation': 'enqueue', 'content': 'queued owner text'}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            self.assertEqual([p['text'] for p in transcript.prompts(str(path))],
+                             ['owner text', 'queued owner text'])
 
 
 if __name__ == '__main__':

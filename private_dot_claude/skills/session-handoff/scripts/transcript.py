@@ -223,11 +223,15 @@ def prompts(path):
     for i, rec in records(path):
         kind = rec.get('type')
         if kind == 'user' and (rec.get('origin') or {}).get('kind') == 'human':
-            out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': _user_text(rec)})
+            text = _user_text(rec)
         elif kind == 'queue-operation' and rec.get('operation') == 'enqueue':
-            text = str(rec.get('content', ''))
-            if not _is_notice(text):
-                out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': text})
+            text = rec.get('content', '')
+            if not isinstance(text, str) or _is_notice(text):
+                continue
+        else:
+            continue
+        if text.strip():
+            out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': text})
     return out
 
 
