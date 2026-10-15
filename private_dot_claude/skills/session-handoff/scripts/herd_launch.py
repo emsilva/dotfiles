@@ -209,8 +209,10 @@ def run(a):
             'effort': effort, 'mode': mode, 'cwd': cwd, 'worktree': worktree, 'branch': branch,
             'session_id': session_id, 'lead_session': os.environ.get('CLAUDE_CODE_SESSION_ID'), 'adopted': False,
             'started_at': started_at})
-    except (herdlib.Refusal, relaylib.HerdrError):
+    except (herdlib.Refusal, relaylib.HerdrError, herdlib.RecordError, OSError) as e:
         undo(created_pane, repo, worktree if created_worktree else None, branch if created_worktree else None, a.base)
+        if isinstance(e, OSError):
+            raise herdlib.RecordError('launch could not write its record or resources: %s' % e)
         raise
     print(json.dumps(row))
     return 0

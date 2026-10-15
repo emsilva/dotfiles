@@ -39,6 +39,21 @@ class PlacementTests(unittest.TestCase):
 
 
 class LaunchTests(HerdCase):
+    def test_record_write_failures_undo_the_started_worker_and_exit_two(self):
+        for error in ("OSError('record disk failed')", "herdlib.RecordError('record refused')"):
+            with self.subTest(error=error):
+                code = ("import herd, herdlib; herdlib.append = lambda *a: (_ for _ in ()).throw(%s); "
+                        "sys.exit(herd.main(sys.argv[1:]))") % error
+                r = self.herd(self.answers(), 'launch', 'build', '--builder', '--base', 'HEAD', code=code)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+                self.assertEqual(self.rows(), [])
+                self.assertEqual(os.listdir(self.repo / '.claude' / 'worktrees'), [])
+                branches = subprocess.run(['git', '-C', str(self.repo), 'branch', '--list', 'feat/*'],
+                                          capture_output=True, text=True)
+                self.assertEqual(branches.stdout, '')
+
     def test_a_failed_add_preserves_an_existing_worktree_and_branch(self):
         name = 'build-xhigh-aaaa'
         wt = self.repo / '.claude' / 'worktrees' / name
