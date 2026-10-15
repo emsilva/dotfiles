@@ -403,7 +403,8 @@ class CompareTests(unittest.TestCase):
         proc = subprocess.Popen(['bash', '-c', '( : %s; while :; do sleep 1; done ) & echo $!' % marker],
                                 start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.procs.append(proc)
-        orphan = int(proc.stdout.readline())
+        with proc.stdout as stdout:
+            orphan = int(stdout.readline())
         self.orphans.append(orphan)
         proc.wait()
         ppid, command = subprocess.run(['ps', '-ww', '-o', 'ppid=,command=', '-p', str(orphan)], capture_output=True,
