@@ -41,7 +41,16 @@ def add_arguments(p):
 def placement(layout, self_pane):
     """(pane to split, direction): down from the bottom pane of the column right of the lead, or right of the
     lead when it has no column to its right. Never a third column."""
-    panes = layout['result']['layout']['panes']
+    try:
+        panes = layout['result']['layout']['panes']
+        if not isinstance(panes, list) or any(
+                not isinstance(p, dict) or not isinstance(p.get('pane_id'), str) or not p['pane_id']
+                or not isinstance(p.get('rect'), dict)
+                or any(type(p['rect'].get(k)) is not int for k in ('x', 'y', 'width', 'height'))
+                or p['rect']['width'] <= 0 or p['rect']['height'] <= 0 for p in panes):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise relaylib.HerdrError('herdr pane layout: result.layout.panes has an unexpected shape')
     me = next((p['rect'] for p in panes if p['pane_id'] == self_pane), None)
     if me is None:
         raise herdlib.Refusal('the lead pane %s is not in its own layout' % self_pane)
@@ -168,7 +177,13 @@ def run(a):
             layout = relaylib.herdr_json('pane', 'layout', '--pane', self_pane)
             target, direction = placement(layout, self_pane)
             split = relaylib.herdr_json('pane', 'split', target, '--direction', direction, '--cwd', cwd, '--no-focus')
-            pane = created_pane = split['result']['pane']['pane_id']
+            try:
+                pane = split['result']['pane']['pane_id']
+                if not isinstance(pane, str) or not pane:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise relaylib.HerdrError('herdr pane split: result.pane.pane_id is not a nonempty string')
+            created_pane = pane
         started_at = herdlib.now_iso()   # a Codex session file is stamped with its start, before this row's `at`
         for _ in range(3):
             ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,

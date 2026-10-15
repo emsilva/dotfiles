@@ -39,6 +39,21 @@ class PlacementTests(unittest.TestCase):
 
 
 class LaunchTests(HerdCase):
+    def test_malformed_layout_or_split_is_a_failed_read(self):
+        cases = [('pane layout', ok()), ('pane layout', ok({'result': None})),
+                 ('pane layout', ok({'result': {'layout': {'panes': [None]}}})),
+                 ('pane layout', ok({'result': {'layout': {'panes': [{'pane_id': LEAD,
+                                                        'rect': {'x': 'bad'}}]}}})),
+                 ('pane split', ok()), ('pane split', ok({'result': {'pane': {'pane_id': None}}}))]
+        for verb, answer in cases:
+            with self.subTest(verb=verb, answer=answer):
+                r = self.herd(self.answers(**{verb: [answer]}), 'launch', 'review')
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn('herdr ' + verb, r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.calls(['agent', 'start']), [])
+                self.assertEqual(self.rows(), [])
+
     def answers(self, **extra):
         base = {'agent list': [ok({'result': {'agents': []}})], 'pane layout': [layout((LEAD, 0, 0, 159, 51))],
                 'pane split': [split('wT:p9')], 'agent start': [ok()], 'pane read': [CODEX_BANNER],
