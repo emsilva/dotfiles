@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from handoff_fixtures import (SCRIPTS, agents_killed, cron_create, cron_fire, cron_fire_with_bookkeeping, hook_context,
-                              notice, prompt, teammate_spawn, tool_result, tool_use, usage, write_transcript)
+                              prompt, teammate_spawn, tool_result, tool_use, usage, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import relaylib  # noqa: E402
@@ -17,23 +17,52 @@ class TeammateTests(unittest.TestCase):
             path = write_transcript(tmp, 'session', recs)
             return transcript.open_tasks([str(path)], until_line)
 
-    def test_all_teammates_ended_by_agents_killed_are_not_blockers(self):
-        recs = [*teammate_spawn('mate1'), *teammate_spawn('mate2'), agents_killed()]
+    def test_a_snake_case_teammate_spawn_is_not_a_transcript_task(self):
+        recs = teammate_spawn()
+        self.assertIsNone(transcript._launch('Agent', recs[-1]))
+        self.assertEqual(self.read(recs), [])
+
+    def test_transcript_teammates_are_not_safe_point_blockers(self):
+        recs = [*teammate_spawn('mate1'), *teammate_spawn('mate2')]
         with tempfile.TemporaryDirectory() as tmp:
             path = write_transcript(tmp, 'session', recs)
             tasks = transcript.open_tasks([str(path)])
             self.assertEqual(relaylib.blockers(tmp, tasks), [])
             self.assertEqual(tasks, [])
 
-    def test_agents_killed_does_not_close_a_later_teammate_even_with_the_same_id(self):
-        recs = [*teammate_spawn(), agents_killed(), *teammate_spawn()]
-        self.assertEqual([t['id'] for t in self.read(recs)], ['mate1'])
+    def test_an_obsolete_transcript_teammate_kind_is_not_a_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks = [{'kind': 'teammate', 'id': 'mate1', 'description': 'review', 'command': ''}]
+            self.assertEqual(relaylib.blockers(tmp, tasks), [])
 
-    def test_a_running_teammate_without_agents_killed_remains_open(self):
-        self.assertEqual([t['id'] for t in self.read(teammate_spawn())], ['mate1'])
+
+class AgentStopTests(unittest.TestCase):
+    def read(self, recs, until_line=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            return transcript.open_tasks([str(path)], until_line)
+
+    def agent(self, task_id='agent1'):
+        tid = 'launch-' + task_id
+        return [tool_use(tid, 'Agent', {'description': 'review'}),
+                tool_result(tid, 'started', tool_use_result={'agentId': task_id, 'status': 'async_launched'})]
+
+    def test_agents_ended_by_agents_killed_are_not_blockers(self):
+        recs = [*self.agent('agent1'), *self.agent('agent2'), agents_killed()]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            self.assertEqual(relaylib.blockers(tmp, transcript.open_tasks([str(path)])), [])
+            self.assertEqual(transcript.open_tasks([str(path)]), [])
+
+    def test_agents_killed_does_not_close_a_later_agent_even_with_the_same_id(self):
+        recs = [*self.agent(), agents_killed(), *self.agent()]
+        self.assertEqual([t['id'] for t in self.read(recs)], ['agent1'])
+
+    def test_a_running_agent_without_agents_killed_remains_open(self):
+        self.assertEqual([t['id'] for t in self.read(self.agent())], ['agent1'])
 
     def test_agents_killed_closes_agents_but_preserves_other_background_kinds(self):
-        recs = [*teammate_spawn()]
+        recs = []
         for name, result in [('Agent', {'agentId': 'agent1', 'status': 'async_launched'}),
                              ('Workflow', {'taskId': 'flow1', 'status': 'async_launched'}),
                              ('Bash', {'backgroundTaskId': 'shell1'}), ('Monitor', {'taskId': 'monitor1'})]:
@@ -42,37 +71,16 @@ class TeammateTests(unittest.TestCase):
                          ['workflow', 'shell', 'monitor'])
 
     def test_agents_killed_only_takes_effect_at_its_record(self):
-        recs = [*teammate_spawn(), agents_killed()]
-        self.assertEqual([t['id'] for t in self.read(recs, until_line=1)], ['mate1'])
+        recs = [*self.agent(), agents_killed()]
+        self.assertEqual([t['id'] for t in self.read(recs, until_line=1)], ['agent1'])
         self.assertEqual(self.read(recs, until_line=2), [])
 
-    def test_a_quoted_or_sidechain_agents_killed_record_does_not_close_teammates(self):
+    def test_a_quoted_or_sidechain_agents_killed_record_does_not_close_agents(self):
         for rec in [prompt('agents_killed'),
                     {'type': 'attachment', 'attachment': agents_killed()},
                     dict(agents_killed(), isSidechain=True)]:
             with self.subTest(rec=rec):
-                self.assertEqual([t['id'] for t in self.read([*teammate_spawn(), rec])], ['mate1'])
-
-    def test_a_structured_teammate_blocks_until_a_terminal_notice(self):
-        # Real Agent results use snake-case ids, unlike async_launched's agentId.
-        recs = [tool_use('spawn1', 'Agent', {'name': 'reviewer', 'description': 'review'}),
-                tool_result('spawn1', 'Spawned successfully.', tool_use_result={
-                    'status': 'teammate_spawned', 'agent_id': 'mate1', 'teammate_id': 'mate1',
-                    'name': 'reviewer', 'is_splitpane': True})]
-        with tempfile.TemporaryDirectory() as tmp:
-            path = write_transcript(tmp, 'session', recs)
-            tasks = transcript.open_tasks([str(path)])
-            self.assertEqual([(t['kind'], t['id']) for t in tasks], [('teammate', 'mate1')])
-            self.assertEqual(relaylib.blockers(tmp, tasks),
-                             ['teammate mate1 is running inside this session (review)'])
-            path = write_transcript(tmp, 'session', recs + [notice('mate1', 'completed')])
-            self.assertEqual(transcript.open_tasks([str(path)]), [])
-
-    def test_a_teammate_task_record_is_a_blocker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tasks = [{'kind': 'teammate', 'id': 'mate1', 'description': 'review', 'command': ''}]
-            self.assertEqual(relaylib.blockers(tmp, tasks),
-                             ['teammate mate1 is running inside this session (review)'])
+                self.assertEqual([t['id'] for t in self.read([*self.agent(), rec])], ['agent1'])
 
 
 class PromptTests(unittest.TestCase):

@@ -15,7 +15,9 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   - Workflow: `taskId` with status "async_launched", on 29 of 29 launches.
   - Agent: `agentId` with status "async_launched", on 589 of 589 launches, 418
     of them without run_in_background. A `teammate_spawned` result instead
-    carries snake-case `agent_id` / `teammate_id`; it is an in-session teammate.
+    carries snake-case `agent_id` / `teammate_id`. Teammate end is not recorded
+    per teammate; `agents_killed` is a session-wide stop. No transcript task
+    is emitted for teammates; the gate reads them from its live task list.
 - A task closes on a notification: a `user` record whose origin.kind is
   "task-notification", or a `queue-operation` record, whose text starts with
   <task-notification>. Only its header is read (the tags before the first
@@ -23,7 +25,7 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   closes the one <task-id> there when the header's <status> is terminal.
   Payloads quote other tasks' tags, and monitor events carry no <status>. A
   task also closes on a TaskStop result `Successfully stopped task: <id>`.
-  A main-thread system `agents_killed` record ends all agents and teammates
+  A main-thread system `agents_killed` record ends all background agents
   launched before it: it names the session-wide stop, not individual ids.
   Later launches remain open; workflows, shells and monitors are unaffected.
   `attachment` records are never read for a close: prompt snapshots quote
@@ -130,9 +132,6 @@ def _launch(name, rec):
     """(kind, task id) when the record answering a `name` call says it started a background task."""
     kind, field, status = LAUNCHES.get(name, (None, None, None))
     result = rec.get('toolUseResult')
-    if name == 'Agent' and isinstance(result, dict) and result.get('status') == 'teammate_spawned':
-        task_id = result.get('agent_id') or result.get('teammate_id')
-        return ('teammate', task_id) if isinstance(task_id, str) and task_id else None
     if kind is None or not isinstance(result, dict) or (status and result.get('status') != status):
         return None
     task_id = result.get(field)
@@ -193,7 +192,7 @@ def open_tasks(paths, until_line=None):
             if (rec.get('type') == 'system' and rec.get('subtype') == 'agents_killed'
                     and not rec.get('isSidechain')):
                 launched = {tid: task for tid, task in launched.items()
-                            if task['kind'] not in ('agent', 'teammate')}
+                            if task['kind'] != 'agent'}
             closed.update(filter(None, [_closed_by_notice(rec)]))
             continue
         name, args, result = call

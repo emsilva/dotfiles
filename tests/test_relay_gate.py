@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 import uuid
 
-from handoff_fixtures import (SCRIPTS, agent_json, agents_killed, cron_fire, cron_fire_with_bookkeeping, herdr_calls,
+from handoff_fixtures import (SCRIPTS, agent_json, cron_fire, cron_fire_with_bookkeeping, herdr_calls,
                               herdr_stub, hook_cancelled, hook_context, prompt, teammate_spawn, tool_result, tool_use,
                               usage, write_transcript)
 from test_relaylib import make_relay, slow_git
@@ -582,23 +582,21 @@ class StopTests(GateCase):
         call = SimpleNamespace(inp={'cwd': str(self.repo)}, project=str(self.project), transcript=str(path))
         return load_gate().unsafe(call, tasks)
 
-    def test_ended_transcript_teammates_allow_the_gate_to_ask(self):
+    def test_transcript_teammates_without_an_end_marker_allow_the_gate_to_ask(self):
         self.make_lead()
-        self.at(52, *teammate_spawn('mate1'), *teammate_spawn('mate2'), agents_killed())
+        self.at(52, *teammate_spawn('mate1'), *teammate_spawn('mate2'))
         self.assertEqual(self.teammate_unsafe([]), [])
         self.assertAsk(self.gate())
 
-    def test_a_running_transcript_teammate_still_holds_the_gate(self):
+    def test_a_teammate_spawn_is_not_a_transcript_gate_blocker(self):
         self.make_lead()
         self.at(52, *teammate_spawn())
-        self.assertEqual(self.teammate_unsafe([]),
-                         ['teammate mate1 is running inside this session (review)'])
-        self.assertIsNone(self.gate())
-        self.assertEqual(self.state()['hold']['reasons'], self.teammate_unsafe([]))
+        self.assertEqual(self.teammate_unsafe([]), [])
+        self.assertAsk(self.gate())
 
-    def test_a_live_running_teammate_holds_after_transcript_teammates_ended(self):
+    def test_a_live_running_teammate_entry_alone_still_holds_the_gate(self):
         self.make_lead()
-        self.at(52, *teammate_spawn(), agents_killed())
+        self.at(52)
         running = [{'id': 'mate1', 'type': 'teammate', 'status': 'running', 'description': 'review'}]
         self.assertEqual(self.teammate_unsafe(running), ['teammate mate1 is running (review)'])
         self.assertIsNone(self.gate(tasks=running))

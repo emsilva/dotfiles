@@ -26,6 +26,9 @@ predecessor, on failure). The project's current lead is recorded in
    (exit 3, no relay dir) on the first two and names them. If a worker is
    `blocked` on a question you can answer within its brief, answer it now;
    otherwise record it in the note.
+   **Confirm by hand that no teammate runs before `/relay`.** The checklist
+   cannot see teammates: their transcripts record no per-teammate end. The
+   relay gate sees running teammates in the hook's live `background_tasks`.
 3. **Freeze.** From here: no new dispatch, merge, spend or score. Note
    arrivals (deliveries, notifications) for `handover.md`; do not act on them.
 4. **SAVE** (SKILL.md), including the memory check. From the memory check
@@ -45,7 +48,8 @@ predecessor, on failure). The project's current lead is recorded in
    dispatch, `lost` launches with no live pane, and `unclassified` live panes in
    scope, each flagged `looks_like_worker` or not) and your last 3 prompts. Like
    `bg-tasks.py` it reads only the task ids Claude Code records for Bash,
-   Monitor, Workflow and Agent: an MCP tool the harness moved to the background
+   Monitor, Workflow and Agent (`async_launched`, not `teammate_spawned`):
+   an MCP tool the harness moved to the background
    ("MCP tool … moved to the background as task <id>") is not listed, so record
    it in the note by hand. Exit 3: a blocker from step 2. Exit 2: a herdr read
    failed, the herd record is unreadable, the note is, or `--git-repo` names
@@ -414,9 +418,10 @@ exits 2 blocks every turn end of every session.
   successors are named `lead-<slug>-next`, then `lead-<slug>`. Workers,
   subagents and teammates are never gated.
 - **When.** At the end of a turn at or above 50%, once it is safe: no subagent,
-  teammate or workflow running and git not mid-operation (the rules `checklist`
-  refuses on, plus any non-shell task still open in the hook's live task list,
-  a teammate included; a missing list counts as not safe). Below 60%, a prompt
+  teammate or workflow running and git not mid-operation. The checklist checks
+  agents, workflows and git; the gate also checks any non-shell task still open
+  in the hook's live task list, including teammates. A missing list counts as
+  not safe. Below 60%, a prompt
   typed in the last 10 minutes defers it. The turn is blocked with "relay-gate:
   context is N% (threshold 50%). Run /relay now, automatic relay attempt k of
   2." and the open background tasks: run `/relay`. If a listed task is long work

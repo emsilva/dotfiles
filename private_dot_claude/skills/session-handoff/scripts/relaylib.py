@@ -30,12 +30,12 @@ def run(cmd, timeout=GIT_BOUND):
 
 
 def blockers(repo, tasks):
-    """Why a relay may not start now: an agent, teammate or workflow running inside this session (tasks are
+    """Why a relay may not start now: an agent or workflow running inside this session (tasks are
     transcript.open_tasks records), or the repo mid-merge, rebase, cherry-pick or revert.
 
     A git that fails or does not answer within GIT_BOUND cannot tell: it adds no line."""
     out = ['%s %s is running inside this session (%s)' % (t['kind'], t['id'], t['description'] or t['command'][:60])
-           for t in tasks if t['kind'] in ('agent', 'teammate', 'workflow')]
+           for t in tasks if t['kind'] in ('agent', 'workflow')]
     code, gitdir = run(['git', '-C', repo, 'rev-parse', '--absolute-git-dir'])
     if code == 0:
         out += ['git is mid-operation (%s present)' % name for name in GIT_BUSY
