@@ -188,6 +188,51 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(r.returncode, 3)
         self.assertIn('MERGE_HEAD', r.stderr)
 
+    def home(self):
+        # A session cwd that is no repo at all, while the front lives in self.repo (a worktree elsewhere).
+        home = self.root / 'home'
+        home.mkdir(exist_ok=True)
+        return home
+
+    def test_git_repo_records_the_fronts_git_while_repo_stays_the_sessions(self):
+        (self.repo / 'new.txt').write_text('n\n')
+        r = rc('checklist', '--note', str(self.note), '--git-repo', str(self.repo), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs()), cwd=self.home())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        c = json.loads((Path(r.stdout.strip()) / 'checklist.json').read_text())
+        self.assertEqual(c['repo'], os.path.realpath(self.home()))   # names the lead, places the successor
+        self.assertEqual(c['git_repo'], str(self.repo))
+        git = lambda *args: subprocess.run(['git', '-C', str(self.repo), *args],
+                                           capture_output=True, text=True).stdout.strip()
+        self.assertEqual(c['git'], {'head': git('rev-parse', '--short', 'HEAD'),
+                                    'branch': git('rev-parse', '--abbrev-ref', 'HEAD'), 'dirty': ['new.txt']})
+        # The front's repo is in the herd's scope: its codex pane (in repo/sub) is listed though the cwd is elsewhere
+        # (wT:p1 is this session's own pane, never listed).
+        self.assertEqual([p['pane_id'] for p in c['unclassified']], ['wT:p2'])
+
+    def test_git_repo_refuses_mid_merge_in_the_fronts_repo(self):
+        (self.repo / '.git' / 'MERGE_HEAD').write_text('0' * 40 + '\n')
+        r = rc('checklist', '--note', str(self.note), '--git-repo', str(self.repo), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs()), cwd=self.home())
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('MERGE_HEAD', r.stderr)
+        self.assertFalse(self.relay_root().exists())
+
+    def test_git_repo_that_is_not_a_repo_stops_the_checklist(self):
+        r = rc('checklist', '--note', str(self.note), '--git-repo', str(self.home()), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs()), cwd=self.repo)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('not a git repository', r.stderr)
+        self.assertFalse(self.relay_root().exists())
+
+    def test_a_session_cwd_that_is_no_repo_says_git_is_not_recorded(self):
+        # Silence here read as "git checked": the blank git block and a mid-merge check that could not fire.
+        r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects),
+               env=self.env(self.transcript_recs()), cwd=self.home())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('not a git repository', r.stderr)
+        self.assertIn('--git-repo', r.stderr)
+
     def test_a_failed_herdr_read_stops_the_checklist(self):
         # Real herdr reports errors as JSON on stderr with exit 1; an empty observation must not be recorded.
         error = {'out': json.dumps({'error': {'code': 'server_unavailable', 'message': 'no herdr server'}}),

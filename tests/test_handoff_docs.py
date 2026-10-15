@@ -113,7 +113,7 @@ class HandoffDocsTests(unittest.TestCase):
         # The spec binds piece 2: what relay.md adds to the protocol must be in it too.
         spec = ' '.join((SOURCE / 'docs/superpowers/specs/2026-10-12-session-relay-design.md').read_text().split())
         self.assertFalse('`relay-check.py checklist <relay-dir>`' in spec, 'the spec keeps the old checklist header')
-        for needle in ('`relay-check.py checklist --note PATH [--extra-root DIR ...] [--transcript PATH ...]`',
+        for needle in ('`relay-check.py checklist --note PATH [--git-repo DIR] [--extra-root DIR ...] [--transcript PATH ...]`',
                        '`<relay-dir>/fix-<round>`', '(`CronDelete`)', 'Resume the note `checklist.json` names',
                        'it never types into the old pane', '10-second timeout', '`agent_session.value` equal to',
                        '`successor_close_reason`', 'check its exit status; retry once', '"stage": "handover"',

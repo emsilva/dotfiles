@@ -3,7 +3,7 @@
 
   name      [--repo DIR] [--suffix S] [--slug SLUG]   print lead-<slug>[-<S>]
   identity                                          this session's identity, as JSON
-  checklist --note PATH [--extra-root DIR ...] [--transcript PATH ...]
+  checklist --note PATH [--git-repo DIR] [--extra-root DIR ...] [--transcript PATH ...]
                                                     write <enc>/relay/<id>/checklist.json; print the dir
   compare   <relay-dir>                             receipt.json vs checklist.json: PASS or one FAIL per line
   quiet     <relay-dir>                             exit 1 if a prompt reached the predecessor after handover.md
@@ -144,9 +144,18 @@ def cmd_identity(a):
 def cmd_checklist(a):
     session, tpath = own_transcript(a)
     repo = os.path.realpath(repo_root())
+    # The front's repo can differ from the session's (a worktree, another checkout): git state, the mid-operation
+    # check and the herd's scope read git_repo, while repo keeps naming the lead and placing the successor's pane.
+    git_repo = os.path.realpath(a.git_repo) if a.git_repo else repo
+    if run(['git', '-C', git_repo, 'rev-parse', '--git-dir'])[0] != 0:
+        if a.git_repo:
+            print('relay-check: --git-repo %s is not a git repository' % a.git_repo, file=sys.stderr)
+            return 2
+        print('relay-check: %s is not a git repository, so git is not recorded; pass --git-repo DIR '
+              'when the front has one' % repo, file=sys.stderr)
     paths = a.transcript + [tpath]
     tasks = transcript.open_tasks(paths)
-    blocked = relaylib.blockers(repo, tasks)
+    blocked = relaylib.blockers(git_repo, tasks)
     if blocked:
         for line in blocked:
             print('relay-check: not yet: %s' % line, file=sys.stderr)
@@ -158,17 +167,19 @@ def cmd_checklist(a):
         return 2
     self_pane = os.environ.get('HERDR_PANE_ID')
     me = herdr_json('agent', 'get', self_pane).get('result', {}).get('agent', {}) if self_pane else {}
-    herd_workers, unclassified, lost = herd_lists(os.path.dirname(tpath), repo, a.extra_root, self_pane)
+    roots = a.extra_root + ([git_repo] if git_repo != repo else [])
+    herd_workers, unclassified, lost = herd_lists(os.path.dirname(tpath), repo, roots, self_pane)
     record = {
         'version': 2,
         'repo': repo,
+        'git_repo': git_repo,
         'predecessor': {
             'session_id': session, 'transcript': tpath, 'pane_id': self_pane, 'herdr_name': me.get('name'),
             'herdr_session': (me.get('agent_session') or {}).get('value'),
             'model': transcript.last_model(tpath), 'effort': os.environ.get('CLAUDE_EFFORT'),
             'permission_mode': transcript.permission_mode(tpath) or settings_mode(),
             'pid': claude_pid()},
-        'git': git_state(repo),
+        'git': git_state(git_repo),
         'note': note,
         'background_tasks': tasks,
         'crons': transcript.open_crons(paths),
@@ -384,6 +395,7 @@ def main(argv=None):
     sub.add_parser('identity')
     s = sub.add_parser('checklist')
     s.add_argument('--note', required=True)
+    s.add_argument('--git-repo')
     s.add_argument('--extra-root', action='append', default=[])
     s.add_argument('--transcript', action='append', default=[])
     for name in ('compare', 'quiet'):

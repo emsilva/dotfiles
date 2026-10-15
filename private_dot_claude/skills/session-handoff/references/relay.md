@@ -32,9 +32,12 @@ predecessor, on failure). The project's current lead is recorded in
    on (SAVE step 2) you write no memory; late facts go in `handover.md`.
 5. **Checklist.**
    `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py checklist --note <note path>`
-   (add `--extra-root <dir>` for each dir outside the repo where this front
-   launched panes, `--transcript <earlier.jsonl>` for tasks started before a
-   `/clear`). Exit 0 prints the relay dir as an absolute path: pass it on
+   (add `--git-repo <dir>` when this front's repo is not the session cwd's,
+   such as a worktree or another checkout: without it git state and the
+   mid-operation check read the cwd, and a cwd that is no repo records no
+   git at all; `--extra-root <dir>` for each dir outside the repo where this
+   front launched panes; `--transcript <earlier.jsonl>` for tasks started
+   before a `/clear`). Exit 0 prints the relay dir as an absolute path: pass it on
    exactly as printed. It records your identity (model, effort, permission
    mode, pid, pane, herdr session), git, the note's sha256, open background
    tasks, session crons, the herd (`"version": 2`: from the herd record
@@ -45,8 +48,9 @@ predecessor, on failure). The project's current lead is recorded in
    Monitor, Workflow and Agent: an MCP tool the harness moved to the background
    ("MCP tool … moved to the background as task <id>") is not listed, so record
    it in the note by hand. Exit 3: a blocker from step 2. Exit 2: a herdr read
-   failed, the herd record is unreadable, or the note is. Neither creates a
-   relay dir: fix the cause and run it again.
+   failed, the herd record is unreadable, the note is, or `--git-repo` names
+   no git repository. Neither creates a relay dir: fix the cause and run it
+   again.
 6. **Launch.**
    `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`,
    through the Bash tool with `timeout: 300000` (two 90 s start attempts,

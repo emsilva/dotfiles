@@ -216,13 +216,15 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   transcript record. Reports: headroom; memory files absent from the index (split into written since `--since`
   and older); index lines pointing at missing files. `--fix` applies only the two
   safe fixes, then re-measures. Exit 0 when clean, 1 when debt remains.
-- **`relay-check.py checklist --note PATH [--extra-root DIR ...] [--transcript PATH ...]`** creates the relay dir
+- **`relay-check.py checklist --note PATH [--git-repo DIR] [--extra-root DIR ...] [--transcript PATH ...]`** creates the relay dir
   `~/.claude/projects/<enc>/relay/<relay-id>/`, writes `checklist.json` into it and prints the dir. Exit 2, and no
   relay dir, when a herdr read fails (an error, an answer that is not JSON, or a listing whose `result.panes` or
-  `result.agents` is not a list) or the note is unreadable. `checklist.json`:
+  `result.agents` is not a list), the note is unreadable, or `--git-repo` names no git repository. Without
+  `--git-repo`, a session cwd that is no repo warns on stderr that git is not recorded. `checklist.json`:
   `relay_id`, `created_at`; `predecessor` {`session_id`, `transcript`, `pane_id`, `herdr_name`, `herdr_session`,
   `model` (last main-thread `message.model`), `effort` (`CLAUDE_EFFORT`), `permission_mode`, `pid`
-  (`CLAUDE_PID`)}; `repo`; `git` {`head`, `branch`, `dirty`}; `note` {`path`, `sha256`}; `background_tasks`
+  (`CLAUDE_PID`)}; `repo` (names the lead, places the successor's pane); `git_repo` (`--git-repo`, else `repo`);
+  `git` {`head`, `branch`, `dirty`} of `git_repo`, which the mid-operation refusal also reads; `note` {`path`, `sha256`}; `background_tasks`
   (from `bg-tasks.py`); `workers`
   (herdr panes whose cwd is the repo, a worktree of it, or an `--extra-root`, minus this pane: name, pane,
   kind, status, session); `crons`; `recent_prompts` (the last 3 prompts typed into the session, by the owner or
