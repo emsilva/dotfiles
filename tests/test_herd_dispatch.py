@@ -1,8 +1,12 @@
 """herd.py dispatch: the one-line brief, delivery confirmed in the worker's own files, the session read-back."""
 import hashlib
+import gc
 import json
+from pathlib import Path
 import time
 import unittest
+from unittest import mock
+import warnings
 
 from handoff_fixtures import prompt
 from herd_fixtures import CODEX_BANNER, HerdCase, agent, herdlib, listing
@@ -46,15 +50,108 @@ class DispatchCase(HerdCase):
                         'agent_status': status, 'name': 'one-xhigh-aaaa',
                         **({'agent_session': {'value': session}} if session else {})})
 
-    def dispatch(self, answers, *extra, env=None):
+    def dispatch(self, answers, *extra, env=None, code=None):
         return self.herd(answers, 'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
-                         str(self.report), *extra, env=env)
+                         str(self.report), *extra, env=env, code=code)
+
+    def snapshot_code(self, path, denied=False):
+        # Delete the actual file after discovery, immediately before stat. Other paths use the real stat.
+        action = "raise PermissionError('snapshot denied')" if denied else 'os.unlink(candidate)'
+        return ("import herd, herd_dispatch, os\nfrom unittest import mock\n"
+                "original_size = herd_dispatch.os.path.getsize\n"
+                "def snapshot_size(candidate):\n"
+                "    if candidate == %r:\n        %s\n"
+                "    return original_size(candidate)\n"
+                "with mock.patch.object(herd_dispatch.os.path, 'getsize', side_effect=snapshot_size):\n"
+                "    sys.exit(herd.main(sys.argv[1:]))\n") % (str(path), action)
 
     def prompts(self):
         return [c[3] for c in self.calls(['agent', 'prompt'])]
 
 
 class CodexDispatchTests(DispatchCase):
+    def test_a_vanished_snapshot_rollout_does_not_abort_dispatch(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('OLD', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
+                                'agent get': [agent('working', 'wT:p2', session='C1')]},
+                               code=self.snapshot_code(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['session_id'], 'C1')
+        self.assertEqual(self.prompts(), [self.line])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+        self.assertFalse(Path(path).exists(), 'the snapshot race was not exercised')
+
+    def test_a_denied_snapshot_rollout_still_prevents_dispatch(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('OLD')
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents]},
+                               code=self.snapshot_code(path, denied=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('cannot bound delivery to new transcript bytes: snapshot denied', result.stderr)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
+        self.assertTrue(Path(path).is_file())
+
+    def test_herdr_fallback_refuses_subagents_and_other_working_directories(self):
+        panes, agents = self.codex_worker()
+        for subagent, cwd in ((True, self.repo), (False, self.root / 'other')):
+            with self.subTest(subagent=subagent, cwd=cwd):
+                path, text = self.rollout('C1', self.line, cwd=cwd, subagent=subagent)
+                meta, prompt_text = text.split('\n', 1)
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                Path(path).write_text(meta + '\n')
+                r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                   'agent prompt': [{'out': '{}', 'write': [[path, prompt_text]]}],
+                                   'agent get': [agent('working', 'wT:p2', session='C1')]},
+                                  env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_valid_existing_session_fallback_keeps_its_warning(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('C1', self.line)
+        meta, prompt_text = text.split('\n', 1)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(meta + '\n')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [[path, prompt_text]]}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads(r.stdout)
+        self.assertEqual(row['session_id'], 'C1')
+        self.assertIn('no new session file passed the checks', row['session_warning'])
+
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.codex_worker(session='C1')
+        path, text = self.rollout('C1', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_redispatch_confirms_a_newly_appended_identical_prompt(self):
+        panes, agents = self.codex_worker(session='C1')
+        path, text = self.rollout('C1', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        new_prompt = text.split('\n', 1)[1]
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}'}, {'out': '{}', 'write': [[path, new_prompt]]}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+
     def test_the_first_brief_reads_the_session_from_herdr_and_the_new_file(self):
         panes, agents = self.codex_worker()
         r = self.dispatch({'pane list': [panes], 'agent list': [agents],
@@ -127,7 +224,7 @@ class CodexDispatchTests(DispatchCase):
         path, text = self.rollout('C1')
         panes, agents = self.codex_worker(session='C1')
         self.codex_home.joinpath('sessions', '2026', '10', '14').mkdir(parents=True)
-        open(path, 'w').write(text)
+        Path(path).write_text(text)
         r = self.dispatch({'pane list': [panes], 'agent list': [agents],
                            'agent prompt': [{'out': '{}', 'write': [[path, self.rollout('C1', self.line)[1]]]}],
                            'agent get': [agent('working', 'wT:p2', session='C1')]})
@@ -139,20 +236,27 @@ class CodexDispatchTests(DispatchCase):
         # folder, so a second dispatch cannot read the first one's new file as its own.
         panes, agents = self.codex_worker()
         lock = 'herd.lock.' + hashlib.sha1(str(self.repo).encode()).hexdigest()
-        with herdlib.locked(str(self.pdir), lock):
-            proc = self.start({'pane list': [panes], 'agent list': [agents],
-                               'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
-                               'agent get': [agent('working', 'wT:p2')]},
-                              'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
-                              str(self.report))
-            deadline = time.monotonic() + 15
-            while not self.calls(['agent', 'list']) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            time.sleep(1)   # past the live-pane read, the dispatch now waits on the folder's lock
-            self.assertEqual(self.prompts(), [])
-        out, err = proc.communicate(timeout=60)
-        self.assertEqual(proc.returncode, 0, err)
-        self.assertEqual(self.prompts(), [self.line])
+        proc = None
+        try:
+            with herdlib.locked(str(self.pdir), lock):
+                proc = self.start({'pane list': [panes], 'agent list': [agents],
+                                   'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
+                                   'agent get': [agent('working', 'wT:p2')]},
+                                  'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
+                                  str(self.report))
+                deadline = time.monotonic() + 15
+                while not self.calls(['agent', 'list']) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                time.sleep(1)   # past the live-pane read, the dispatch now waits on the folder's lock
+                self.assertEqual(self.prompts(), [])
+            out, err = proc.communicate(timeout=60)
+            self.assertEqual(proc.returncode, 0, err)
+            self.assertEqual(self.prompts(), [self.line])
+        finally:
+            if proc is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate(timeout=10)
 
     def test_a_lost_prompt_is_sent_once_more(self):
         panes, agents = self.codex_worker()
@@ -247,6 +351,60 @@ class RefusalTests(DispatchCase):
 
 
 class ClaudeDispatchTests(DispatchCase):
+    def test_a_vanished_snapshot_transcript_does_not_abort_dispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('OLD'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                'agent prompt': [{'out': '{}', 'write': [[self.worker_transcript('W1'),
+                                                                        json.dumps(prompt(self.line)) + '\n']]}],
+                                'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                               code=self.snapshot_code(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['session_id'], 'W1')
+        self.assertEqual(self.prompts(), [self.line])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+        self.assertFalse(path.exists(), 'the snapshot race was not exercised')
+
+    def test_a_denied_snapshot_transcript_still_prevents_dispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('OLD'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents]},
+                               code=self.snapshot_code(path, denied=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('cannot bound delivery to new transcript bytes: snapshot denied', result.stderr)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
+        self.assertTrue(path.is_file())
+
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('W1'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_redispatch_confirms_a_newly_appended_identical_prompt(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('W1'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(prompt(self.line)) + '\n'
+        path.write_text(text)
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}'}, {'out': '{}', 'write': [[str(path), text]]}],
+                           'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+
     def claude_worker(self, session):
         self.record(dict(self.launch_row('one-xhigh-aaaa', 'wT:p2', session=session, kind='claude'),
                          model='claude-opus-5-5'))
@@ -275,6 +433,44 @@ class ClaudeDispatchTests(DispatchCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.prompts(), ['/clear', self.line])
         self.assertEqual(json.loads(r.stdout)['session_id'], 'W2')
+
+
+class DispatchHygieneTests(unittest.TestCase):
+    def test_the_running_session_fixture_closes_its_rollout_file(self):
+        case = CodexDispatchTests('test_a_running_session_takes_the_brief_in_its_own_file')
+        result = unittest.TestResult()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always', ResourceWarning)
+            case.run(result)
+            gc.collect()
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, ResourceWarning)], [])
+
+    def test_a_failed_lock_assertion_still_reaps_the_dispatch_process(self):
+        case = CodexDispatchTests('test_dispatches_in_one_folder_take_turns')
+        case.setUp()
+        started = []
+        real_start = case.start
+
+        def start(answers, *args):
+            answers['agent prompt'][0]['sleep'] = 5
+            proc = real_start(answers, *args)
+            started.append(proc)
+            return proc
+
+        try:
+            with mock.patch.object(case, 'start', side_effect=start), \
+                    mock.patch.object(case, 'assertEqual', side_effect=AssertionError('forced lock assertion')):
+                with self.assertRaisesRegex(AssertionError, 'forced lock assertion'):
+                    case.test_dispatches_in_one_folder_take_turns()
+            self.assertEqual(len(started), 1)
+            self.assertIsNotNone(started[0].poll(), 'failed assertion left its dispatch process running')
+        finally:
+            for proc in started:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate(timeout=10)
+            case.tearDown()
 
 
 if __name__ == '__main__':

@@ -2,8 +2,9 @@
 
 Codex at xhigh unless told otherwise; Claude with the lead's model at high effort when --kind claude, and only as a
 builder (Claude has no sandbox to hold it read-only). A builder gets its own worktree and branch; a read-only worker
-runs in the repo. Any failure closes the pane this command
-created, removes the worktree it created, and records nothing.
+runs in the repo. Any failure closes the pane this command created, removes the worktree it created, and records
+nothing. After starting in a reused pane, a failure reports the agent for manual cleanup because the pane is not
+owned by this launch.
 """
 import datetime
 import json
@@ -41,12 +42,20 @@ def add_arguments(p):
 def placement(layout, self_pane):
     """(pane to split, direction): down from the bottom pane of the column right of the lead, or right of the
     lead when it has no column to its right. Never a third column."""
-    panes = layout['result']['layout']['panes']
+    try:
+        panes = layout['result']['layout']['panes']
+        if not isinstance(panes, list) or any(
+                not isinstance(p, dict) or not isinstance(p.get('pane_id'), str) or not p['pane_id']
+                or not isinstance(p.get('rect'), dict)
+                or any(type(p['rect'].get(k)) is not int for k in ('x', 'y', 'width', 'height'))
+                or p['rect']['width'] <= 0 or p['rect']['height'] <= 0 for p in panes):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise relaylib.HerdrError('herdr pane layout: result.layout.panes has an unexpected shape')
     me = next((p['rect'] for p in panes if p['pane_id'] == self_pane), None)
     if me is None:
         raise herdlib.Refusal('the lead pane %s is not in its own layout' % self_pane)
-    right = [p for p in panes if p['rect']['x'] >= me['x'] + me['width']
-             and p['rect']['y'] < me['y'] + me['height'] and me['y'] < p['rect']['y'] + p['rect']['height']]
+    right = [p for p in panes if p['rect']['x'] >= me['x'] + me['width']]
     if not right:
         return self_pane, 'right'
     column = min(p['rect']['x'] for p in right)
@@ -122,7 +131,7 @@ def herdr_failure(message, text):
     return herdlib.Refusal('%s (pane shows: %s)' % (message, relaylib.screen_tail(text)))
 
 
-def run(a):
+def run(a, taken_names=(), attempts=3):
     self_pane = herdlib.require_herdr()
     pdir = herdlib.project_dir(a.projects, a.record_dir)
     rows = herdlib.read(pdir)
@@ -142,20 +151,23 @@ def run(a):
         model = transcript.last_model(transcript.find_transcript(session, a.projects))
         if not model:
             raise herdlib.Refusal("the lead's transcript names no model: pass --model")
-    taken = {agent.get('name') for agent in relaylib.herdr_list('agents', 'agent', 'list')}
+    taken = {agent.get('name') for agent in relaylib.herdr_list('agents', 'agent', 'list')} | set(taken_names)
     try:
         lid, name = herdlib.new_name(a.role, effort, rows, taken)
     except ValueError as e:
         raise herdlib.Refusal(str(e))
     session_id = str(uuid.uuid4()) if a.kind == 'claude' else None
     worktree = branch = None
+    created_worktree = False
     created_pane = None
+    started = False
     cwd = repo
     try:
         if mode == 'builder':
             worktree = os.path.join(repo, '.claude', 'worktrees', name)
             branch = '%s/%s-%s' % (a.type, name, datetime.date.today().strftime('%Y%m%d'))
             git('-C', repo, 'worktree', 'add', worktree, '-b', branch, a.base)
+            created_worktree = True
             cwd = worktree
         if a.pane:
             pane = a.pane
@@ -169,15 +181,23 @@ def run(a):
             layout = relaylib.herdr_json('pane', 'layout', '--pane', self_pane)
             target, direction = placement(layout, self_pane)
             split = relaylib.herdr_json('pane', 'split', target, '--direction', direction, '--cwd', cwd, '--no-focus')
-            pane = created_pane = split['result']['pane']['pane_id']
+            try:
+                pane = split['result']['pane']['pane_id']
+                if not isinstance(pane, str) or not pane:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise relaylib.HerdrError('herdr pane split: result.pane.pane_id is not a nonempty string')
+            created_pane = pane
         started_at = herdlib.now_iso()   # a Codex session file is stamped with its start, before this row's `at`
-        for _ in range(3):
-            ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,
-                                                                           session_id), stop_on=STOP_ON)
-            if ok or relaylib.error_code(out) != 'agent_name_taken':
-                break
-            taken.add(name)   # a live agent elsewhere got the name first: a new launch id and name
-            lid, name = herdlib.new_name(a.role, effort, rows, taken)
+        ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,
+                                                                   session_id), stop_on=STOP_ON)
+        started = ok or relaylib.error_code(out) == 'agent_not_ready'
+        if not ok and relaylib.error_code(out) == 'agent_name_taken' and attempts > 1:
+            # Redraw the whole launch: its worktree, branch, pane cwd and trust override carry the name too.
+            undo(created_pane, repo, worktree if created_worktree else None,
+                 branch if created_worktree else None, a.base)
+            created_pane, created_worktree = None, False
+            return run(a, taken | {name}, attempts - 1)
         if not ok and relaylib.error_code(out) == 'agent_not_ready':
             answer_startup_dialog(a.kind, pane, cwd)
             agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
@@ -193,8 +213,16 @@ def run(a):
             'effort': effort, 'mode': mode, 'cwd': cwd, 'worktree': worktree, 'branch': branch,
             'session_id': session_id, 'lead_session': os.environ.get('CLAUDE_CODE_SESSION_ID'), 'adopted': False,
             'started_at': started_at})
-    except (herdlib.Refusal, relaylib.HerdrError):
-        undo(created_pane, repo, worktree, branch, a.base)
+    except (herdlib.Refusal, relaylib.HerdrError, herdlib.RecordError, OSError) as e:
+        if a.pane and started:
+            # Herdr has no agent-stop command. Keys/prompts do not guarantee process exit, and closing a reused
+            # pane would destroy a resource this launch does not own. Keep its resources for the lead's cleanup.
+            raise herdlib.RecordError('launch failed after starting agent %s (%s) in reused pane %s; '
+                                      'it may still be running unrecorded; close the agent manually: %s'
+                                      % (name, a.kind, pane, e)) from e
+        undo(created_pane, repo, worktree if created_worktree else None, branch if created_worktree else None, a.base)
+        if isinstance(e, OSError):
+            raise herdlib.RecordError('launch could not write its record or resources: %s' % e)
         raise
     print(json.dumps(row))
     return 0

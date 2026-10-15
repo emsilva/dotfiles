@@ -32,8 +32,123 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(self.place((LEAD, 0, 0, 53, 51), ('wT:p2', 53, 0, 53, 51), ('wT:p3', 106, 0, 53, 51)),
                          ('wT:p2', 'down'))
 
+    def test_a_short_lead_still_uses_the_bottom_of_the_right_column(self):
+        self.assertEqual(self.place((LEAD, 0, 0, 80, 12), ('wT:p2', 80, 0, 79, 26),
+                                    ('wT:p3', 80, 26, 79, 25), ('wT:p4', 159, 0, 79, 51)),
+                         ('wT:p3', 'down'))
+
 
 class LaunchTests(HerdCase):
+    def reused_answers(self, **extra):
+        panes, _ = listing(pane_entry('wT:p5', self.repo, kind=None))
+        return self.answers(**{'pane list': [panes], 'agent get': [agent('idle', 'wT:p5')], **extra})
+
+    def assert_unrecorded_reused_agent(self, result):
+        self.assertEqual(result.returncode, 2, result.stderr)
+        name = self.calls(['agent', 'start'])[0][2]
+        for text in (name, 'codex', 'reused pane wT:p5', 'running unrecorded', 'close the agent manually'):
+            self.assertIn(text, result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.calls(['pane', 'split']), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_record_write_failures_in_a_reused_pane_identify_the_unrecorded_agent(self):
+        for error in ("OSError('record disk failed')", "herdlib.RecordError('record refused')"):
+            with self.subTest(error=error):
+                code = ("import herd, herdlib; herdlib.append = lambda *a: (_ for _ in ()).throw(%s); "
+                        "sys.exit(herd.main(sys.argv[1:]))") % error
+                result = self.herd(self.reused_answers(), 'launch', 'review', '--pane', 'wT:p5', code=code)
+                self.assert_unrecorded_reused_agent(result)
+                self.assertIn('record disk failed' if error.startswith('OSError') else 'record refused',
+                              result.stderr)
+
+    def test_a_banner_failure_in_a_reused_pane_identifies_the_unrecorded_agent(self):
+        result = self.herd(self.reused_answers(**{'pane read': [{'out': 'GPT-6.1-Sol high\n'}]}),
+                           'launch', 'review', '--pane', 'wT:p5', env={'RELAYLIB_BANNER_SECONDS': '0'})
+        self.assert_unrecorded_reused_agent(result)
+        self.assertIn("banner does not show effort 'xhigh'", result.stderr)
+
+    def test_a_startup_dialog_failure_in_a_reused_pane_identifies_the_unrecorded_agent(self):
+        result = self.herd(self.reused_answers(**{'agent start': [NOT_READY],
+                                                 'pane read': [{'out': 'Do you trust this folder?'}]}),
+                           'launch', 'review', '--pane', 'wT:p5')
+        self.assert_unrecorded_reused_agent(result)
+        self.assertIn('Codex asks to trust', result.stderr)
+
+    def test_a_failed_start_in_a_reused_pane_does_not_report_a_running_agent(self):
+        failed = {'out': 'start failed', 'code': 1}
+        result = self.herd(self.reused_answers(**{'agent start': [failed]}),
+                           'launch', 'review', '--pane', 'wT:p5')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('agent start failed', result.stderr)
+        self.assertNotIn('running unrecorded', result.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_a_builder_name_redraw_recreates_matching_resources(self):
+        r = self.herd(self.answers(**{'agent start': [TAKEN, ok()], 'pane split': [split('wT:p9'), split('wT:p10')],
+                                      'agent get': [agent('idle', 'wT:p10')]}),
+                      'launch', 'build', '--builder', '--base', 'HEAD')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads(r.stdout)
+        self.assertEqual(os.path.basename(row['worktree']), row['name'])
+        self.assertEqual(row['cwd'], row['worktree'])
+        self.assertEqual(row['branch'], 'feat/%s-%s' % (row['name'], datetime.date.today().strftime('%Y%m%d')))
+        self.assertEqual(row['launch_id'][:4], row['name'][-4:])
+        self.assertEqual(os.listdir(self.repo / '.claude' / 'worktrees'), [row['name']])
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(row['pane_id'], 'wT:p10')
+        head = subprocess.run(['git', '-C', row['cwd'], 'branch', '--show-current'], capture_output=True, text=True)
+        self.assertEqual(head.stdout.strip(), row['branch'])
+        self.assertIn('projects={"%s"={trust_level="trusted"}}' % row['cwd'], self.start_tail())
+
+    def test_record_write_failures_undo_the_started_worker_and_exit_two(self):
+        for error in ("OSError('record disk failed')", "herdlib.RecordError('record refused')"):
+            with self.subTest(error=error):
+                code = ("import herd, herdlib; herdlib.append = lambda *a: (_ for _ in ()).throw(%s); "
+                        "sys.exit(herd.main(sys.argv[1:]))") % error
+                r = self.herd(self.answers(), 'launch', 'build', '--builder', '--base', 'HEAD', code=code)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+                self.assertEqual(self.rows(), [])
+                self.assertEqual(os.listdir(self.repo / '.claude' / 'worktrees'), [])
+                branches = subprocess.run(['git', '-C', str(self.repo), 'branch', '--list', 'feat/*'],
+                                          capture_output=True, text=True)
+                self.assertEqual(branches.stdout, '')
+
+    def test_a_failed_add_preserves_an_existing_worktree_and_branch(self):
+        name = 'build-xhigh-aaaa'
+        wt = self.repo / '.claude' / 'worktrees' / name
+        branch = 'feat/%s-%s' % (name, datetime.date.today().strftime('%Y%m%d'))
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', str(wt), '-b', branch], check=True)
+        code = ("import herd, herdlib; herdlib.new_name = lambda *a: ('a' * 32, %r); "
+                "sys.exit(herd.main(sys.argv[1:]))") % name
+        r = self.herd(self.answers(), 'launch', 'build', '--builder', '--base', 'HEAD', code=code)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertTrue(wt.is_dir(), 'failed add removed a worktree this launch did not create')
+        ref = subprocess.run(['git', '-C', str(self.repo), 'show-ref', '--verify', 'refs/heads/' + branch],
+                             capture_output=True)
+        self.assertEqual(ref.returncode, 0)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_malformed_layout_or_split_is_a_failed_read(self):
+        cases = [('pane layout', ok()), ('pane layout', ok({'result': None})),
+                 ('pane layout', ok({'result': {'layout': {'panes': [None]}}})),
+                 ('pane layout', ok({'result': {'layout': {'panes': [{'pane_id': LEAD,
+                                                        'rect': {'x': 'bad'}}]}}})),
+                 ('pane split', ok()), ('pane split', ok({'result': {'pane': {'pane_id': None}}}))]
+        for verb, answer in cases:
+            with self.subTest(verb=verb, answer=answer):
+                r = self.herd(self.answers(**{verb: [answer]}), 'launch', 'review')
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn('herdr ' + verb, r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.calls(['agent', 'start']), [])
+                self.assertEqual(self.rows(), [])
+
     def answers(self, **extra):
         base = {'agent list': [ok({'result': {'agents': []}})], 'pane layout': [layout((LEAD, 0, 0, 159, 51))],
                 'pane split': [split('wT:p9')], 'agent start': [ok()], 'pane read': [CODEX_BANNER],

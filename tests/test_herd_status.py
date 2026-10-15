@@ -7,6 +7,14 @@ from herd_fixtures import LEAD, HerdCase, listing, ok
 
 
 class StatusTests(HerdCase):
+    def test_invalid_utf8_record_exits_two_without_a_traceback(self):
+        (self.pdir / 'herd.jsonl').write_bytes(b'\xff\n')
+        r = self.herd(self.herd_of(), 'status')
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('line 1', r.stderr)
+        self.assertIn('UTF-8', r.stderr)
+        self.assertNotIn('Traceback', r.stderr)
+
     def herd_of(self, *entries):
         panes, agents = listing(*entries)
         return {'pane list': [panes], 'agent list': [agents], 'pane read': [ok()]}
@@ -68,6 +76,24 @@ class StatusTests(HerdCase):
         out = self.herd({'pane list': [panes], 'agent list': [agents],
                          'pane read': [{'out': '$ task test\nRan 12 tests\nOK\n'}]}, 'status').stdout
         self.assertIn('| wT:p3 | shell | - | - | unknown | %s | shell: Ran 12 tests / OK |' % self.repo, out)
+
+    def test_a_failed_shell_tail_keeps_the_table_and_exits_two(self):
+        panes, agents = listing({'pane_id': 'wT:p3', 'cwd': str(self.repo)})
+        r = self.herd({'pane list': [panes], 'agent list': [agents],
+                       'pane read': [{'out': 'read failed', 'code': 1}]}, 'status')
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('| shell: unreadable |', r.stdout)
+        self.assertIn('## lost (0)', r.stdout)
+        self.assertIn('herdr pane read wT:p3', r.stderr)
+        self.assertIn('read failed', r.stderr)
+
+    def test_newlines_cannot_split_a_markdown_row(self):
+        entry = {'pane_id': 'wT:p3', 'cwd': str(self.repo), 'agent': 'codex',
+                 'name': 'first\nsecond\rthird|fourth', 'agent_status': 'idle'}
+        r = self.herd(self.herd_of(entry), 'status')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('| first second third\\|fourth |', r.stdout)
+        self.assertNotIn('\nsecond', r.stdout)
 
     def test_extra_roots_widen_the_scope(self):
         entry = {'pane_id': 'wT:p8', 'tab_id': 'wT:t9', 'cwd': '/elsewhere/grading', 'agent': 'claude',

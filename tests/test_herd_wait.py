@@ -88,6 +88,44 @@ class EventTests(WaitCase):
 
 
 class ReportTests(WaitCase):
+    def test_replayed_events_print_their_own_paths(self):
+        original = (self.pdir / 'herd.jsonl').read_bytes()
+        for event, path in (('blocked', self.blocked), ('status=blocked', 'wT:p2'), ('status=gone', 'wT:p2')):
+            with self.subTest(event=event):
+                (self.pdir / 'herd.jsonl').write_bytes(original)
+                proc = self.start(self.herd_with([self.entry('working')]), 'wait', '--interval', '1')
+                try:
+                    self.first_poll()
+                    self.record({'type': 'reported', 'launch_id': self.one['launch_id'], 'seq': 1, 'event': event})
+                    out, err = proc.communicate(timeout=20)
+                    self.assertEqual(proc.returncode, 0, err)
+                    self.assertEqual(out.strip(), 'one-xhigh-aaaa %s %s' % (event, path))
+                    self.assertEqual(len(self.reported()), 1)
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.communicate(timeout=10)
+
+    def test_a_superseded_dispatch_cannot_end_the_wait(self):
+        proc = self.start(self.herd_with([self.entry('working')]), 'wait', '--interval', '1')
+        try:
+            self.first_poll()
+            newer = self.out / 'NEW.md'
+            self.record(self.dispatch_row(self.one['launch_id'], seq=2, deliverable=newer,
+                                           blocked=self.out / 'NEW-BLOCKED.md'))
+            self.record({'type': 'reported', 'launch_id': self.one['launch_id'], 'seq': 1, 'event': 'deliverable'})
+            newer.write_text('new report\n')
+            # The latest dispatch is reported by a second waiter; the old event must be ignored.
+            self.record({'type': 'reported', 'launch_id': self.one['launch_id'], 'seq': 2, 'event': 'blocked'})
+            out, err = proc.communicate(timeout=20)
+            self.assertEqual(proc.returncode, 1, err)
+            self.assertEqual(out, '')
+            self.assertIn('nothing left to wait on', err)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=10)
+
     def test_a_reported_dispatch_is_not_watched_again(self):
         self.record({'type': 'reported', 'launch_id': self.one['launch_id'], 'seq': 1, 'event': 'deliverable'})
         r = self.wait(self.herd_with([self.entry('idle')]))

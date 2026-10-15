@@ -67,6 +67,13 @@ class RecordTests(unittest.TestCase):
         with self.assertRaisesRegex(herdlib.RecordError, 'line 2 does not parse'):
             herdlib.read(self.pdir)
 
+    def test_invalid_utf8_is_a_record_error_with_its_line(self):
+        herdlib.append(self.pdir, launch_row('a' * 32, 'n', 'wT:p2'))
+        with open(self.pdir / 'herd.jsonl', 'ab') as fh:
+            fh.write(b'\xff\n')
+        with self.assertRaisesRegex(herdlib.RecordError, 'line 2.*UTF-8'):
+            herdlib.read(self.pdir)
+
     def test_a_row_of_unknown_type_or_without_a_launch_is_refused(self):
         self.pdir.mkdir()
         (self.pdir / 'herd.jsonl').write_text(json.dumps({'at': 'x', 'type': 'wave', 'launch_id': 'l'}) + '\n')
@@ -170,6 +177,12 @@ class MatchTests(unittest.TestCase):
 
 
 class HerdTests(unittest.TestCase):
+    def test_root_scope_includes_root_and_descendants(self):
+        for cwd in ('/', '/x', '/x/repo'):
+            with self.subTest(cwd=cwd):
+                self.assertTrue(herdlib.in_scope(cwd, ['/']))
+        self.assertFalse(herdlib.in_scope('/other', ['/x']))
+
     def test_scope_self_and_lost(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(os.path.realpath(tmp)) / 'repo'

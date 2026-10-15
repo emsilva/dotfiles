@@ -43,12 +43,17 @@ def run(a):
         return 0
     if pane.get('agent_status') not in ('idle', 'done'):
         raise herdlib.Refusal('%s is %s: close only an idle worker' % (a.name, pane.get('agent_status')))
-    if launch['worktree'] and os.path.isdir(launch['worktree']):
-        dirty = subprocess.run(['git', '-C', launch['worktree'], 'status', '--porcelain'], capture_output=True,
+    checkout = launch['worktree']
+    if launch['mode'] == 'builder' and not checkout:
+        checkout = herdlib.git_toplevel(launch['cwd'])
+        if not checkout:
+            raise herdlib.Refusal('cannot locate the builder checkout for %s, so it stays open' % a.name)
+    if checkout:
+        dirty = subprocess.run(['git', '-C', checkout, 'status', '--porcelain'], capture_output=True,
                                text=True, timeout=30)
         if dirty.returncode != 0 or dirty.stdout.strip():
             raise herdlib.Refusal('the worktree %s is not clean, so %s stays open:\n%s'
-                                  % (launch['worktree'], a.name, dirty.stdout.rstrip() or dirty.stderr.strip()))
+                                  % (checkout, a.name, dirty.stdout.rstrip() or dirty.stderr.strip()))
     relaylib.herdr_text('pane', 'close', pane['pane_id'])
     deadline = time.monotonic() + CLOSE_BOUND
     while not gone(pane['pane_id']):

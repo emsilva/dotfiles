@@ -38,9 +38,15 @@ def run(a):
     rows = herdlib.read(pdir)
     launches = herdlib.replay(rows)
     try:
-        agent = (relaylib.herdr_json('agent', 'get', a.pane).get('result') or {}).get('agent') or {}
+        reply = relaylib.herdr_json('agent', 'get', a.pane)
     except relaylib.HerdrError as e:
-        raise herdlib.Refusal('pane %s hosts no agent (%s)' % (a.pane, e))
+        if e.code == 'agent_not_found':
+            raise herdlib.Refusal('pane %s hosts no agent (%s)' % (a.pane, e))
+        raise
+    result = reply.get('result')
+    agent = result.get('agent') if isinstance(result, dict) else None
+    if not isinstance(agent, dict):
+        raise relaylib.HerdrError('herdr agent get %s: result.agent is not an object' % a.pane)
     if agent.get('agent') not in ('claude', 'codex'):
         raise herdlib.Refusal('pane %s hosts %s, not a Claude or Codex worker' % (a.pane, agent.get('agent')))
     pane = {'pane_id': a.pane, 'agent': agent['agent'], 'agent_session': agent.get('agent_session'),
@@ -57,7 +63,6 @@ def run(a):
             lid, name = herdlib.new_name(a.role, a.effort, rows, taken)
         except ValueError as e:
             raise herdlib.Refusal(str(e))
-        relaylib.herdr_text('agent', 'rename', a.pane, name)
     else:
         if any(l['name'] == name for l in herdlib.open_launches(launches)):
             raise herdlib.Refusal('an open launch is already called %s: adopt with --rename' % name)
@@ -73,6 +78,9 @@ def run(a):
         branch = subprocess.run(['git', '-C', cwd, 'branch', '--show-current'], capture_output=True, text=True,
                                 timeout=10).stdout.strip() or None
     session = (agent.get('agent_session') or {}).get('value')
+    brief_sha = herd_dispatch.sha256(brief) if brief else None
+    if a.rename or not agent.get('name'):
+        relaylib.herdr_text('agent', 'rename', a.pane, name)
     launch = herdlib.append(pdir, {
         'type': 'launch', 'launch_id': lid, 'name': name, 'pane_id': a.pane, 'kind': agent['agent'],
         'model': a.model, 'effort': a.effort, 'mode': mode, 'cwd': cwd, 'worktree': worktree, 'branch': branch,
@@ -83,7 +91,7 @@ def run(a):
         deliverable = os.path.abspath(a.deliverable)
         dispatch = herdlib.append(pdir, {
             'type': 'dispatch', 'launch_id': lid, 'seq': 1, 'brief': brief,
-            'brief_sha256': herd_dispatch.sha256(brief), 'deliverable': deliverable,
+            'brief_sha256': brief_sha, 'deliverable': deliverable,
             'blocked': os.path.abspath(a.blocked) if a.blocked else os.path.join(os.path.dirname(deliverable),
                                                                                  'BLOCKED.md'),
             'reset': None, 'sent_at': herdlib.now_iso(), 'session_id': session})

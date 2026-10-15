@@ -13,6 +13,25 @@ def agent_at(pane, cwd, name=None, session=None, kind='codex', status='idle'):
 
 
 class AdoptTests(HerdCase):
+    def test_refused_readonly_claude_is_not_renamed(self):
+        r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='notes-high', kind='claude')],
+                       'agent list': [ok({'result': {'agents': []}})]},
+                      'adopt', 'wT:p4', '--role', 'notes', '--effort', 'high', '--rename', '--mode', 'readonly')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('cannot be recorded read-only', r.stderr)
+        self.assertEqual(self.calls(['agent', 'rename']), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_failed_agent_reads_are_errors_except_agent_not_found(self):
+        for answer in ({'out': 'transport failed', 'code': 1},
+                       ok({'result': 'malformed'})):
+            with self.subTest(answer=answer):
+                r = self.herd({'agent get': [answer]}, 'adopt', 'wT:p4', '--role', 'scan')
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertNotIn('hosts no agent', r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.rows(), [])
+
     def test_a_named_worker_keeps_its_name(self):
         r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='r6-size-xhigh', session='C4')]},
                       'adopt', 'wT:p4', '--role', 'size', '--model', 'gpt-6.1-sol', '--effort', 'xhigh')
@@ -78,6 +97,21 @@ class AdoptTests(HerdCase):
 
 
 class CloseTests(HerdCase):
+    def test_an_adopted_builder_without_worktree_checks_its_own_checkout(self):
+        sub = self.repo / 'sub'
+        sub.mkdir()
+        self.record(dict(self.launch_row('one-xhigh-aaaa', 'wT:p2', mode='builder', cwd=sub), adopted=True))
+        dirty = self.repo / 'wip.txt'
+        dirty.write_text('unfinished\n')
+        r = self.herd(self.herd_of(), 'close', 'one-xhigh-aaaa')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('?? wip.txt', r.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.closes(), [])
+        dirty.unlink()
+        r = self.herd(self.herd_of(), 'close', 'one-xhigh-aaaa')
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def herd_of(self, status='idle', pane='wT:p2', **extra):
         panes, agents = listing({'pane_id': pane, 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'codex',
                                  'agent_status': status, 'name': 'one-xhigh-aaaa'})
