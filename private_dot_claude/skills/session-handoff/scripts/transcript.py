@@ -14,7 +14,8 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   - Monitor: `taskId`, on 137 of 137 launches.
   - Workflow: `taskId` with status "async_launched", on 29 of 29 launches.
   - Agent: `agentId` with status "async_launched", on 589 of 589 launches, 418
-    of them without run_in_background ("teammate_spawned" is not a launch).
+    of them without run_in_background. A `teammate_spawned` result instead
+    carries snake-case `agent_id` / `teammate_id`; it is an in-session teammate.
 - A task closes on a notification: a `user` record whose origin.kind is
   "task-notification", or a `queue-operation` record, whose text starts with
   <task-notification>. Only its header is read (the tags before the first
@@ -121,6 +122,9 @@ def _launch(name, rec):
     """(kind, task id) when the record answering a `name` call says it started a background task."""
     kind, field, status = LAUNCHES.get(name, (None, None, None))
     result = rec.get('toolUseResult')
+    if name == 'Agent' and isinstance(result, dict) and result.get('status') == 'teammate_spawned':
+        task_id = result.get('agent_id') or result.get('teammate_id')
+        return ('teammate', task_id) if isinstance(task_id, str) and task_id else None
     if kind is None or not isinstance(result, dict) or (status and result.get('status') != status):
         return None
     task_id = result.get(field)
