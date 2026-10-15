@@ -157,6 +157,7 @@ def run(a):
         raise herdlib.Refusal(str(e))
     session_id = str(uuid.uuid4()) if a.kind == 'claude' else None
     worktree = branch = None
+    created_worktree = False
     created_pane = None
     cwd = repo
     try:
@@ -164,6 +165,7 @@ def run(a):
             worktree = os.path.join(repo, '.claude', 'worktrees', name)
             branch = '%s/%s-%s' % (a.type, name, datetime.date.today().strftime('%Y%m%d'))
             git('-C', repo, 'worktree', 'add', worktree, '-b', branch, a.base)
+            created_worktree = True
             cwd = worktree
         if a.pane:
             pane = a.pane
@@ -208,7 +210,7 @@ def run(a):
             'session_id': session_id, 'lead_session': os.environ.get('CLAUDE_CODE_SESSION_ID'), 'adopted': False,
             'started_at': started_at})
     except (herdlib.Refusal, relaylib.HerdrError):
-        undo(created_pane, repo, worktree, branch, a.base)
+        undo(created_pane, repo, worktree if created_worktree else None, branch if created_worktree else None, a.base)
         raise
     print(json.dumps(row))
     return 0

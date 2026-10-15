@@ -39,6 +39,22 @@ class PlacementTests(unittest.TestCase):
 
 
 class LaunchTests(HerdCase):
+    def test_a_failed_add_preserves_an_existing_worktree_and_branch(self):
+        name = 'build-xhigh-aaaa'
+        wt = self.repo / '.claude' / 'worktrees' / name
+        branch = 'feat/%s-%s' % (name, datetime.date.today().strftime('%Y%m%d'))
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', str(wt), '-b', branch], check=True)
+        code = ("import herd, herdlib; herdlib.new_name = lambda *a: ('a' * 32, %r); "
+                "sys.exit(herd.main(sys.argv[1:]))") % name
+        r = self.herd(self.answers(), 'launch', 'build', '--builder', '--base', 'HEAD', code=code)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertTrue(wt.is_dir(), 'failed add removed a worktree this launch did not create')
+        ref = subprocess.run(['git', '-C', str(self.repo), 'show-ref', '--verify', 'refs/heads/' + branch],
+                             capture_output=True)
+        self.assertEqual(ref.returncode, 0)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.rows(), [])
+
     def test_malformed_layout_or_split_is_a_failed_read(self):
         cases = [('pane layout', ok()), ('pane layout', ok({'result': None})),
                  ('pane layout', ok({'result': {'layout': {'panes': [None]}}})),

@@ -96,9 +96,14 @@ class HerdCase(unittest.TestCase):
             full.pop(key, None)
         return full
 
-    def herd(self, responses, *args, cwd=None, env=None, drop=(), timeout=60):
+    def herd(self, responses, *args, cwd=None, env=None, drop=(), timeout=60, code=None):
         """Run herd.py to completion."""
-        return subprocess.run(['python3', '-I', str(HERD), *args, '--projects', str(self.projects)],
+        command = ['python3', '-I', '-B']
+        if code is None:
+            command += [str(HERD)]
+        else:
+            command += ['-c', 'import sys; sys.path.insert(0, %r); ' % str(SCRIPTS) + code]
+        return subprocess.run([*command, *args, '--projects', str(self.projects)],
                               capture_output=True, text=True, env=self.env(responses, env, drop),
                               cwd=str(cwd or self.repo), timeout=timeout)
 
