@@ -3,8 +3,8 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import (SCRIPTS, agents_killed, cron_create, cron_fire, notice, prompt, teammate_spawn,
-                              tool_result, tool_use, usage, write_transcript)
+from handoff_fixtures import (SCRIPTS, agents_killed, cron_create, cron_fire, cron_fire_with_bookkeeping, hook_context,
+                              notice, prompt, teammate_spawn, tool_result, tool_use, usage, write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import relaylib  # noqa: E402
@@ -122,10 +122,61 @@ class CronPromptTests(unittest.TestCase):
                 enqueue, dequeue, prompt(text)]
         self.assertEqual([p['text'] for p in self.read(recs)], [text, text])
 
-    def test_a_nonadjacent_fire_does_not_reclassify_an_owner_enqueue(self):
+    def test_a_fire_across_an_assistant_record_identifies_its_enqueue(self):
         enqueue, dequeue, fire, _ = cron_fire('cron1', 'check the work')
-        self.assertEqual([p['text'] for p in self.read([enqueue, dequeue, usage(520_000), fire])],
-                         ['check the work'])
+        self.assertEqual(self.read([enqueue, dequeue, usage(520_000), fire]), [])
+
+    def test_a_stop_hook_cron_fire_identifies_its_enqueue_across_bookkeeping(self):
+        self.assertEqual(self.read(cron_fire_with_bookkeeping('cron1', 'check the work')), [])
+
+    def test_a_busy_turn_cron_fire_identifies_its_enqueue_across_an_assistant(self):
+        self.assertEqual(self.read(cron_fire_with_bookkeeping('cron1', 'check the work', order='busy')), [])
+
+    def test_a_fire_head_crosses_nonprompt_records_before_delivery_is_written(self):
+        text = 'check the work and report progress; ' * 17
+        for order in ('stop', 'busy'):
+            with self.subTest(order=order):
+                recs = cron_fire_with_bookkeeping('cron1', text, order=order, head=200)
+                self.assertEqual(self.read(recs[:-1]), [])
+
+    def test_a_scheduled_delivery_crosses_nonprompt_records_without_a_fire(self):
+        enqueue, dequeue, _, delivered = cron_fire('cron1', 'check the work', origin_null=True)
+        bookkeeping = [{'type': 'system', 'subtype': 'stop_hook_summary'}, usage(520_000),
+                       hook_context('tool1', ['synthetic hook context']), tool_result('tool1', 'done')]
+        self.assertEqual(self.read([enqueue, dequeue, *bookkeeping, delivered]), [])
+
+    def test_a_fire_checks_all_pending_enqueues_and_keeps_a_different_owner_text(self):
+        enqueue, dequeue, fire, delivered = cron_fire('cron1', 'check the work')
+        owner = {'type': 'queue-operation', 'operation': 'enqueue', 'content': 'owner request'}
+        self.assertEqual([p['text'] for p in self.read([enqueue, owner, dequeue, usage(520_000), fire, delivered])],
+                         ['owner request'])
+
+    def test_a_delivery_checks_all_pending_enqueues_without_a_fire(self):
+        enqueue, dequeue, _, delivered = cron_fire('cron1', 'check the work')
+        owner = {'type': 'queue-operation', 'operation': 'enqueue', 'content': 'owner request'}
+        self.assertEqual([p['text'] for p in self.read([enqueue, owner, dequeue, usage(520_000), delivered])],
+                         ['owner request'])
+
+    def test_the_next_human_prompt_ends_the_pending_association(self):
+        enqueue, dequeue, fire, delivered = cron_fire('cron1', 'check the work')
+        recs = [enqueue, dequeue, usage(520_000), prompt('owner request'), fire, delivered]
+        self.assertEqual([p['text'] for p in self.read(recs)], ['check the work', 'owner request'])
+
+    def test_a_human_record_with_scheduled_fields_is_always_preserved(self):
+        enqueue, dequeue, fire, delivered = cron_fire('cron1', 'check the work')
+        delivered['origin'] = {'kind': 'human'}
+        self.assertEqual([p['text'] for p in self.read([enqueue, dequeue, fire, delivered])], ['check the work'])
+
+    def test_a_scheduled_delivery_requires_equal_text_and_ends_the_association(self):
+        enqueue, dequeue, fire, _ = cron_fire('cron1', 'check the work plus more')
+        _, _, _, delivered = cron_fire('cron1', 'check the work')
+        self.assertEqual([p['text'] for p in self.read([enqueue, dequeue, usage(520_000), delivered, fire])],
+                         ['check the work plus more'])
+
+    def test_empty_records_are_not_a_prompt_boundary(self):
+        enqueue, dequeue, fire, _ = cron_fire('cron1', 'check the work')
+        self.assertEqual(self.read([enqueue, dequeue, prompt(''),
+                                   {'type': 'queue-operation', 'operation': 'enqueue'}, fire]), [])
 
     def test_an_adjacent_fire_with_different_text_keeps_the_owner_enqueue(self):
         enqueue, dequeue, _, _ = cron_fire('cron1', 'owner request')

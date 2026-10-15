@@ -87,6 +87,17 @@ def cron_fire(cron_id, prompt_text, second=0, head=None, origin_null=False):
              'prompt': prompt_text if head is None else prompt_text[:head]}, delivered]
 
 
+def cron_fire_with_bookkeeping(cron_id, prompt_text, order='stop', head=None):
+    """Two observed delivery orders: a Stop hook finishing, or a fire during a busy turn."""
+    enqueue, dequeue, fire, delivered = cron_fire(cron_id, prompt_text, head=head, origin_null=True)
+    if order == 'stop':
+        return [enqueue, dequeue, {'type': 'system', 'subtype': 'stop_hook_summary'}, fire,
+                {'type': 'system', 'subtype': 'turn_duration'}, delivered]
+    if order == 'busy':
+        return [dequeue, enqueue, usage(520_000), fire, delivered]
+    raise ValueError(order)
+
+
 def usage(message_tokens, second=0, model='claude-opus-5-5', advisor=False, sidechain=False):
     """A main-thread assistant record carrying usage as Claude Code 2.1.296 writes it.
 

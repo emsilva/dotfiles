@@ -13,8 +13,9 @@ import unittest
 from unittest import mock
 import uuid
 
-from handoff_fixtures import (SCRIPTS, agent_json, agents_killed, cron_fire, herdr_calls, herdr_stub, hook_cancelled,
-                              hook_context, prompt, teammate_spawn, tool_result, tool_use, usage, write_transcript)
+from handoff_fixtures import (SCRIPTS, agent_json, agents_killed, cron_fire, cron_fire_with_bookkeeping, herdr_calls,
+                              herdr_stub, hook_cancelled, hook_context, prompt, teammate_spawn, tool_result, tool_use,
+                              usage, write_transcript)
 from test_relaylib import make_relay, slow_git
 
 GATE = SCRIPTS / 'relay-gate.py'
@@ -670,6 +671,19 @@ class StopTests(GateCase):
                 self.assertAsk(self.gate())
                 self.assertIsNone(self.state()['hold'])
                 (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
+
+    def test_cron_fires_across_bookkeeping_do_not_defer_the_owner_check(self):
+        for order in ('stop', 'busy'):
+            for head in (None, 200):
+                with self.subTest(order=order, head=head):
+                    recs = cron_fire_with_bookkeeping('cron1', 'check the work and report progress; ' * 17,
+                                                      order=order, head=head)
+                    for rec in recs:
+                        rec['timestamp'] = iso(1)
+                    self.at(52, *recs)
+                    self.assertAsk(self.gate())
+                    self.assertIsNone(self.state()['hold'])
+                    (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
 
     def test_a_prompt_without_a_readable_time_does_not_defer(self):
         self.at(52, dict(prompt('hi'), timestamp='yesterday'))
