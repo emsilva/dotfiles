@@ -138,6 +138,17 @@ class ReadBannerTests(HerdrTestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_start_report_keeps_attempts_and_the_last_error_after_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, _ = herdr_stub(tmp, {'agent start': [{'out': 'first error', 'code': 1}, {'out': '{}'}]})
+            report = os.path.join(tmp, 'start.json')
+            r = subprocess.run(['python3', '-I', str(SCRIPTS / 'relaylib.py'), 'start-agent', 'lead-x-next',
+                                'claude', 'wT:p9', '0', '--report', report, '--'], env=env,
+                               capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(report) as fh:
+                self.assertEqual(json.load(fh), {'attempts': 2, 'last_error': 'first error'})
+
     def run_cli(self, responses, *args, env=None):
         with tempfile.TemporaryDirectory() as tmp:
             full, log = herdr_stub(tmp, responses)

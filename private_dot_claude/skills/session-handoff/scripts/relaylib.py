@@ -184,14 +184,19 @@ def herdr_list(key, *args, timeout=HERDR_BOUND):
     return items
 
 
-def start_agent(name, kind, pane, args, busy_wait=15, attempts=2, timeout_ms=90000, stop_on=(), log=None):
+def start_agent(name, kind, pane, args, busy_wait=15, attempts=2, timeout_ms=90000, stop_on=(), log=None,
+                progress=None):
     """`herdr agent start` with the retries relay-launch.sh and herd.py share: up to `attempts` attempts; inside
     one, an agent_pane_busy answer (a pane fresh from a split whose shell is not ready yet) is retried every second
     for up to busy_wait seconds. An answer carrying a code in stop_on ends the start at once.
 
-    Returns (True, '') once herdr reports the agent ready, else (False, herdr's last answer on one line)."""
+    Returns (True, '') once herdr reports the agent ready, else (False, herdr's last answer on one line).
+    progress, when supplied, receives (attempt count, last error) before each attempt and after each error;
+    the launcher can retain that count even when a signal interrupts a later attempt."""
     out = ''
     for attempt in range(1, attempts + 1):
+        if progress:
+            progress(attempt, out)
         began = time.monotonic()
         while True:
             try:
@@ -200,10 +205,14 @@ def start_agent(name, kind, pane, args, busy_wait=15, attempts=2, timeout_ms=900
                                    capture_output=True, text=True, timeout=timeout_ms / 1000 + 30)
             except subprocess.TimeoutExpired:
                 out = 'herdr agent start did not answer within %d s' % (timeout_ms / 1000 + 30)
+                if progress:
+                    progress(attempt, out)
                 break
             if r.returncode == 0:
                 return True, ''
             out = ' '.join((r.stderr or r.stdout).split())
+            if progress:
+                progress(attempt, out)
             code = error_code(r.stderr)
             if code in stop_on:
                 return False, out
@@ -255,12 +264,20 @@ def screen_tail(text, lines=3):
 
 def main(argv):
     """relay-launch.sh's entry points:
-      start-agent NAME KIND PANE BUSY_WAIT -- ARGS...   exit 0 started, 1 not (attempts on stderr)
+      start-agent NAME KIND PANE BUSY_WAIT [--report PATH] -- ARGS...
+                                                       exit 0 started, 1 not; report: attempts, last_error
       check-banner PANE KIND MODEL [EFFORT]             exit 0 shown (read again for up to BANNER_BOUND s),
                                                         1 with the reason and the screen's tail on stdout"""
-    if argv[:1] == ['start-agent'] and len(argv) >= 6 and argv[5] == '--':
+    split = 7 if len(argv) >= 8 and argv[5] == '--report' else 5
+    if argv[:1] == ['start-agent'] and len(argv) > split and argv[split] == '--':
         name, kind, pane, busy = argv[1:5]
-        ok, _ = start_agent(name, kind, pane, argv[6:], busy_wait=int(busy),
+        def progress(attempts, error):
+            if split == 7:
+                path = argv[6]
+                with open(path + '.tmp', 'w') as fh:
+                    json.dump({'attempts': attempts, 'last_error': error}, fh)
+                os.replace(path + '.tmp', path)
+        ok, _ = start_agent(name, kind, pane, argv[split + 1:], busy_wait=int(busy), progress=progress,
                             log=lambda line: print('relay-launch: ' + line, file=sys.stderr))
         return 0 if ok else 1
     if argv[:1] == ['check-banner'] and len(argv) in (4, 5):

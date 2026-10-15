@@ -4,11 +4,15 @@ from pathlib import Path
 import resource
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 from handoff_fixtures import SCRIPTS, agent_json, herdr_calls, herdr_stub
+
+sys.path.insert(0, str(SCRIPTS))
+import relaylib  # noqa: E402
 
 LAUNCH = SCRIPTS / 'relay-launch.sh'
 SPLIT = {'out': json.dumps({'result': {'pane': {'pane_id': 'wT:p9'}}})}
@@ -83,8 +87,35 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self.call(['agent', 'start'])), 2)
         self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
         failed = json.loads((self.dir / 'failed.json').read_text())
-        self.assertEqual((failed['stage'], failed['reason'], failed['attempts']), ('launch', 'agent start failed twice', 2))
+        self.assertEqual((failed['stage'], failed['reason'], failed['attempts']), ('launch', 'agent start failed: boom', 2))
         self.assertFalse((self.dir / 'launch.json').exists())
+
+    def test_a_later_failure_keeps_the_two_start_attempts(self):
+        for failure in ('banner', 'pickup'):
+            with self.subTest(failure=failure):
+                responses = {'pane split': [SPLIT], 'agent start': [{'out': 'first error', 'code': 1},
+                                                                 {'out': '{}'}], 'pane read': [BANNER]}
+                if failure == 'banner':
+                    responses['pane read'] = [{'out': 'wrong model'}]
+                else:
+                    responses['agent prompt'] = [{'out': 'gone', 'code': 1}]
+                r = self.launch(responses)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertEqual(json.loads((self.dir / 'failed.json').read_text())['attempts'], 2)
+
+    def test_a_taken_name_is_recorded_so_the_gate_will_not_retry_it(self):
+        error = json.dumps({'error': {'code': 'agent_name_taken', 'message': 'name already in use'}})
+        r = self.launch({'pane split': [SPLIT], 'agent start': [{'out': error, 'code': 1}]})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        failed = json.loads((self.dir / 'failed.json').read_text())
+        self.assertIn(error, failed['reason'])
+        self.assertEqual(failed['attempts'], 2)
+        self.assertTrue(relaylib.will_repeat(failed))
+
+    def test_a_failed_split_records_no_start_attempts(self):
+        r = self.launch({'pane split': [{'out': 'failed', 'code': 1}]})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(json.loads((self.dir / 'failed.json').read_text())['attempts'], 0)
 
     def test_a_new_pane_not_ready_yet_is_retried_before_the_attempt_counts(self):
         # Right after the split the new pane may not host a shell yet: herdr answers agent_pane_busy. The start is
@@ -108,7 +139,7 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertGreater(len(self.call(['agent', 'start'])), 2)
         failed = json.loads((self.dir / 'failed.json').read_text())
-        self.assertEqual((failed['reason'], failed['attempts']), ('agent start failed twice', 2))
+        self.assertEqual((failed['reason'], failed['attempts']), ('agent start failed: ' + BUSY['out'], 2))
         self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
 
     def test_a_busy_wait_that_is_not_whole_seconds_starts_nothing(self):

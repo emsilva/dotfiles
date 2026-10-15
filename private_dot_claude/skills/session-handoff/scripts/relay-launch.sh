@@ -24,19 +24,22 @@ field() {
 d = json.load(open(sys.argv[1]))
 for key in sys.argv[2].split("."):
     d = d.get(key) if isinstance(d, dict) else None
-print("" if d is None else d)' "$dir/checklist.json" "$1"
+print("" if d is None else d)' "${2:-$dir/checklist.json}" "$1"
 }
 
 pane=""
 attempt=0
+start_report="$dir/.start-$$.json"
 fail() {
   trap '' INT TERM HUP   # a second signal must neither re-enter fail nor cut its clean-up short
   echo "relay-launch: $1" >&2
   [ -n "$pane" ] && herdr pane close "$pane" >/dev/null 2>&1
+  [ -f "$start_report" ] && attempt=$(field attempts "$start_report")
   python3 -I -c 'import datetime, json, sys
 json.dump({"stage": "launch", "reason": sys.argv[2], "attempts": int(sys.argv[3]),
            "at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, open(sys.argv[1], "w"), indent=1)' \
     "$dir/failed.json" "$1" "$attempt"
+  rm -f "$start_report" "$start_report.tmp"
   exit 1
 }
 
@@ -61,8 +64,8 @@ pane=$(herdr pane split "$HERDR_PANE_ID" --direction down --cwd "$repo" --no-foc
 # A pane fresh from the split may not host a shell yet: herdr then answers agent_pane_busy, which relaylib
 # retries inside the attempt; any other error ends the attempt.
 attempt=1
-python3 -I "$here/relaylib.py" start-agent "$name" claude "$pane" "$busy_wait" -- "${args[@]}" \
-  || { attempt=2; fail "agent start failed twice"; }
+python3 -I "$here/relaylib.py" start-agent "$name" claude "$pane" "$busy_wait" --report "$start_report" -- "${args[@]}" \
+  || fail "agent start failed: $(field last_error "$start_report")"
 
 # The banner must show the model and the effort (a whole word, so "high" is not found in "xhigh effort").
 # relaylib reads the pane again for up to 10 s while it does not: a pane fresh from the start can read blank.
@@ -82,4 +85,5 @@ data["at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 json.dump(data, open(sys.argv[1], "w"), indent=1)' \
   "$dir/launch.json" "$pane" "$name" "$session" "$sid" "$model" "$effort" "$mode"
 trap - INT TERM HUP   # launched: a kill from here on must not close the successor
+rm -f "$start_report" "$start_report.tmp"
 echo "$pane"
