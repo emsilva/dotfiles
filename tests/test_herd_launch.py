@@ -39,6 +39,53 @@ class PlacementTests(unittest.TestCase):
 
 
 class LaunchTests(HerdCase):
+    def reused_answers(self, **extra):
+        panes, _ = listing(pane_entry('wT:p5', self.repo, kind=None))
+        return self.answers(**{'pane list': [panes], 'agent get': [agent('idle', 'wT:p5')], **extra})
+
+    def assert_unrecorded_reused_agent(self, result):
+        self.assertEqual(result.returncode, 2, result.stderr)
+        name = self.calls(['agent', 'start'])[0][2]
+        for text in (name, 'codex', 'reused pane wT:p5', 'running unrecorded', 'close the agent manually'):
+            self.assertIn(text, result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.calls(['pane', 'split']), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_record_write_failures_in_a_reused_pane_identify_the_unrecorded_agent(self):
+        for error in ("OSError('record disk failed')", "herdlib.RecordError('record refused')"):
+            with self.subTest(error=error):
+                code = ("import herd, herdlib; herdlib.append = lambda *a: (_ for _ in ()).throw(%s); "
+                        "sys.exit(herd.main(sys.argv[1:]))") % error
+                result = self.herd(self.reused_answers(), 'launch', 'review', '--pane', 'wT:p5', code=code)
+                self.assert_unrecorded_reused_agent(result)
+                self.assertIn('record disk failed' if error.startswith('OSError') else 'record refused',
+                              result.stderr)
+
+    def test_a_banner_failure_in_a_reused_pane_identifies_the_unrecorded_agent(self):
+        result = self.herd(self.reused_answers(**{'pane read': [{'out': 'GPT-6.1-Sol high\n'}]}),
+                           'launch', 'review', '--pane', 'wT:p5', env={'RELAYLIB_BANNER_SECONDS': '0'})
+        self.assert_unrecorded_reused_agent(result)
+        self.assertIn("banner does not show effort 'xhigh'", result.stderr)
+
+    def test_a_startup_dialog_failure_in_a_reused_pane_identifies_the_unrecorded_agent(self):
+        result = self.herd(self.reused_answers(**{'agent start': [NOT_READY],
+                                                 'pane read': [{'out': 'Do you trust this folder?'}]}),
+                           'launch', 'review', '--pane', 'wT:p5')
+        self.assert_unrecorded_reused_agent(result)
+        self.assertIn('Codex asks to trust', result.stderr)
+
+    def test_a_failed_start_in_a_reused_pane_does_not_report_a_running_agent(self):
+        failed = {'out': 'start failed', 'code': 1}
+        result = self.herd(self.reused_answers(**{'agent start': [failed]}),
+                           'launch', 'review', '--pane', 'wT:p5')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('agent start failed', result.stderr)
+        self.assertNotIn('running unrecorded', result.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [])
+        self.assertEqual(self.rows(), [])
+
     def test_a_builder_name_redraw_recreates_matching_resources(self):
         r = self.herd(self.answers(**{'agent start': [TAKEN, ok()], 'pane split': [split('wT:p9'), split('wT:p10')],
                                       'agent get': [agent('idle', 'wT:p10')]}),

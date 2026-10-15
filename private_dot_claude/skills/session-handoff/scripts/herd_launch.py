@@ -2,8 +2,9 @@
 
 Codex at xhigh unless told otherwise; Claude with the lead's model at high effort when --kind claude, and only as a
 builder (Claude has no sandbox to hold it read-only). A builder gets its own worktree and branch; a read-only worker
-runs in the repo. Any failure closes the pane this command
-created, removes the worktree it created, and records nothing.
+runs in the repo. Any failure closes the pane this command created, removes the worktree it created, and records
+nothing. After starting in a reused pane, a failure reports the agent for manual cleanup because the pane is not
+owned by this launch.
 """
 import datetime
 import json
@@ -159,6 +160,7 @@ def run(a, taken_names=(), attempts=3):
     worktree = branch = None
     created_worktree = False
     created_pane = None
+    started = False
     cwd = repo
     try:
         if mode == 'builder':
@@ -189,6 +191,7 @@ def run(a, taken_names=(), attempts=3):
         started_at = herdlib.now_iso()   # a Codex session file is stamped with its start, before this row's `at`
         ok, out = relaylib.start_agent(name, a.kind, pane, agent_args(a.kind, mode, model, effort, cwd,
                                                                    session_id), stop_on=STOP_ON)
+        started = ok or relaylib.error_code(out) == 'agent_not_ready'
         if not ok and relaylib.error_code(out) == 'agent_name_taken' and attempts > 1:
             # Redraw the whole launch: its worktree, branch, pane cwd and trust override carry the name too.
             undo(created_pane, repo, worktree if created_worktree else None,
@@ -211,6 +214,12 @@ def run(a, taken_names=(), attempts=3):
             'session_id': session_id, 'lead_session': os.environ.get('CLAUDE_CODE_SESSION_ID'), 'adopted': False,
             'started_at': started_at})
     except (herdlib.Refusal, relaylib.HerdrError, herdlib.RecordError, OSError) as e:
+        if a.pane and started:
+            # Herdr has no agent-stop command. Keys/prompts do not guarantee process exit, and closing a reused
+            # pane would destroy a resource this launch does not own. Keep its resources for the lead's cleanup.
+            raise herdlib.RecordError('launch failed after starting agent %s (%s) in reused pane %s; '
+                                      'it may still be running unrecorded; close the agent manually: %s'
+                                      % (name, a.kind, pane, e)) from e
         undo(created_pane, repo, worktree if created_worktree else None, branch if created_worktree else None, a.base)
         if isinstance(e, OSError):
             raise herdlib.RecordError('launch could not write its record or resources: %s' % e)
