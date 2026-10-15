@@ -6,11 +6,15 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 
 from handoff_fixtures import (SCRIPTS, agent_json, cron_create, herdr_calls, herdr_stub, prompt, tool_result,
                               tool_use, write_transcript)
+
+sys.path.insert(0, str(SCRIPTS))
+import herdlib  # noqa: E402
 
 RC = SCRIPTS / 'relay-check.py'
 SID = '33333333-3333-4333-8333-333333333333'
@@ -111,11 +115,49 @@ class ChecklistTests(unittest.TestCase):
                                     'branch': git('rev-parse', '--abbrev-ref', 'HEAD'), 'dirty': []})
         self.assertEqual([t['id'] for t in c['background_tasks']], ['bwait0001'])
         self.assertEqual([x['id'] for x in c['crons']], ['cr000001'])
-        self.assertEqual(c['workers'], [{'pane_id': 'wT:p2', 'name': 'worker-a', 'kind': 'codex',
-                                         'status': 'working', 'session_id': 'W2', 'cwd': str(self.repo / 'sub')}])
+        # Version 2: with no herd record, a pane in scope is unclassified, never a worker.
+        self.assertEqual(c['version'], 2)
+        self.assertEqual((c['workers'], c['lost']), ([], []))
+        self.assertEqual(c['unclassified'], [{'pane_id': 'wT:p2', 'name': 'worker-a', 'kind': 'codex',
+                                              'status': 'working', 'session_id': 'W2', 'cwd': str(self.repo / 'sub'),
+                                              'looks_like_worker': False}])
         self.assertEqual([p['text'] for p in c['recent_prompts']], ['drive iteration 1'])
         self.assertEqual(c['note']['path'], str(self.note))
         self.assertEqual(len(c['note']['sha256']), 64)
+
+    def test_checklist_workers_come_from_the_herd_record(self):
+        env = self.env(self.transcript_recs())
+        pdir = str(self.transcript.parent)
+        launch = {'type': 'launch', 'launch_id': 'a' * 32, 'name': 'worker-a', 'pane_id': 'wT:p9', 'kind': 'codex',
+                  'model': 'gpt-6.1-sol', 'effort': 'xhigh', 'mode': 'readonly', 'cwd': str(self.repo / 'sub'),
+                  'worktree': None, 'branch': None, 'session_id': 'W2', 'lead_session': SID, 'adopted': False,
+                  'started_at': '2026-10-14T10:00:00Z'}
+        herdlib.append(pdir, launch)
+        herdlib.append(pdir, {'type': 'dispatch', 'launch_id': 'a' * 32, 'seq': 1, 'brief': '/x/b.md',
+                              'brief_sha256': 'ab' * 32, 'deliverable': '/x/r.md', 'blocked': '/x/BLOCKED.md',
+                              'reset': None, 'sent_at': '2026-10-14T10:05:00Z', 'session_id': 'W2'})
+        herdlib.append(pdir, dict(launch, launch_id='b' * 32, name='gone-xhigh-bbbb', pane_id='wT:p7',
+                                  session_id=None))
+        r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects), env=env, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        c = json.loads((Path(r.stdout.strip()) / 'checklist.json').read_text())
+        # Matched by session although herdr renumbered its pane (wT:p9 -> wT:p2).
+        self.assertEqual(c['workers'], [{
+            'launch_id': 'a' * 32, 'name': 'worker-a', 'pane_id': 'wT:p2', 'kind': 'codex', 'model': 'gpt-6.1-sol',
+            'effort': 'xhigh', 'status': 'working', 'session_id': 'W2',
+            'dispatch': {'seq': 1, 'brief': '/x/b.md', 'brief_sha256': 'ab' * 32, 'deliverable': '/x/r.md',
+                         'blocked': '/x/BLOCKED.md', 'sent_at': '2026-10-14T10:05:00Z'}}])
+        self.assertEqual(c['unclassified'], [])
+        self.assertEqual(c['lost'], [{'launch_id': 'b' * 32, 'name': 'gone-xhigh-bbbb', 'pane_id': 'wT:p7',
+                                      'session_id': None, 'cwd': str(self.repo / 'sub')}])
+
+    def test_a_damaged_herd_record_stops_the_checklist(self):
+        env = self.env(self.transcript_recs())
+        (self.transcript.parent / 'herd.jsonl').write_text('{torn\n')
+        r = rc('checklist', '--note', str(self.note), '--projects', str(self.projects), env=env, cwd=self.repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('the herd record is unreadable', r.stderr)
+        self.assertFalse(self.relay_root().exists())
 
     def test_checklist_lists_dirty_paths_whole(self):
         # git status --porcelain starts an unstaged change with a space (" M README.md"): it must survive.
@@ -343,6 +385,42 @@ class CompareTests(unittest.TestCase):
         (self.dir / 'checklist.json').write_text(json.dumps(self.checklist))
         (self.dir / 'receipt.json').write_text(json.dumps(self.receipt))
         return rc('compare', str(self.dir))
+
+    def v2(self):
+        """This relay with a version-2 checklist: workers by launch id, a lost launch, two unclassified panes."""
+        self.checklist.update(version=2, workers=[
+            {'launch_id': 'L1', 'name': 'one-xhigh-aaaa', 'pane_id': 'wT:p2', 'kind': 'codex', 'status': 'working'},
+            {'launch_id': 'L3', 'name': 'three-xhigh-cccc', 'pane_id': 'wT:p6', 'kind': 'codex', 'status': 'idle'}],
+            lost=[{'launch_id': 'L2', 'name': 'two-xhigh-bbbb', 'pane_id': 'wT:p5', 'session_id': None, 'cwd': '/x'}],
+            unclassified=[{'pane_id': 'wT:p3', 'name': 'scan-high', 'looks_like_worker': True},
+                          {'pane_id': 'wT:p4', 'name': 'notes', 'looks_like_worker': False}])
+        # One `herd.py wait` covers every worker: both carry the same marker.
+        self.receipt.update(workers=[{'launch_id': 'L1', 'status_seen': 'working', 'waiter_marker': self.marker + '2'},
+                                     {'launch_id': 'L3', 'status_seen': 'idle', 'waiter_marker': self.marker + '2'}],
+                            lost=[{'launch_id': 'L2', 'reason': 'its pane was closed by hand before the relay'}],
+                            unclassified=[{'pane_id': 'wT:p3', 'reason': "the owner's own scan session"}])
+
+    def test_v2_complete_receipt_passes(self):
+        self.v2()
+        r = self.compare()
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'PASS'), r.stdout)
+
+    def test_v2_workers_are_matched_by_launch_id_not_pane(self):
+        self.v2()
+        self.receipt['workers'][0] = {'pane_id': 'wT:p2', 'status_seen': 'working', 'waiter_marker': self.marker + '2'}
+        self.assertIn('FAIL worker L1 (one-xhigh-aaaa) is not in the receipt', self.compare().stdout)
+
+    def test_v2_a_lost_launch_needs_a_reason(self):
+        self.v2()
+        self.receipt['lost'] = [{'launch_id': 'L2', 'reason': ' '}]
+        self.assertIn('FAIL lost launch L2 (two-xhigh-bbbb) has no reason', self.compare().stdout)
+
+    def test_v2_only_an_unclassified_worker_lookalike_needs_a_reason(self):
+        self.v2()
+        self.receipt['unclassified'] = []
+        out = self.compare().stdout
+        self.assertIn('FAIL unclassified pane wT:p3 (scan-high) looks like a worker and has no reason', out)
+        self.assertNotIn('wT:p4', out)
 
     def test_complete_receipt_passes(self):
         r = self.compare()

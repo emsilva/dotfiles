@@ -23,8 +23,9 @@ import sys
 # In development this dir is chezmoi source: bytecode written beside the script would be deployed.
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import herdlib  # noqa: E402
 import relaylib  # noqa: E402
-from relaylib import HerdrError, herdr_json, herdr_list  # noqa: E402
+from relaylib import HerdrError, herdr_json  # noqa: E402
 import transcript  # noqa: E402
 
 NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
@@ -78,22 +79,28 @@ def git_state(repo):
     return {'head': head, 'branch': branch, 'dirty': [line[3:] for line in porcelain.splitlines() if line]}
 
 
-def workers(repo, extra_roots, self_pane):
-    if not self_pane:   # outside herdr there is no herd to read
-        return []
-    _, listing = run(['git', '-C', repo, 'worktree', 'list', '--porcelain'])
-    roots = [line[len('worktree '):] for line in listing.splitlines() if line.startswith('worktree ')] or [repo]
-    roots = [os.path.realpath(r).rstrip('/') for r in roots + list(extra_roots)]
-    names = {a.get('pane_id'): a.get('name') for a in herdr_list('agents', 'agent', 'list')}
-    out = []
-    for p in herdr_list('panes', 'pane', 'list'):
-        cwd = os.path.realpath(p.get('cwd') or '/').rstrip('/')
-        if p.get('pane_id') == self_pane or not any(cwd == r or cwd.startswith(r + '/') for r in roots):
-            continue
-        out.append({'pane_id': p['pane_id'], 'name': names.get(p['pane_id']), 'kind': p.get('agent', 'shell'),
-                    'status': p.get('agent_status'), 'session_id': (p.get('agent_session') or {}).get('value'),
-                    'cwd': p.get('cwd')})
-    return out
+def herd_lists(pdir, repo, extra_roots, self_pane):
+    """The checklist's herd (version 2), from the record joined with live panes: workers (open launches with a
+    live pane, each with its latest dispatch), unclassified (live panes in scope matching no open launch) and
+    lost (open launches with no live pane). Outside herdr there is no herd to read."""
+    if not self_pane:
+        return [], [], []
+    got = herdlib.herd(pdir, repo, extra_roots, self_pane)
+    workers = []
+    for launch, pane in got['workers']:
+        d = herdlib.latest(launch)
+        workers.append({
+            'launch_id': launch['launch_id'], 'name': launch['name'], 'pane_id': pane['pane_id'],
+            'kind': launch['kind'], 'model': launch['model'], 'effort': launch['effort'],
+            'status': pane.get('agent_status'), 'session_id': herdlib.session_of(pane) or launch['session_id'],
+            'dispatch': {k: d[k] for k in ('seq', 'brief', 'brief_sha256', 'deliverable', 'blocked', 'sent_at')}
+            if d else None})
+    unclassified = [{'pane_id': p['pane_id'], 'name': p.get('name'), 'kind': p.get('agent', 'shell'),
+                     'status': p.get('agent_status'), 'session_id': herdlib.session_of(p), 'cwd': p.get('cwd'),
+                     'looks_like_worker': herdlib.looks_like_worker(p.get('name'))} for p in got['unclassified']]
+    lost = [{'launch_id': l['launch_id'], 'name': l['name'], 'pane_id': l['pane_id'], 'session_id': l['session_id'],
+             'cwd': l['cwd']} for l in got['lost']]
+    return workers, unclassified, lost
 
 
 def new_relay_dir(project_dir, now):
@@ -151,7 +158,9 @@ def cmd_checklist(a):
         return 2
     self_pane = os.environ.get('HERDR_PANE_ID')
     me = herdr_json('agent', 'get', self_pane).get('result', {}).get('agent', {}) if self_pane else {}
+    herd_workers, unclassified, lost = herd_lists(os.path.dirname(tpath), repo, a.extra_root, self_pane)
     record = {
+        'version': 2,
         'repo': repo,
         'predecessor': {
             'session_id': session, 'transcript': tpath, 'pane_id': self_pane, 'herdr_name': me.get('name'),
@@ -163,7 +172,9 @@ def cmd_checklist(a):
         'note': note,
         'background_tasks': tasks,
         'crons': transcript.open_crons(paths),
-        'workers': workers(repo, a.extra_root, self_pane),
+        'workers': herd_workers,
+        'unclassified': unclassified,
+        'lost': lost,
         'recent_prompts': transcript.prompts(tpath)[-3:],
     }
     # Every read that can fail is done: only now does the relay dir exist.
@@ -307,17 +318,29 @@ def cmd_compare(a):
                 fails.append('task %s: %s' % (t['id'], problem))
         else:
             fails.append('task %s: unknown action %r' % (t['id'], got.get('action')))
-    seen = {w.get('pane_id'): w for w in rec.get('workers') or []}
+    # A version-2 checklist names workers by launch id (pane ids change after a herdr restore); version 1 (a relay
+    # started before the herd record) keeps its pane-id rules.
+    key = 'launch_id' if chk.get('version') == 2 else 'pane_id'
+    seen = {w.get(key): w for w in rec.get('workers') or []}
     for w in chk.get('workers', []):
-        got = seen.get(w['pane_id'])
+        got = seen.get(w[key])
+        label = w.get('name') or w.get('kind')
         if not got:
-            fails.append('worker %s (%s) is not in the receipt' % (w['pane_id'], w.get('name') or w.get('kind')))
+            fails.append('worker %s (%s) is not in the receipt' % (w[key], label))
         elif got.get('waiter_marker'):
             problem = marker_problem(a.relay_dir, chk.get('relay_id'), got['waiter_marker'], table, successor_pid)
             if problem:
-                fails.append('worker %s: %s' % (w['pane_id'], problem))
+                fails.append('worker %s: %s' % (w[key], problem))
         elif not _reason(got):
-            fails.append('worker %s has neither a waiter nor a reason' % w['pane_id'])
+            fails.append('worker %s (%s) has neither a waiter nor a reason' % (w[key], label))
+    lost = {x.get('launch_id'): x for x in rec.get('lost') or []}
+    for x in chk.get('lost', []):
+        if not _reason(lost.get(x['launch_id'], {})):
+            fails.append('lost launch %s (%s) has no reason' % (x['launch_id'], x.get('name')))
+    unclassified = {x.get('pane_id'): x for x in rec.get('unclassified') or []}
+    for x in chk.get('unclassified', []):
+        if x.get('looks_like_worker') and not _reason(unclassified.get(x['pane_id'], {})):
+            fails.append('unclassified pane %s (%s) looks like a worker and has no reason' % (x['pane_id'], x.get('name')))
     crons = {c.get('id'): c for c in rec.get('crons') or []}
     for c in chk.get('crons', []):
         got = crons.get(c['id'], {})
@@ -373,6 +396,9 @@ def main(argv=None):
                 'compare': cmd_compare, 'quiet': cmd_quiet}[a.cmd](a)
     except HerdrError as e:
         print('relay-check: herdr read failed: %s' % e, file=sys.stderr)
+        return 2
+    except herdlib.RecordError as e:
+        print('relay-check: the herd record is unreadable: %s' % e, file=sys.stderr)
         return 2
 
 
