@@ -1,9 +1,12 @@
 """herd.py dispatch: the one-line brief, delivery confirmed in the worker's own files, the session read-back."""
 import hashlib
+import gc
 import json
 from pathlib import Path
 import time
 import unittest
+from unittest import mock
+import warnings
 
 from handoff_fixtures import prompt
 from herd_fixtures import CODEX_BANNER, HerdCase, agent, herdlib, listing
@@ -182,7 +185,7 @@ class CodexDispatchTests(DispatchCase):
         path, text = self.rollout('C1')
         panes, agents = self.codex_worker(session='C1')
         self.codex_home.joinpath('sessions', '2026', '10', '14').mkdir(parents=True)
-        open(path, 'w').write(text)
+        Path(path).write_text(text)
         r = self.dispatch({'pane list': [panes], 'agent list': [agents],
                            'agent prompt': [{'out': '{}', 'write': [[path, self.rollout('C1', self.line)[1]]]}],
                            'agent get': [agent('working', 'wT:p2', session='C1')]})
@@ -194,20 +197,27 @@ class CodexDispatchTests(DispatchCase):
         # folder, so a second dispatch cannot read the first one's new file as its own.
         panes, agents = self.codex_worker()
         lock = 'herd.lock.' + hashlib.sha1(str(self.repo).encode()).hexdigest()
-        with herdlib.locked(str(self.pdir), lock):
-            proc = self.start({'pane list': [panes], 'agent list': [agents],
-                               'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
-                               'agent get': [agent('working', 'wT:p2')]},
-                              'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
-                              str(self.report))
-            deadline = time.monotonic() + 15
-            while not self.calls(['agent', 'list']) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            time.sleep(1)   # past the live-pane read, the dispatch now waits on the folder's lock
-            self.assertEqual(self.prompts(), [])
-        out, err = proc.communicate(timeout=60)
-        self.assertEqual(proc.returncode, 0, err)
-        self.assertEqual(self.prompts(), [self.line])
+        proc = None
+        try:
+            with herdlib.locked(str(self.pdir), lock):
+                proc = self.start({'pane list': [panes], 'agent list': [agents],
+                                   'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
+                                   'agent get': [agent('working', 'wT:p2')]},
+                                  'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
+                                  str(self.report))
+                deadline = time.monotonic() + 15
+                while not self.calls(['agent', 'list']) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                time.sleep(1)   # past the live-pane read, the dispatch now waits on the folder's lock
+                self.assertEqual(self.prompts(), [])
+            out, err = proc.communicate(timeout=60)
+            self.assertEqual(proc.returncode, 0, err)
+            self.assertEqual(self.prompts(), [self.line])
+        finally:
+            if proc is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate(timeout=10)
 
     def test_a_lost_prompt_is_sent_once_more(self):
         panes, agents = self.codex_worker()
@@ -355,6 +365,44 @@ class ClaudeDispatchTests(DispatchCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.prompts(), ['/clear', self.line])
         self.assertEqual(json.loads(r.stdout)['session_id'], 'W2')
+
+
+class DispatchHygieneTests(unittest.TestCase):
+    def test_the_running_session_fixture_closes_its_rollout_file(self):
+        case = CodexDispatchTests('test_a_running_session_takes_the_brief_in_its_own_file')
+        result = unittest.TestResult()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always', ResourceWarning)
+            case.run(result)
+            gc.collect()
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, ResourceWarning)], [])
+
+    def test_a_failed_lock_assertion_still_reaps_the_dispatch_process(self):
+        case = CodexDispatchTests('test_dispatches_in_one_folder_take_turns')
+        case.setUp()
+        started = []
+        real_start = case.start
+
+        def start(answers, *args):
+            answers['agent prompt'][0]['sleep'] = 5
+            proc = real_start(answers, *args)
+            started.append(proc)
+            return proc
+
+        try:
+            with mock.patch.object(case, 'start', side_effect=start), \
+                    mock.patch.object(case, 'assertEqual', side_effect=AssertionError('forced lock assertion')):
+                with self.assertRaisesRegex(AssertionError, 'forced lock assertion'):
+                    case.test_dispatches_in_one_folder_take_turns()
+            self.assertEqual(len(started), 1)
+            self.assertIsNotNone(started[0].poll(), 'failed assertion left its dispatch process running')
+        finally:
+            for proc in started:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate(timeout=10)
+            case.tearDown()
 
 
 if __name__ == '__main__':
