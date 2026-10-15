@@ -36,6 +36,20 @@ class HandoffDocsTests(unittest.TestCase):
         self.assertIn('written by this dispatch', text)
         self.assertIn('`/relay`', text)
 
+    def test_claude_md_launches_dispatches_waits_and_closes_through_herd_py(self):
+        text = ' '.join((SOURCE / 'private_dot_claude/CLAUDE.md').read_text().split())
+        for needle in ('herd.py launch <role> [--builder --base <ref> | --readonly]',
+                       '`herd.py dispatch <name> --brief <brief> --deliverable <report>`', '`herd.py wait`',
+                       '`herd.py close <name>`', 'The worker table is `herd.py status`',
+                       'Never launch a worker with raw `herdr agent start`',
+                       'always `--builder`: Claude has no sandbox, so read-only work goes to Codex',
+                       '**Review: the builder first, then the lead.**',
+                       'The lead then reviews the actual diff, not just the results',
+                       'or when the lead wrote the code itself'):
+            self.assertIn(needle, text)
+        self.assertNotIn('Implementer and reviewer are different workers', text)
+        self.assertNotIn('herdr agent start <role>-xhigh --kind codex', text)
+
     def test_relay_md_states_the_waiter_rules_compare_enforces(self):
         # compare accepts only markers with this relay's prefix, live or with a fired/ file;
         # relay-launch needs a Bash timeout above its two 90 s start attempts and their busy-pane retries.
