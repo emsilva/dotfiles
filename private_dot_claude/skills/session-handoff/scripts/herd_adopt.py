@@ -38,9 +38,15 @@ def run(a):
     rows = herdlib.read(pdir)
     launches = herdlib.replay(rows)
     try:
-        agent = (relaylib.herdr_json('agent', 'get', a.pane).get('result') or {}).get('agent') or {}
+        reply = relaylib.herdr_json('agent', 'get', a.pane)
     except relaylib.HerdrError as e:
-        raise herdlib.Refusal('pane %s hosts no agent (%s)' % (a.pane, e))
+        if e.code == 'agent_not_found':
+            raise herdlib.Refusal('pane %s hosts no agent (%s)' % (a.pane, e))
+        raise
+    result = reply.get('result')
+    agent = result.get('agent') if isinstance(result, dict) else None
+    if not isinstance(agent, dict):
+        raise relaylib.HerdrError('herdr agent get %s: result.agent is not an object' % a.pane)
     if agent.get('agent') not in ('claude', 'codex'):
         raise herdlib.Refusal('pane %s hosts %s, not a Claude or Codex worker' % (a.pane, agent.get('agent')))
     pane = {'pane_id': a.pane, 'agent': agent['agent'], 'agent_session': agent.get('agent_session'),

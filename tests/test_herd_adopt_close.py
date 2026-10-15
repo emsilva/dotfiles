@@ -13,6 +13,16 @@ def agent_at(pane, cwd, name=None, session=None, kind='codex', status='idle'):
 
 
 class AdoptTests(HerdCase):
+    def test_failed_agent_reads_are_errors_except_agent_not_found(self):
+        for answer in ({'out': 'transport failed', 'code': 1},
+                       ok({'result': 'malformed'})):
+            with self.subTest(answer=answer):
+                r = self.herd({'agent get': [answer]}, 'adopt', 'wT:p4', '--role', 'scan')
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertNotIn('hosts no agent', r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+                self.assertEqual(self.rows(), [])
+
     def test_a_named_worker_keeps_its_name(self):
         r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='r6-size-xhigh', session='C4')]},
                       'adopt', 'wT:p4', '--role', 'size', '--model', 'gpt-6.1-sol', '--effort', 'xhigh')
