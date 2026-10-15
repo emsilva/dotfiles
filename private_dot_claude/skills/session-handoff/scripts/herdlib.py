@@ -128,12 +128,16 @@ def read(pdir):
     path = os.path.join(pdir, RECORD)
     with locked(pdir, shared=True):
         try:
-            with open(path) as fh:
+            with open(path, 'rb') as fh:
                 text = fh.read()
         except FileNotFoundError:
             return []
     rows = []
-    for n, line in enumerate(text.splitlines(), 1):
+    for n, raw in enumerate(text.splitlines(), 1):
+        try:
+            line = raw.decode('utf-8')
+        except UnicodeDecodeError:
+            raise RecordError('%s line %d is not UTF-8' % (path, n))
         try:
             row = json.loads(line)
         except ValueError:

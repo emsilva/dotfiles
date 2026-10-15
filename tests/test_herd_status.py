@@ -7,6 +7,14 @@ from herd_fixtures import LEAD, HerdCase, listing, ok
 
 
 class StatusTests(HerdCase):
+    def test_invalid_utf8_record_exits_two_without_a_traceback(self):
+        (self.pdir / 'herd.jsonl').write_bytes(b'\xff\n')
+        r = self.herd(self.herd_of(), 'status')
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('line 1', r.stderr)
+        self.assertIn('UTF-8', r.stderr)
+        self.assertNotIn('Traceback', r.stderr)
+
     def herd_of(self, *entries):
         panes, agents = listing(*entries)
         return {'pane list': [panes], 'agent list': [agents], 'pane read': [ok()]}
