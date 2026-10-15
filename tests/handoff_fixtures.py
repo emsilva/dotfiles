@@ -53,6 +53,25 @@ def cron_delete(tid, cron_id, second=0, found=True):
     return [tool_use(tid, 'CronDelete', {'id': cron_id}, second), result]
 
 
+def cron_fire(cron_id, prompt_text, second=0, head=None, origin_null=False):
+    """An enqueued cron delivery: enqueue, dequeue, scheduled_task_fire, system-sourced user.
+
+    The fire can store only the prompt's 200-character head. Its timestamp precedes the enqueue's even though
+    it is written afterward; association must use record order. Old deliveries omit origin; newer ones set null.
+    """
+    delivered = {'type': 'user', 'timestamp': ts(second + 2), 'promptSource': 'system', 'isMeta': True,
+                 'scheduledTaskId': cron_id, 'scheduledFireId': 'fire-' + cron_id,
+                 'message': {'content': prompt_text}}
+    if origin_null:
+        delivered['origin'] = None
+    return [{'type': 'queue-operation', 'operation': 'enqueue', 'timestamp': ts(second + 1),
+             'content': prompt_text},
+            {'type': 'queue-operation', 'operation': 'dequeue', 'timestamp': ts(second + 1)},
+            {'type': 'system', 'subtype': 'scheduled_task_fire', 'timestamp': ts(second),
+             'cron': '*/20 * * * *', 'taskId': cron_id,
+             'prompt': prompt_text if head is None else prompt_text[:head]}, delivered]
+
+
 def usage(message_tokens, second=0, model='claude-opus-5-5', advisor=False, sidechain=False):
     """A main-thread assistant record carrying usage as Claude Code 2.1.296 writes it.
 

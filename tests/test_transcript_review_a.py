@@ -3,7 +3,8 @@ import sys
 import tempfile
 import unittest
 
-from handoff_fixtures import SCRIPTS, notice, prompt, tool_result, tool_use, write_transcript
+from handoff_fixtures import (SCRIPTS, cron_create, cron_fire, notice, prompt, tool_result, tool_use, usage,
+                              write_transcript)
 
 sys.path.insert(0, str(SCRIPTS))
 import relaylib  # noqa: E402
@@ -43,6 +44,52 @@ class PromptTests(unittest.TestCase):
             path = write_transcript(tmp, 'session', recs)
             self.assertEqual([p['text'] for p in transcript.prompts(str(path))],
                              ['owner text', 'queued owner text'])
+
+
+class CronPromptTests(unittest.TestCase):
+    def read(self, recs):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(tmp, 'session', recs)
+            return transcript.prompts(str(path))
+
+    def test_a_cron_enqueue_with_an_equal_fire_prompt_is_not_an_owner_prompt(self):
+        recs = cron_fire('cron1', 'check the work')
+        self.assertEqual(self.read(recs), [])
+
+    def test_a_cron_enqueue_matches_a_200_character_head_before_delivery_is_written(self):
+        text = 'check the work and report progress; ' * 17
+        enqueue, dequeue, fire, _ = cron_fire('cron1', text, head=200, origin_null=True)
+        self.assertGreater(len(text), 200)
+        self.assertLess(fire['timestamp'], enqueue['timestamp'])
+        self.assertEqual(self.read([enqueue, dequeue, fire]), [])
+
+    def test_a_scheduled_delivery_identifies_its_enqueue_without_a_fire_record(self):
+        enqueue, dequeue, _, delivered = cron_fire('cron1', 'check the work', origin_null=True)
+        self.assertEqual(self.read([enqueue, dequeue, delivered]), [])
+
+    def test_a_mid_turn_fire_with_empty_queue_entries_preserves_the_owner_prompt(self):
+        _, _, fire, delivered = cron_fire('cron1', 'check the work', head=200, origin_null=True)
+        recs = [prompt('owner request'), fire, usage(520_000),
+                {'type': 'queue-operation', 'operation': 'enqueue'},
+                {'type': 'queue-operation', 'operation': 'dequeue'}, delivered]
+        self.assertEqual([p['text'] for p in self.read(recs)], ['owner request'])
+
+    def test_a_queued_owner_can_type_a_cron_prompt_away_from_its_fire(self):
+        text = 'check the work'
+        enqueue, dequeue, fire, delivered = cron_fire('cron1', text)
+        recs = [*cron_create('create1', 'cron1', '*/20 * * * *', text), fire, delivered, usage(520_000),
+                enqueue, dequeue, prompt(text)]
+        self.assertEqual([p['text'] for p in self.read(recs)], [text, text])
+
+    def test_a_nonadjacent_fire_does_not_reclassify_an_owner_enqueue(self):
+        enqueue, dequeue, fire, _ = cron_fire('cron1', 'check the work')
+        self.assertEqual([p['text'] for p in self.read([enqueue, dequeue, usage(520_000), fire])],
+                         ['check the work'])
+
+    def test_an_adjacent_fire_with_different_text_keeps_the_owner_enqueue(self):
+        enqueue, dequeue, _, _ = cron_fire('cron1', 'owner request')
+        _, _, fire, _ = cron_fire('cron2', 'different cron prompt')
+        self.assertEqual([p['text'] for p in self.read([enqueue, dequeue, fire])], ['owner request'])
 
 
 if __name__ == '__main__':

@@ -32,6 +32,10 @@ Record formats, verified on Claude Code 2.1.296 (2026-10-12):
   its output).
 - Typed prompts (by the owner, or by herdr into the pane) are `user` records
   whose origin.kind is "human", or `queue-operation` enqueues while busy.
+  Cron enqueues are excluded by adjacent delivery records: a system
+  `scheduled_task_fire` whose prompt is the queued text or its head, or a user
+  with `scheduledTaskId` whose text equals it. Record order matters: a fire's
+  timestamp can precede the enqueue's even though it is written afterward.
 - A cron is read from the structured `toolUseResult.id`, never from the result
   text: a recurring create reads `Scheduled recurring job <id>` and a one-shot
   `Scheduled one-shot task <id>`, so a text pattern missed every recurring cron.
@@ -219,9 +223,21 @@ def open_crons(paths, until_line=None):
 
 def prompts(path):
     """Prompts typed into the session (by the owner, or by herdr into its pane), oldest first."""
-    out = []
+    out, cron_lines = [], set()
+    queued = None
     for i, rec in records(path):
         kind = rec.get('type')
+        if queued is not None:
+            if kind == 'system' and rec.get('subtype') == 'scheduled_task_fire':
+                head = rec.get('prompt')
+                if isinstance(head, str) and head and queued['text'].startswith(head):
+                    cron_lines.add(queued['line'])
+            elif kind == 'user' and rec.get('scheduledTaskId'):
+                if _user_text(rec) == queued['text']:
+                    cron_lines.add(queued['line'])
+                queued = None
+            elif not (kind == 'queue-operation' and rec.get('operation') == 'dequeue'):
+                queued = None    # no association across unrelated records, even when their text matches
         if kind == 'user' and (rec.get('origin') or {}).get('kind') == 'human':
             text = _user_text(rec)
         elif kind == 'queue-operation' and rec.get('operation') == 'enqueue':
@@ -231,8 +247,11 @@ def prompts(path):
         else:
             continue
         if text.strip():
-            out.append({'line': i, 'timestamp': rec.get('timestamp', ''), 'text': text})
-    return out
+            entry = {'line': i, 'timestamp': rec.get('timestamp', ''), 'text': text}
+            out.append(entry)
+            if kind == 'queue-operation':
+                queued = entry
+    return [p for p in out if p['line'] not in cron_lines]
 
 
 def hook_outcome(path, tool_use_id, marker):

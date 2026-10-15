@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 import uuid
 
-from handoff_fixtures import (SCRIPTS, agent_json, herdr_calls, herdr_stub, hook_cancelled, hook_context, prompt,
+from handoff_fixtures import (SCRIPTS, agent_json, cron_fire, herdr_calls, herdr_stub, hook_cancelled, hook_context, prompt,
                               tool_result, tool_use, usage, write_transcript)
 from test_relaylib import make_relay, slow_git
 
@@ -627,6 +627,18 @@ class StopTests(GateCase):
                 self.at(52, {'type': 'queue-operation', 'operation': 'enqueue',
                              'timestamp': iso(1), 'content': content})
                 self.assertAsk(self.gate())
+                (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
+
+    def test_cron_fires_do_not_defer_the_owner_check(self):
+        for head in (None, 200):
+            with self.subTest(head=head):
+                recs = cron_fire('cron1', 'check the work and report progress; ' * 17,
+                                 head=head, origin_null=head is not None)
+                for rec in recs:
+                    rec['timestamp'] = iso(1)
+                self.at(52, *recs)
+                self.assertAsk(self.gate())
+                self.assertIsNone(self.state()['hold'])
                 (self.project / 'relay' / 'gate' / (SID + '.json')).unlink()
 
     def test_a_prompt_without_a_readable_time_does_not_defer(self):
