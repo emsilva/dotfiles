@@ -13,6 +13,15 @@ def agent_at(pane, cwd, name=None, session=None, kind='codex', status='idle'):
 
 
 class AdoptTests(HerdCase):
+    def test_refused_readonly_claude_is_not_renamed(self):
+        r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='notes-high', kind='claude')],
+                       'agent list': [ok({'result': {'agents': []}})]},
+                      'adopt', 'wT:p4', '--role', 'notes', '--effort', 'high', '--rename', '--mode', 'readonly')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('cannot be recorded read-only', r.stderr)
+        self.assertEqual(self.calls(['agent', 'rename']), [])
+        self.assertEqual(self.rows(), [])
+
     def test_failed_agent_reads_are_errors_except_agent_not_found(self):
         for answer in ({'out': 'transport failed', 'code': 1},
                        ok({'result': 'malformed'})):
