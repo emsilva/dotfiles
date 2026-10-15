@@ -157,7 +157,9 @@ def arrived(launch, pane, line, known, stale, before, not_before, claimed, proje
         return session, None
     if reported and reported not in claimed:
         path = codex_file(reported)
-        if path and holds_prompt(path, line, before.get(path, 0)):
+        meta = session_meta(path) if path else None
+        if (meta and meta.get('cwd') == launch['cwd'] and own_thread(meta) and meta.get('id') == reported
+                and holds_prompt(path, line, before.get(path, 0))):
             return reported, 'no new session file passed the checks; herdr reports %s' % reported
     return None
 

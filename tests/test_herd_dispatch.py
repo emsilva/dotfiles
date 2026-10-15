@@ -56,6 +56,35 @@ class DispatchCase(HerdCase):
 
 
 class CodexDispatchTests(DispatchCase):
+    def test_herdr_fallback_refuses_subagents_and_other_working_directories(self):
+        panes, agents = self.codex_worker()
+        for subagent, cwd in ((True, self.repo), (False, self.root / 'other')):
+            with self.subTest(subagent=subagent, cwd=cwd):
+                path, text = self.rollout('C1', self.line, cwd=cwd, subagent=subagent)
+                meta, prompt_text = text.split('\n', 1)
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                Path(path).write_text(meta + '\n')
+                r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                   'agent prompt': [{'out': '{}', 'write': [[path, prompt_text]]}],
+                                   'agent get': [agent('working', 'wT:p2', session='C1')]},
+                                  env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0'})
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertEqual([r['type'] for r in self.rows()], ['launch'])
+
+    def test_a_valid_existing_session_fallback_keeps_its_warning(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('C1', self.line)
+        meta, prompt_text = text.split('\n', 1)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(meta + '\n')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [[path, prompt_text]]}],
+                           'agent get': [agent('working', 'wT:p2', session='C1')]})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads(r.stdout)
+        self.assertEqual(row['session_id'], 'C1')
+        self.assertIn('no new session file passed the checks', row['session_warning'])
+
     def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
         panes, agents = self.codex_worker(session='C1')
         path, text = self.rollout('C1', self.line)
