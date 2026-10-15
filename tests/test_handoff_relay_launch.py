@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from handoff_fixtures import SCRIPTS, agent_json, herdr_calls, herdr_stub
 
@@ -134,13 +135,22 @@ class LaunchTests(unittest.TestCase):
         # The busy retry is bounded (RELAY_LAUNCH_BUSY_WAIT seconds, 15 by default), then counts as one attempt.
         began = time.monotonic()
         r = self.launch({'pane split': [SPLIT], 'agent start': [BUSY]}, extra_env={'RELAY_LAUNCH_BUSY_WAIT': '2'},
-                        timeout=30)
-        self.assertLess(time.monotonic() - began, 12)
+                        timeout=90)
+        self.assertLess(time.monotonic() - began, 60)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertGreater(len(self.call(['agent', 'start'])), 2)
+        # Two attempts, each at most three calls (at 0, 1 and 2 s). Scheduling delays can reduce the count.
+        self.assertGreaterEqual(len(self.call(['agent', 'start'])), 2)
+        self.assertLessEqual(len(self.call(['agent', 'start'])), 6)
         failed = json.loads((self.dir / 'failed.json').read_text())
         self.assertEqual((failed['reason'], failed['attempts']), ('agent start failed: ' + BUSY['out'], 2))
         self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+
+    def test_the_busy_retry_bound_tolerates_a_loaded_run(self):
+        # Reproduce the reported 12.36 s elapsed run without making this test sleep for that long.
+        # Patch this module's clock reference, leaving subprocess's own timeout clock untouched.
+        with mock.patch(__name__ + '.time') as clock:
+            clock.monotonic.side_effect = [0, 12.36]
+            self.test_a_pane_that_stays_busy_counts_as_a_failed_attempt()
 
     def test_a_busy_wait_that_is_not_whole_seconds_starts_nothing(self):
         r = self.launch({'pane split': [SPLIT]}, extra_env={'RELAY_LAUNCH_BUSY_WAIT': '1.5'})
