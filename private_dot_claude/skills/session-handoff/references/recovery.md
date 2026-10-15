@@ -61,9 +61,11 @@ running". Detect live work from the OS, not the list.
    prefix-glob `~/.claude/projects/` — a sibling encoding that merely shares the
    repo's prefix is an unrelated project with its own live notes.
 7. Herd panes — ONLY when `HERDR_ENV=1`: load the `herdr` skill, then run
-   `scripts/herd-snapshot.sh` (read-only, scoped to this repo, its worktrees and
-   any extra root the note names). A herd worker is its own OS process, so it
-   survives the coordinator's crash; match it to the note by `session=`.
+   `python3 -I scripts/herd.py status` (read-only, scoped to this repo, its
+   worktrees, the recorded workers' folders and any extra root the note names;
+   `herd-snapshot.sh` is the same command). A herd worker is its own OS process,
+   so it survives the coordinator's crash; the herd record matches it to its
+   pane by session, then pane id, then name.
 
 ## 2 · Audit — self-reports are claims, not facts
 Classify EVERY in-flight item from artifacts alone. **Never discard uncommitted
@@ -103,7 +105,7 @@ misleading-but-correct commit; supersede it forward instead.
 Only inside a real herd. Enumerate every pane read-only via the herdr CLI.
 Inject `/pickup` only into an idle / failed **Claude** pane whose cwd is in
 **another repo**. Every pane inside this repo's scope (the panes
-`herd-snapshot.sh` lists) is reported and never injected. `/pickup` selects the
+`herd.py status` lists) is reported and never injected. `/pickup` selects the
 newest unconsumed note in its memory dir, not the pane's own context. A pane in
 this repo shares this memory dir, and a worktree pane may share it too, so
 `/pickup` there would resume and stamp THIS front's note. This front's workers

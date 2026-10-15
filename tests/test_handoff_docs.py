@@ -15,7 +15,7 @@ class HandoffDocsTests(unittest.TestCase):
         text = ''.join((SKILL / name).read_text() for name in ('SKILL.md', 'references/relay.md', 'references/feedback.md'))
         named = set(re.findall(r'scripts/([\w.-]+\.(?:py|sh))', text))
         self.assertTrue(named >= {'bg-tasks.py', 'memory-check.py', 'relay-check.py', 'relay-launch.sh',
-                                  'relay-close.sh'}, named)
+                                  'relay-close.sh', 'herd.py'}, named)
         for name in named:
             self.assertTrue((SCRIPTS / name).exists(), name)
 
@@ -173,6 +173,33 @@ class HandoffDocsTests(unittest.TestCase):
                 r = subprocess.run(['sh', '-c', command], input='{}', capture_output=True, text=True,
                                    env={'HOME': home, 'PATH': os.environ['PATH']}, timeout=30)
                 self.assertEqual(r.returncode, 0, (event, command, r.stderr))
+
+    def test_the_herd_is_driven_and_recorded_through_herd_py(self):
+        # SAVE records `herd.py status` and classifies only unclassified panes; a raw herdr launch is a red flag;
+        # the receipt answers a version-2 checklist by launch id, and one `herd.py wait` covers every worker.
+        skill = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        for needle in ('scripts/herd.py status [extra-root …]', 'Classify only its **unclassified** panes',
+                       '`herd.py adopt <pane> --role <role>`', 'raw `herdr agent start`'):
+            self.assertIn(needle, skill)
+        self.assertNotIn('herd-snapshot.sh [extra-root', skill)
+        relay = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        for needle in ('"workers": [{"launch_id": "<checklist launch id>"', '"lost": [{"launch_id"',
+                       '"unclassified": [{"pane_id"', 'matched by `launch_id`', '`"version": 2`',
+                       'herd.py wait --marker relay-<relay-id>-w<k> --fired-dir <dir>/fired',
+                       'flagged `looks_like_worker`',
+                       'A worker with nothing to wait on (no dispatch yet, or its latest dispatch already reported) '
+                       'gets a `reason` in the receipt, not a marker'):
+            self.assertIn(needle, relay)
+
+    def test_herd_py_documents_every_command_it_registers(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('herd', SCRIPTS / 'herd.py')
+        herd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(herd)
+        self.assertEqual(herd.COMMANDS, ('launch', 'dispatch', 'status', 'wait', 'adopt', 'close'))
+        for name in herd.COMMANDS:
+            self.assertTrue((SCRIPTS / ('herd_%s.py' % name)).is_file(), name)
+            self.assertRegex(herd.__doc__, r'\n  %s ' % name)
 
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.

@@ -62,16 +62,17 @@ them in the note.
      Also record running workflows (each `resumeFromRunId`) and detached
      processes + the ports they hold.
    - **Herd panes**, when `HERDR_ENV=1`:
-     `bash ~/.claude/skills/session-handoff/scripts/herd-snapshot.sh [extra-root …]`
-     (read-only; it lists every pane whose cwd is this repo or a worktree of it, and
-     you pass any dir outside the repo where this front launched panes). Record
-     each line it prints and classify the pane as **self**, **worker** of this
-     front, **shell** (the command it runs + its log) or **not mine**. For a
-     worker, also record model + effort, worktree + branch, brief path + sha256,
-     deliverable path, and its waiter command verbatim. Match on `session=`
-     first: herdr resumes an agent by it after a restore, where pane ids can
-     change and names clear. A `/clear` inside the pane starts a new session, so
-     pane id and then name are the fallbacks.
+     `python3 -I ~/.claude/skills/session-handoff/scripts/herd.py status [extra-root …]`
+     (read-only; `herd-snapshot.sh` is the same command). Its **workers** are the
+     launches this lead recorded (`herd.py launch`, `adopt`), matched to live
+     panes by session, then pane id, then name, each with its brief sha256,
+     deliverable state and worktree: record the table as printed, plus the
+     `herd.py wait` waiter covering them, verbatim. Classify only its
+     **unclassified** panes (in scope, matching no launch): **self**, **shell**
+     (the command it runs + its log), **not mine**, or **mine, launched by
+     hand**: then `herd.py adopt <pane> --role <role>` and record it as a worker.
+     A **lost** launch (no live pane) is recorded with what happened to it.
+     Pass any dir outside the repo where this front launched panes.
    - Session crons — and ANY text the Next step orders re-issued (cron prompt,
      agent dispatch brief, relaunch line): VERBATIM in the note, or in a durable
      file (`./tmp/…`, never `/tmp`) whose path the note records. Includes a cron
@@ -128,8 +129,9 @@ never compacts instead.
     bg-tasks.py, one line per task id: command, waiter or work, and the
     condition result (waiter) or log + exit-code file (work) · workflow
     run IDs · session crons VERBATIM · detached processes+ports+log paths · open PRs+CI
-    · herd panes (only when HERDR_ENV=1): one line per pane, classified
-    self / worker / shell / not mine, workers with brief, deliverable and waiter>
+    · herd panes (only when HERDR_ENV=1): `herd.py status` as printed (workers
+    with brief, deliverable and the `herd.py wait` waiter; lost launches), and
+    each unclassified pane classified self / shell / not mine / adopted>
 
     ## Artifacts          (paths, branches, PRs)
 
@@ -237,16 +239,18 @@ confirmation. Log anything the note lacked per `references/feedback.md`.
 
    **Herd panes — the note records any, or `HERDR_ENV=1`.** Invoke the `herdr`
    skill before the first herdr command: a note that records panes is the
-   explicit mention its description waits for. Re-run `herd-snapshot.sh` with
-   the note's extra roots, and match each recorded pane by `session=`, then pane
-   id, then name. herdr's live status outranks the note, and a pane in scope that
-   the note does not account for is drift. A worker's progress is its
+   explicit mention its description waits for. Re-run `herd.py status` with
+   the note's extra roots: it matches each recorded worker to its live pane by
+   session, then pane id, then name. herdr's live status outranks the note; a
+   worker the note records that `status` lists as lost, and an unclassified
+   pane the note does not account for, are drift. A worker's progress is its
    deliverable file (present? sha256?), never its chat. Only read panes: no
    `agent prompt`, `send-keys` or `/pickup` to a worker to learn its state. A
    prompt to an idle worker makes it a second writer, and a pane whose cwd is
    this repo shares this memory dir, so `/pickup` there would select and stamp
    THIS note. A recorded waiter is a background task of the old session: `pgrep
-   -f` its command, and offer to re-arm it verbatim only when it is gone.
+   -f` its command, and offer to re-arm it verbatim only when it is gone (one
+   `herd.py wait`, run with `run_in_background`, covers every worker).
 3. **Classify → tier:**
    - **Tier 1 (clean):** note exists · anchor matches reality · no newer /
      EMERGENCY / drifted evidence · in-flight items all accounted for →
@@ -339,6 +343,9 @@ listed task is long work that must finish first. Details:
   quiet minute or two — and then writing to the files it owns
 - Recording a herd worker without its brief, deliverable and waiter, or
   prompting / `/pickup`-ing a worker pane to find out what state it is in
+- Launching, dispatching or closing a worker with raw `herdr agent start`,
+  `agent prompt` or `pane close` instead of `herd.py launch`, `dispatch`,
+  `close`: the record no longer explains the herd
 - Settling an owner-level design question yourself instead of asking
 - Leaving a consumed note unstamped, or skipping the handoff because
   "compaction will summarize it anyway"

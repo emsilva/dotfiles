@@ -37,13 +37,16 @@ predecessor, on failure). The project's current lead is recorded in
    `/clear`). Exit 0 prints the relay dir as an absolute path: pass it on
    exactly as printed. It records your identity (model, effort, permission
    mode, pid, pane, herdr session), git, the note's sha256, open background
-   tasks, session crons, the worker panes and your last 3 prompts. Like
+   tasks, session crons, the herd (`"version": 2`: from the herd record
+   joined with live panes, its `workers` by launch id with their latest
+   dispatch, `lost` launches with no live pane, and `unclassified` live panes in
+   scope, each flagged `looks_like_worker` or not) and your last 3 prompts. Like
    `bg-tasks.py` it reads only the task ids Claude Code records for Bash,
    Monitor, Workflow and Agent: an MCP tool the harness moved to the background
    ("MCP tool … moved to the background as task <id>") is not listed, so record
    it in the note by hand. Exit 3: a blocker from step 2. Exit 2: a herdr read
-   failed or the note is unreadable. Neither creates a relay dir: fix the cause
-   and run it again.
+   failed, the herd record is unreadable, or the note is. Neither creates a
+   relay dir: fix the cause and run it again.
 6. **Launch.**
    `bash ~/.claude/skills/session-handoff/scripts/relay-launch.sh <relay-dir>`,
    through the Bash tool with `timeout: 300000` (two 90 s start attempts,
@@ -234,6 +237,17 @@ predecessor, on failure). The project's current lead is recorded in
 
          : relay-<relay-id>-w<k>; until <condition>; do sleep 30; done; mkdir -p <dir>/fired && touch <dir>/fired/relay-<relay-id>-w<k>
 
+     For a version-2 checklist's workers, one waiter covers them all, and
+     every worker's `waiter_marker` names it:
+
+         python3 -I ~/.claude/skills/session-handoff/scripts/herd.py wait --marker relay-<relay-id>-w<k> --fired-dir <dir>/fired
+
+     It exits on the first worker event (it also fires when the predecessor's
+     waiter recorded the event first) and touches its fired file. A worker
+     with nothing to wait on (no dispatch yet, or its latest dispatch already
+     reported) gets a `reason` in the receipt, not a marker: `herd.py wait`
+     exits 1 when nothing is pending.
+
      The leading marker is how compare finds the live waiter; the closing
      `touch` leaves `<dir>/fired/<marker>` when the waiter fires before the
      compare (a worker delivering mid-relay), and compare accepts that too.
@@ -331,8 +345,10 @@ predecessor, on failure). The project's current lead is recorded in
       "drift": [{"item": "<what differs>", "explanation": "<filled once the predecessor explains it>"}],
       "tasks": [{"id": "<checklist task id>", "action": "rearmed | watching-exit-file | drop",
                  "marker": "relay-<id>-w<k>", "reason": "<required for drop>"}],
-      "workers": [{"pane_id": "<checklist pane id>", "status_seen": "<status>", "waiter_marker": "relay-<id>-w<k>",
+      "workers": [{"launch_id": "<checklist launch id>", "status_seen": "<status>", "waiter_marker": "relay-<id>-w<k>",
                    "reason": "<required when there is no waiter_marker>"}],
+      "lost": [{"launch_id": "<checklist launch id>", "reason": "<what happened to it>"}],
+      "unclassified": [{"pane_id": "<checklist pane id>", "reason": "<whose it is>"}],
       "crons": [{"id": "<checklist cron id>", "action": "rearmed | drop", "reason": "<required for drop>"}],
       "disagreements": [],
       "questions": [],
@@ -362,9 +378,12 @@ unsettled after 2 fix rounds stops the relay, and the owner decides.
 - every checklist task is `rearmed` or `watching-exit-file` with a `marker`
   of this relay that is fired, or live in a process that descends from the
   successor's `pid` (a detached waiter fails), or `drop` with a reason;
-- every checklist worker, matched by `pane_id`, has such a `waiter_marker` or
+- every checklist worker, matched by `launch_id`, has such a `waiter_marker` or
   a reason (its status is not compared: a worker can finish between your look
-  and the compare);
+  and the compare); a checklist without `"version": 2` (written before the
+  herd record) matches its workers by `pane_id` instead;
+- every `lost` launch has a reason, and so has every `unclassified` pane
+  flagged `looks_like_worker` (other unclassified panes need nothing);
 - every checklist cron is `rearmed`, or `drop` with a reason;
 - `questions` and `disagreements` are empty, and every `drift` item has an
   explanation.
