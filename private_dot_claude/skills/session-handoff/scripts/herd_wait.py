@@ -66,14 +66,20 @@ def run(a):
         launches = herdlib.replay(herdlib.read(pdir))
         for key, (launch, d) in list(watched.items()):
             now = launches[launch['launch_id']]
+            latest = herdlib.latest(now)
+            if now['closed'] is not None or latest is None or latest['seq'] != d['seq']:
+                del watched[key]
+                delivered.pop(key, None)
+                blocked.pop(key, None)
+                continue
             event = now['reported'].get(d['seq'])
             if event:   # another waiter got there first: still this waiter's event
-                return fire(a, pdir, launch, d['seq'], event, d['deliverable'], record=False)
-            if now['closed'] is not None:   # closed by the lead: nothing to report
-                del watched[key]
+                path = (d['blocked'] if event == 'blocked' else now['pane_id'] if event.startswith('status=')
+                        else d['deliverable'])
+                return fire(a, pdir, now, d['seq'], event, path, record=False)
         watched.update(pending(launches, a.names))
         if not watched:
-            raise herdlib.Refusal('nothing left to wait on: every watched worker was closed')
+            raise herdlib.Refusal('nothing left to wait on: watched dispatches were closed, superseded or reported')
         try:
             pairs, _, _ = herdlib.match(launches, herdlib.live_panes())
         except relaylib.HerdrError as e:   # a failed read says nothing about the herd: poll again
