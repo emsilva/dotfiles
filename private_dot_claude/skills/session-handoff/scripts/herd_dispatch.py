@@ -243,8 +243,13 @@ def run(a):
     with herdlib.locked(pdir, 'herd.lock.' + hashlib.sha1(launch['cwd'].encode()).hexdigest()):
         paths = (rollouts() if launch['kind'] == 'codex' else
                  glob.glob(os.path.join(glob.escape(a.projects), '*', '*.jsonl')))
+        before = {}
         try:
-            before = {path: os.path.getsize(path) for path in paths}
+            for path in paths:
+                try:
+                    before[path] = os.path.getsize(path)
+                except FileNotFoundError:
+                    continue   # A file removed since discovery cannot receive this prompt.
         except OSError as e:
             raise herdlib.RecordError('cannot bound delivery to new transcript bytes: %s' % e)
         sent_at = herdlib.now_iso()

@@ -50,15 +50,54 @@ class DispatchCase(HerdCase):
                         'agent_status': status, 'name': 'one-xhigh-aaaa',
                         **({'agent_session': {'value': session}} if session else {})})
 
-    def dispatch(self, answers, *extra, env=None):
+    def dispatch(self, answers, *extra, env=None, code=None):
         return self.herd(answers, 'dispatch', 'one-xhigh-aaaa', '--brief', str(self.brief), '--deliverable',
-                         str(self.report), *extra, env=env)
+                         str(self.report), *extra, env=env, code=code)
+
+    def snapshot_code(self, path, denied=False):
+        # Delete the actual file after discovery, immediately before stat. Other paths use the real stat.
+        action = "raise PermissionError('snapshot denied')" if denied else 'os.unlink(candidate)'
+        return ("import herd, herd_dispatch, os\nfrom unittest import mock\n"
+                "original_size = herd_dispatch.os.path.getsize\n"
+                "def snapshot_size(candidate):\n"
+                "    if candidate == %r:\n        %s\n"
+                "    return original_size(candidate)\n"
+                "with mock.patch.object(herd_dispatch.os.path, 'getsize', side_effect=snapshot_size):\n"
+                "    sys.exit(herd.main(sys.argv[1:]))\n") % (str(path), action)
 
     def prompts(self):
         return [c[3] for c in self.calls(['agent', 'prompt'])]
 
 
 class CodexDispatchTests(DispatchCase):
+    def test_a_vanished_snapshot_rollout_does_not_abort_dispatch(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('OLD', self.line)
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                'agent prompt': [{'out': '{}', 'write': [self.rollout('C1', self.line)]}],
+                                'agent get': [agent('working', 'wT:p2', session='C1')]},
+                               code=self.snapshot_code(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['session_id'], 'C1')
+        self.assertEqual(self.prompts(), [self.line])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+        self.assertFalse(Path(path).exists(), 'the snapshot race was not exercised')
+
+    def test_a_denied_snapshot_rollout_still_prevents_dispatch(self):
+        panes, agents = self.codex_worker()
+        path, text = self.rollout('OLD')
+        Path(path).parent.mkdir(parents=True)
+        Path(path).write_text(text)
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents]},
+                               code=self.snapshot_code(path, denied=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('cannot bound delivery to new transcript bytes: snapshot denied', result.stderr)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
+        self.assertTrue(Path(path).is_file())
+
     def test_herdr_fallback_refuses_subagents_and_other_working_directories(self):
         panes, agents = self.codex_worker()
         for subagent, cwd in ((True, self.repo), (False, self.root / 'other')):
@@ -312,6 +351,35 @@ class RefusalTests(DispatchCase):
 
 
 class ClaudeDispatchTests(DispatchCase):
+    def test_a_vanished_snapshot_transcript_does_not_abort_dispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('OLD'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                                'agent prompt': [{'out': '{}', 'write': [[self.worker_transcript('W1'),
+                                                                        json.dumps(prompt(self.line)) + '\n']]}],
+                                'agent get': [agent('working', 'wT:p2', session='W1', kind='claude')]},
+                               code=self.snapshot_code(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['session_id'], 'W1')
+        self.assertEqual(self.prompts(), [self.line])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+        self.assertFalse(path.exists(), 'the snapshot race was not exercised')
+
+    def test_a_denied_snapshot_transcript_still_prevents_dispatch(self):
+        panes, agents = self.claude_worker('W1')
+        path = Path(self.worker_transcript('OLD'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(prompt(self.line)) + '\n')
+        result = self.dispatch({'pane list': [panes], 'agent list': [agents]},
+                               code=self.snapshot_code(path, denied=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('cannot bound delivery to new transcript bytes: snapshot denied', result.stderr)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
+        self.assertTrue(path.is_file())
+
     def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
         panes, agents = self.claude_worker('W1')
         path = Path(self.worker_transcript('W1'))
