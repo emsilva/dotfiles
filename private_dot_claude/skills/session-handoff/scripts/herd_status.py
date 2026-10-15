@@ -4,6 +4,7 @@ Read-only: it never prompts, focuses or writes to a pane. Scope is the repo's gi
 cwd and the extra roots. herd-snapshot.sh is this command (its arguments are extra roots).
 """
 import os
+import sys
 import time
 
 import herdlib
@@ -43,16 +44,13 @@ def last_event(launch):
 
 def shell_tail(pane):
     """A shell pane carries no command: its last visible lines are the evidence."""
-    try:
-        text = relaylib.herdr_text('pane', 'read', pane['pane_id'], '--source', 'visible', '--lines', '40')
-    except relaylib.HerdrError:
-        return 'unreadable'
+    text = relaylib.herdr_text('pane', 'read', pane['pane_id'], '--source', 'visible', '--lines', '40')
     lines = [line.strip()[:120] for line in text.splitlines() if line.strip()][-2:]
     return ' / '.join(lines) or 'blank'
 
 
 def cell(value):
-    return str(value).replace('|', '\\|')
+    return ' '.join(str(value).splitlines()).replace('|', '\\|')
 
 
 def table(header, rows):
@@ -90,10 +88,16 @@ def run(a):
     print()
     print('## unclassified (%d)' % len(got['unclassified']))
     rows = []
+    failed_read = False
     for pane in got['unclassified']:
         note = 'looks like a worker' if herdlib.looks_like_worker(pane.get('name')) else ''
         if not pane.get('agent'):
-            note = 'shell: ' + shell_tail(pane)
+            try:
+                note = 'shell: ' + shell_tail(pane)
+            except relaylib.HerdrError as e:
+                note = 'shell: unreadable'
+                failed_read = True
+                print('herd status: %s' % e, file=sys.stderr)
         rows.append([pane['pane_id'], pane.get('agent', 'shell'), pane.get('name') or '-',
                      pane.get('agent_status', '-'), short(herdlib.session_of(pane)), pane.get('cwd'), note or '-'])
     print('\n'.join(table(['pane', 'kind', 'name', 'status', 'session', 'cwd', 'note'], rows)) if rows else 'none')
@@ -107,4 +111,4 @@ def run(a):
         print('## closed (%d)' % len(closed))
         rows = [[l['name'], l['pane_id'], l['closed'], last_event(l)] for l in closed]
         print('\n'.join(table(['name', 'last pane', 'closed', 'last event'], rows)) if rows else 'none')
-    return 0
+    return 2 if failed_read else 0
