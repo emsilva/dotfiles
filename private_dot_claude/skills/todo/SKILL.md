@@ -1,6 +1,7 @@
 ---
 name: todo
-description: Use when the user says "remember to do X", "add that to my todos", "todo: X", types /todo, asks what's on their todo list or what their pending todos are, or wants to mark a todo done, started, or dropped.
+description: >-
+  Use when the user says "remember to do X", "add that to my todos", "todo: X", types /todo, asks what's on their todo list or what their pending todos are, or wants to mark a todo done, started, or dropped.
 ---
 
 # Todo — global cross-project capture

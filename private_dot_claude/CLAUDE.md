@@ -27,24 +27,6 @@ Reference implementation: `~/code/<project>/Taskfile.yml` — any recent project
 
 Codespaces **wipes `/tmp` on shutdown/reboot** — anything there that matters is gone on the next start. So for temporary files that must survive a restart (intermediate results, working scripts, run artifacts, snapshots I'll want later), write to the repo-root **gitignored `./tmp`**, which persists on the `/workspaces` volume. Reserve `/tmp` (incl. the harness scratchpad) for truly throwaway, within-session scratch. The rule of thumb: anything you'd be sorry to lose on a reboot goes in `./tmp`. Keep the repo-root `./tmp` gitignored (repo-anchored `/tmp/` line) so nothing there is ever committed.
 
-## Navigate code with the LSP, not grep
-
-- LSP servers are wired into the harness for **Go** (gopls), **Python** (pyright), and **TypeScript**. For "where is X defined / who calls it / what's the type of Y", reach for the **LSP tool** (`goToDefinition` · `findReferences` · `hover` · `workspaceSymbol` · call-hierarchy) before grep — it resolves symbols semantically across files and packages, and `hover` surfaces the doc comments that carry a codebase's real intent; grep only matches text.
-- The tool is **deferred**: load its schema once per session via ToolSearch (`select:LSP`), then it stays callable for the rest of the session. That one hop is why the *first* use isn't instant — I don't need you to trigger anything.
-- Server diagnostics arrive **automatically** after edits (pushed, not polled) — free signal, but **a pushed diagnostic is a snapshot of a moment, not a statement about the current tree**, and the harness labels it *new* either way. Measured twice on 2026-07-28 in a project, both during subagent-driven work: `col.Contest undefined` arrived immediately after the commit that added the field (live at `census.go:403`), and `unreachable code` was the echo of a mutation that had already been reverted. Both times `go build ./...`, `go vet` and `git status` were clean. **The adjudicator is a build plus `git status`** — never the diagnostic, never the editor's idea of the file.
-- **`(cached)` sitting beside a stale diagnostic is the real trap.** In the first case above, `go test` printed `ok (cached)` next to a diagnostic claiming a compile error: two stale signals agreeing, which reads exactly like corroboration. Force `-count=1` before believing a green, above all right after an agent committed. A diagnostic that survives a fresh build **and** `-count=1` is real; one that does not is a ghost of an intermediate state — most often a mutate/restore cycle, which subagent work does *deliberately* to prove a test can fail, so expect these whenever a fix round is running.
-- It's read-only navigation, never a substitute for `task build`/`test`; and where a server isn't available the tool just errors, so fall back to grep.
-
-## Web search: two engines, routed by what I'm after
-
-WebSearch and Exa (`mcp__plugin_exa_exa__web_search_exa`, deferred) both stay enabled. They are not ranked; they fail differently. Established 2026-07-28 by replaying 30 real transcript queries through both.
-
-- **WebSearch finds *where* something is** — a canonical URL, a package, a doc number, a product's current lifecycle status. It refines across several searches on its own. Keyword syntax is the point here: quoted phrases, `OR`, a bare `SH20-6433`.
-- **Exa finds what is *inside* something** — PDFs, commits, raw files, changelogs, mailing lists, forum threads, PRs. It returns page content, so it answers where WebSearch only hands back a link. It also beats WebSearch on fast-moving repo facts, where WebSearch quotes a stale README.
-- **WebSearch coming back empty or hedging IS the Exa trigger.** Never stop at "the search results don't contain that" — six of the 30 were exactly that shape, and Exa had the answer each time.
-- **Never hand Exa keyword syntax.** It ignores quotes and `OR` and searches the topical neighborhood instead — for a file-format query that lands in "how do I open a .XYZ file" spam. Describe the ideal page in prose: not `"SH20-6433" ESF tags`, but *"IBM reference manual describing the CSP/AD external source format tag syntax"*.
-- Exa costs ~3–4× the context per call, and its richer content can be **confidently stale** — it returned a repo layout upstream reversed four days later. On a fast-moving fact, confirm against the primary source before acting on it.
-
 ## Fix at the origin, not at the symptom
 
 Every problem gets reviewed under the light of the **pipeline/system that produced it**, not just the artifact in front of us. Before fixing, ask: *where is this best resolved for good, so it can never recur?* — that is usually upstream (the producer, the source, the generator), not where the symptom surfaced.
@@ -75,6 +57,7 @@ Earned from real regressions — these override "just get it merged":
 - Before claiming done, re-run the gates and a real smoke test yourself — never accept an implementer agent's green self-report at face value.
 - Verify the whole surface, not just your diff — the smoke must confirm the *rest* of the system still has what it had, not only that your change renders. A regression to adjacent code must not slip through a check scoped to the deliverable.
 - A large piece of work closes only when its end-to-end Definition-of-Done demonstration has actually run green — "every task merged" is not "done".
+- A cached green is not a fresh one: Go's `ok (cached)` can sit beside a broken tree. Re-run with `-count=1` before believing it, above all right after an agent committed.
 
 ## My own measurements are not validation either
 

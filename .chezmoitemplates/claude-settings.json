@@ -39,21 +39,21 @@
     "refreshInterval": 60
   },
   "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": false,
     "superpowers@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": true,
-    "claude-powerline@claude-powerline": true,
-    "claude-md-management@claude-plugins-official": true,
-    "exa@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": false,
+    "gopls-lsp@claude-plugins-official": false,
+    "claude-powerline@claude-powerline": false,
+    "claude-md-management@claude-plugins-official": false,
+    "exa@claude-plugins-official": false,
     "playwright@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
+    "code-review@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": false,
     "codex@openai-codex": true,
-    "pyright-lsp@claude-plugins-official": true
+    "pyright-lsp@claude-plugins-official": false
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
