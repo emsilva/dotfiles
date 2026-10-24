@@ -75,7 +75,8 @@ them in the note.
      Pass any dir outside the repo where this front launched panes.
    - Session crons — and ANY text the Next step orders re-issued (cron prompt,
      agent dispatch brief, relaunch line): VERBATIM in the note, or in a durable
-     file (`./tmp/…`, never `/tmp`) whose path the note records. Includes a cron
+     file (`.scratch/tmp/…` where the project has one, else `./tmp/…`; never
+     `/tmp`) whose path the note records. Includes a cron
      deleted at wrap-up. "In this session's transcript" is never a valid location
      — RESUME is forbidden to read it.
    - `gh pr status` (skip silently if no remote / no gh)

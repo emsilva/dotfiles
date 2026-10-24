@@ -23,9 +23,9 @@ Every software/technology project gets a `Taskfile.yml` ([go-task](https://taskf
 
 Reference implementation: `~/code/<project>/Taskfile.yml` — any recent project following this pattern.
 
-## Scratch files: gitignored `./tmp`, never `/tmp`
+## Scratch files: `.scratch/` when the project has one, else gitignored `./tmp`; never `/tmp`
 
-Codespaces **wipes `/tmp` on shutdown/reboot** — anything there that matters is gone on the next start. So for temporary files that must survive a restart (intermediate results, working scripts, run artifacts, snapshots I'll want later), write to the repo-root **gitignored `./tmp`**, which persists on the `/workspaces` volume. Reserve `/tmp` (incl. the harness scratchpad) for truly throwaway, within-session scratch. The rule of thumb: anything you'd be sorry to lose on a reboot goes in `./tmp`. Keep the repo-root `./tmp` gitignored (repo-anchored `/tmp/` line) so nothing there is ever committed.
+A Codespace can be **deleted at any time**, and only pushed commits and a project's `.scratch/` (synced to the Mac) survive that. Never plan on going back to a Codespace to pick something up. So in a project with `.scratch/`, anything you'd be sorry to lose (plans, briefs, reports, results, lead and herd state, logs worth keeping) goes there **as you make it**, with working files in **`.scratch/tmp/`**. In a Git worktree, use the main checkout's `.scratch/`: the worktree's own copy does not sync. `./tmp` holds only regenerable bulk you would shrug at losing (screenshots, builds, dependency trees); keep that out of `.scratch/`, which copies everything it holds. In a project without `.scratch/`, use the repo-root **gitignored `./tmp`**: Codespaces wipe `/tmp` on shutdown/reboot, while `./tmp` persists on the `/workspaces` volume. Keep it gitignored (repo-anchored `/tmp/` line) so nothing there is ever committed. Reserve `/tmp` (incl. the harness scratchpad) for truly throwaway, within-session scratch.
 
 ## Fix at the origin, not at the symptom
 
@@ -115,7 +115,7 @@ Settled by the owner 2026-07-05 — the rails under which an orchestrator runs a
 
 **Where work runs.** Small work happens in the current session. Large work — anything that earns a brainstorm and a plan — runs through the herd: the session that wrote the plan becomes the lead and hands each plan task to herdr workers, never to Agent-tool subagents. This layout holds in every project. Established 2026-09-28/29 on a two-day quality program with up to seven workers at once.
 
-**Reference herd:** the most recent large program's lead directory, found with `find ~/code -maxdepth 6 -path '*/tmp/*' -name LEAD-STATE.md`. Beside the herd record are the briefs (`BRIEF-*.md`) and the waiter for the whole herd (`waiter.sh`). It lives in a gitignored, machine-local `tmp/`.
+**Reference herd:** the most recent large program's lead directory, found with `find ~/code -maxdepth 6 -path '*/tmp/*' -name LEAD-STATE.md`. Beside the herd record are the briefs (`BRIEF-*.md`) and the waiter for the whole herd (`waiter.sh`). It lives in `.scratch/tmp/` where the project has one, so it survives a deleted Codespace; otherwise in the gitignored `tmp/`.
 
 - **Load the `herdr` skill first** (`/herdr`) before driving any pane. It is the authority for how herdr works and for its command syntax; the commands below are the pattern, not a substitute for it.
 - **Layout.** The coordinator owns the full-height **left** pane and does not implement. Workers live in the **right** column as **down-splits** stacked under each other (`herd.py launch` places them so). Focus stays on the coordinator. Never split right again: a third column is too narrow to read.
