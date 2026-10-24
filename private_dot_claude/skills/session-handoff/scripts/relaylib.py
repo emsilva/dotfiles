@@ -226,10 +226,13 @@ def start_agent(name, kind, pane, args, busy_wait=15, attempts=2, timeout_ms=900
 
 def banner_model(kind, model):
     """The model as the agent's banner names it: Claude shows 'claude-opus-5-5' as 'Opus 5.5'; Codex shows its
-    model id (in another case: 'GPT-6.1-Sol')."""
+    model id (in another case: 'GPT-6.1-Sol'); opencode shows 'gpt-6.1-sol' as 'GPT-6.1 Sol'."""
     if kind == 'claude':
         parts = model.removeprefix('claude-').split('-')
         return parts[0].capitalize() + ' ' + '.'.join(parts[1:])
+    if kind == 'opencode':
+        head, _, tail = model.rpartition('-')
+        return '%s %s' % (head, tail) if head else model
     return model
 
 

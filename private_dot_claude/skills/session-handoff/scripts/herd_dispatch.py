@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 
 import herd_launch
@@ -125,6 +126,37 @@ def codex_file(session):
     return hits[0] if len(hits) == 1 else None
 
 
+def opencode_session(session):
+    """`opencode session export` as JSON, or None when the session does not exist yet (before its first prompt)."""
+    r = subprocess.run(['opencode', 'session', 'export', session], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def opencode_user_texts(data):
+    return [m.get('text') or '' for m in (data or {}).get('messages') or [] if m.get('type') == 'user']
+
+
+def opencode_arrived(launch, line, before):
+    """(session, warning) once the session holds the prompt as a user message after the ones counted before the
+    send, else None. A session on another model or variant than the launch recorded is reported, not hidden."""
+    session = launch['session_id']
+    data = opencode_session(session) if session else None
+    texts = opencode_user_texts(data)
+    if not any(line in text for text in texts[before.get(session, 0):]):
+        return None
+    model = (data.get('info') or {}).get('model') or {}
+    if (model.get('id'), model.get('variant')) != (launch['model'], launch['effort']):
+        return session, 'the session runs %s at %s, not %s at %s' % (model.get('id'), model.get('variant'),
+                                                                     launch['model'], launch['effort'])
+    return session, None
+
+
 def herdr_session(pane):
     agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
     return (agent.get('agent_session') or {}).get('value')
@@ -133,6 +165,8 @@ def herdr_session(pane):
 def arrived(launch, pane, line, known, stale, before, not_before, claimed, projects):
     """(session id, warning) once the prompt is in the worker's transcript or session file, else None.
     stale: the session a reset just ended; herdr reporting it still is no answer."""
+    if launch['kind'] == 'opencode':
+        return opencode_arrived(launch, line, before)
     reported = herdr_session(pane)
     reported = None if reported == stale else reported
     if launch['kind'] == 'claude':
@@ -241,9 +275,12 @@ def run(a):
     claimed |= {d['session_id'] for l in launches.values() if l is not launch for d in l['dispatches']
                 if d['session_id']}
     with herdlib.locked(pdir, 'herd.lock.' + hashlib.sha1(launch['cwd'].encode()).hexdigest()):
-        paths = (rollouts() if launch['kind'] == 'codex' else
+        paths = (rollouts() if launch['kind'] == 'codex' else [] if launch['kind'] == 'opencode' else
                  glob.glob(os.path.join(glob.escape(a.projects), '*', '*.jsonl')))
         before = {}
+        if launch['kind'] == 'opencode' and launch['session_id']:
+            # The user messages already in the session: a delivered prompt is a later one.
+            before[launch['session_id']] = len(opencode_user_texts(opencode_session(launch['session_id'])))
         try:
             for path in paths:
                 try:
@@ -266,7 +303,8 @@ def run(a):
                 break
     if result is None:
         raise herdlib.Refusal('the brief did not reach %s (sent twice; its %s holds no such prompt)'
-                              % (a.name, 'transcript' if launch['kind'] == 'claude' else 'session file'))
+                              % (a.name, {'claude': 'transcript', 'opencode': 'session export'}.get(
+                                  launch['kind'], 'session file')))
     session, warning = result
     row = {'type': 'dispatch', 'launch_id': launch['launch_id'],
            'seq': max([d['seq'] for d in launch['dispatches']] or [0]) + 1, 'brief': brief, 'brief_sha256': sha,

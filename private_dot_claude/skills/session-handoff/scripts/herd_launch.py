@@ -1,7 +1,8 @@
 """launch: start a worker in a new pane right of the lead, verify its banner, record it.
 
 Codex at xhigh unless told otherwise; Claude with the lead's model at high effort when --kind claude, and only as a
-builder (Claude has no sandbox to hold it read-only). A builder gets its own worktree and branch; a read-only worker
+builder (Claude has no sandbox to hold it read-only); opencode with its configured default model and effort when --kind
+opencode, also only as a builder (no sandbox either). A builder gets its own worktree and branch; a read-only worker
 runs in the repo. Any failure closes the pane this command created, removes the worktree it created, and records
 nothing. After starting in a reused pane, a failure reports the agent for manual cleanup because the pane is not
 owned by this launch.
@@ -18,7 +19,9 @@ import herdlib
 import relaylib
 import transcript
 
-DEFAULTS = {'codex': ('gpt-6.1-sol', 'xhigh'), 'claude': (None, 'high')}   # Claude's model: the lead's own
+DEFAULTS = {'codex': ('gpt-6.1-sol', 'xhigh'), 'claude': (None, 'high'),   # Claude's model: the lead's own
+            'opencode': ('gpt-6.1-sol', 'xhigh')}
+NO_SANDBOX = ('claude', 'opencode')
 TRUST_OPTION = 'Yes, I trust this folder'
 TRUST_YES = re.compile(r'❯\s*(?:\d+\.\s*)?Yes, I trust this folder')
 STOP_ON = ('agent_name_taken', 'agent_not_ready')
@@ -27,7 +30,7 @@ SETTLE_BOUND = int(os.environ.get('HERD_SETTLE_SECONDS', '60'))   # after a star
 
 def add_arguments(p):
     p.add_argument('role', help='what the worker does: [a-z][a-z0-9-]*, the start of its name')
-    p.add_argument('--kind', choices=('codex', 'claude'), default='codex')
+    p.add_argument('--kind', choices=('codex', 'claude', 'opencode'), default='codex')
     mode = p.add_mutually_exclusive_group()
     mode.add_argument('--builder', action='store_true', help='a worktree and branch of its own; it commits')
     mode.add_argument('--readonly', action='store_true', help='the default: runs in the repo, cannot write .git')
@@ -71,7 +74,37 @@ def agent_args(kind, mode, model, effort, cwd, session_id):
                 '-c', 'projects={%s={trust_level="trusted"}}' % json.dumps(cwd)]
         return args + (['--dangerously-bypass-approvals-and-sandbox'] if mode == 'builder'
                        else ['-s', 'workspace-write', '-a', 'never'])
+    if kind == 'opencode':
+        # The TUI takes no model or effort flag: they come from the opencode config (opencode_defaults checks them).
+        # --session names the session up front, so the record knows it before the first prompt.
+        return [cwd, '--auto', '--session', session_id]
     return ['--model', model, '--effort', effort, '--dangerously-skip-permissions', '--session-id', session_id]
+
+
+def opencode_defaults():
+    """(model, effort) a new opencode session gets from its config: the default model and that model's
+    reasoningEffort setting. opencode v2's TUI takes neither on its command line."""
+    r = subprocess.run(['opencode', 'debug', 'config'], capture_output=True, text=True, timeout=60)
+    try:
+        sources = json.loads(r.stdout)
+    except ValueError:
+        raise herdlib.Refusal('opencode debug config did not print JSON: %s' % ' '.join((r.stderr or r.stdout).split())[:200])
+    model, effort = None, None
+    for source in sources:   # lowest precedence first: later sources win
+        info = source.get('info') if isinstance(source, dict) else None
+        if not isinstance(info, dict):
+            continue
+        default = info.get('model')
+        if isinstance(default, dict) and default.get('model'):
+            model = default['model']
+        elif isinstance(default, str) and default:
+            model = default.split('/', 1)[-1].split('#', 1)[0]
+        for provider in (info.get('providers') or {}).values():
+            for mid, entry in ((provider or {}).get('models') or {}).items():
+                value = ((entry or {}).get('settings') or {}).get('reasoningEffort')
+                if value and mid == model:
+                    effort = value
+    return model, effort
 
 
 def git(*args):
@@ -137,15 +170,22 @@ def run(a, taken_names=(), attempts=3):
     rows = herdlib.read(pdir)
     repo = os.path.realpath(a.repo) if a.repo else (herdlib.git_toplevel(os.getcwd()) or os.path.realpath('.'))
     mode = 'builder' if a.builder else 'readonly'
-    if a.kind == 'claude' and mode == 'readonly':
-        raise herdlib.Refusal('a Claude worker has no sandbox, so it cannot be read-only: launch it with --builder '
-                              '--base <ref> (its own worktree), or give read-only work to a Codex worker')
+    if a.kind in NO_SANDBOX and mode == 'readonly':
+        raise herdlib.Refusal('a %s worker has no sandbox, so it cannot be read-only: launch it with --builder '
+                              '--base <ref> (its own worktree), or give read-only work to a Codex worker'
+                              % a.kind.capitalize())
     if mode == 'builder' and not a.base:
         raise herdlib.Refusal('--builder needs --base <ref>: the commit the worktree is cut from')
     if mode == 'builder' and herdlib.git_toplevel(repo) != repo:
         raise herdlib.Refusal('--builder needs a git repo top level, and %s is not one' % repo)
     model = a.model or DEFAULTS[a.kind][0]
     effort = a.effort or DEFAULTS[a.kind][1]
+    if a.kind == 'opencode':
+        configured = opencode_defaults()
+        if configured != (model, effort):
+            raise herdlib.Refusal('opencode starts new sessions on %s at effort %s (its config), not %s at %s: set '
+                                  '"model" and providers.<p>.models.<m>.settings.reasoningEffort in '
+                                  '~/.config/opencode/opencode.json' % (configured + (model, effort)))
     if not model:
         session = os.environ['CLAUDE_CODE_SESSION_ID']
         model = transcript.last_model(transcript.find_transcript(session, a.projects))
@@ -156,7 +196,8 @@ def run(a, taken_names=(), attempts=3):
         lid, name = herdlib.new_name(a.role, effort, rows, taken)
     except ValueError as e:
         raise herdlib.Refusal(str(e))
-    session_id = str(uuid.uuid4()) if a.kind == 'claude' else None
+    session_id = (str(uuid.uuid4()) if a.kind == 'claude' else
+                  'ses_herd' + uuid.uuid4().hex[:20] if a.kind == 'opencode' else None)
     worktree = branch = None
     created_worktree = False
     created_pane = None
@@ -205,7 +246,10 @@ def run(a, taken_names=(), attempts=3):
                 relaylib.herdr_text('agent', 'rename', pane, name)
         elif not ok:
             raise herdlib.Refusal('agent start failed: %s' % out)
-        verify_banner(pane, relaylib.banner_model(a.kind, model), effort)
+        if a.kind != 'opencode':
+            # opencode's home screen draws no model line until its first prompt (and draws badly in a short pane):
+            # opencode_defaults checked the config above, and dispatch checks the session's model and variant.
+            verify_banner(pane, relaylib.banner_model(a.kind, model), effort)
         agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
         session_id = (agent.get('agent_session') or {}).get('value') or session_id
         row = herdlib.append(pdir, {
