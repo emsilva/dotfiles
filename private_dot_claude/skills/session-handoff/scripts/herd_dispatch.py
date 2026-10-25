@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 
 import herd_launch
@@ -127,12 +128,22 @@ def codex_file(session):
 
 
 def opencode_session(session):
-    """`opencode session export` as JSON, or None when the session does not exist yet (before its first prompt)."""
-    r = subprocess.run(['opencode', 'session', 'export', session], capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        return None
+    """`opencode session export` as JSON, or None when the session does not exist yet (before its first prompt).
+
+    Defensive: opencode 2.0.32 exits before a piped stdout drains, so through a pipe a session past one pipe buffer
+    comes back cut short with exit 0 (measured 2026-10-25 on a 1 MB export: whole into a file 3 of 3 times, cut at
+    270-358 KB through a pipe 3 of 3 times). An unparsable export read as "no prompt yet" made every such dispatch
+    send its brief twice. So the export goes to a regular file. Origin: opencode's export must drain stdout before
+    it exits; once it does, a pipe works again."""
+    with tempfile.TemporaryFile() as out:
+        r = subprocess.run(['opencode', 'session', 'export', session], stdout=out, stderr=subprocess.PIPE,
+                           timeout=60)
+        if r.returncode != 0:
+            return None
+        out.seek(0)
+        raw = out.read()
     try:
-        data = json.loads(r.stdout)
+        data = json.loads(raw)
     except ValueError:
         return None
     return data if isinstance(data, dict) else None

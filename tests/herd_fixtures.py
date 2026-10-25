@@ -23,6 +23,39 @@ TAKEN = {'out': json.dumps({'error': {'code': 'agent_name_taken', 'message': 'na
 NOT_FOUND = {'out': json.dumps({'error': {'code': 'agent_not_found', 'message': 'not found'}}), 'code': 1}
 
 
+OPENCODE_STUB = r'''#!/usr/bin/env python3
+"""Fake opencode for tests: `opencode session export <id>` prints the session $OPENCODE_STUB_DIR/<id>.jsonl (one
+message per line) as JSON. Like opencode 2.0.32 (measured 2026-10-25 on a 1 MB export: three file redirects whole,
+three pipes cut at 270-358 KB, all exit 0), it exits before a piped stdout drains, so a pipe gets a prefix of the
+JSON while a regular file gets all of it. A missing session exits 1."""
+import json, os, stat, sys
+if sys.argv[1:3] != ['session', 'export'] or len(sys.argv) < 4:
+    sys.exit(2)
+path = os.path.join(os.environ['OPENCODE_STUB_DIR'], sys.argv[3] + '.jsonl')
+if not os.path.exists(path):
+    sys.stderr.write('session not found\n')
+    sys.exit(1)
+messages = [json.loads(line) for line in open(path) if line.strip()]
+data = json.dumps({'info': {'model': {'id': 'gpt-6.1-sol', 'variant': 'xhigh'}}, 'messages': messages}, indent=2)
+if stat.S_ISFIFO(os.fstat(1).st_mode):
+    data = data[:len(data) // 2]
+sys.stdout.write(data)
+'''
+
+
+def opencode_stub(root):
+    """Put the fake opencode in the bin dir herdr_stub puts first on PATH; sessions live in <root>/opencode.
+    Returns the env to pass (OPENCODE_STUB_DIR)."""
+    bindir = Path(root) / 'bin'
+    bindir.mkdir(exist_ok=True)
+    exe = bindir / 'opencode'
+    exe.write_text(OPENCODE_STUB)
+    exe.chmod(0o755)
+    sessions = Path(root) / 'opencode'
+    sessions.mkdir(exist_ok=True)
+    return {'OPENCODE_STUB_DIR': str(sessions)}
+
+
 def ok(obj=None):
     return {'out': json.dumps(obj if obj is not None else {'result': {}})}
 

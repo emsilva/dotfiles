@@ -9,7 +9,7 @@ from unittest import mock
 import warnings
 
 from handoff_fixtures import prompt
-from herd_fixtures import CODEX_BANNER, HerdCase, agent, herdlib, listing
+from herd_fixtures import CODEX_BANNER, HerdCase, agent, herdlib, listing, opencode_stub
 
 TIME = '2026-10-14T10:00:01.000Z'
 FAST = {'HERD_RESEND_SECONDS': '2', 'HERD_CONFIRM_SECONDS': '3'}
@@ -433,6 +433,62 @@ class ClaudeDispatchTests(DispatchCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.prompts(), ['/clear', self.line])
         self.assertEqual(json.loads(r.stdout)['session_id'], 'W2')
+
+
+class OpencodeDispatchTests(DispatchCase):
+    """opencode 2.0.32 cuts its `session export` short on a pipe (exit 0); herd must still read the whole session,
+    or every dispatch to a session past one pipe buffer looks undelivered and the brief is sent twice."""
+
+    SESSION = 'ses_herd0123456789abcdef0123'
+
+    def setUp(self):
+        super().setUp()
+        self.oc_env = opencode_stub(self.root)
+        self.session_file = Path(self.oc_env['OPENCODE_STUB_DIR']) / (self.SESSION + '.jsonl')
+        # A session with history: an earlier brief and a long answer (the export runs past a pipe's buffer).
+        self.session_file.write_text(json.dumps({'type': 'user', 'text': 'Read and execute an earlier brief.'}) + '\n'
+                                     + json.dumps({'type': 'assistant', 'text': 'x' * 200000}) + '\n')
+
+    def opencode_worker(self):
+        self.record(self.launch_row('one-xhigh-aaaa', 'wT:p2', session=self.SESSION, kind='opencode',
+                                    mode='builder'))
+        return listing({'pane_id': 'wT:p2', 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'opencode',
+                        'agent_status': 'idle', 'name': 'one-xhigh-aaaa'})
+
+    def user_message(self, text):
+        return [str(self.session_file), json.dumps({'type': 'user', 'text': text}) + '\n']
+
+    def test_the_session_export_is_read_whole_though_the_cli_cuts_a_pipe(self):
+        code = ("import herd_dispatch, json\n"
+                "data = herd_dispatch.opencode_session(%r)\n"
+                "print(json.dumps(None if data is None else len(data['messages'])))\n") % self.SESSION
+        r = self.herd({}, code=code, env=self.oc_env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), 2)
+
+    def test_a_delivered_brief_is_confirmed_on_the_first_send(self):
+        panes, agents = self.opencode_worker()
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [self.user_message(self.line)]}],
+                           'agent get': [agent('working', 'wT:p2', kind='opencode')]},
+                          env={**FAST, **self.oc_env})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line], 'the brief was sent more than once')
+        row = json.loads(r.stdout)
+        self.assertEqual(row['session_id'], self.SESSION)
+        self.assertNotIn('session_warning', row)
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.opencode_worker()
+        with self.session_file.open('a') as fh:
+            fh.write(json.dumps({'type': 'user', 'text': self.line}) + '\n')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', kind='opencode')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0', **self.oc_env})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
 
 
 class DispatchHygieneTests(unittest.TestCase):
