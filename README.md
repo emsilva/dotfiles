@@ -9,6 +9,7 @@ and dev containers.
 - **zsh** — portable `.zshrc` (interactive-guarded, multi-distro) + [antidote](https://github.com/mattmc3/antidote) plugins
 - **tmux** — `.tmux.conf` + a cheatsheet
 - **starship** — prompt
+- **toolbelt** — on apt-based Linux (Codespaces, dev containers), applying installs whichever of the shell's toolbelt and starship are missing; elsewhere it names what to install. Set `DOTFILES_SKIP_TOOLBELT=1` to skip it
 - **neovim** — [LazyVim](https://www.lazyvim.org/)
 - **kitty** — terminal
 - **eza** — theme
