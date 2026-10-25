@@ -85,6 +85,7 @@ _path_prepend() { [[ -d "$1" ]] && path=("$1" $path); }
 _path_prepend "$HOME/.local/bin"
 _path_prepend "$HOME/.cargo/bin"
 _path_prepend "$HOME/go/bin"
+_path_prepend "$HOME/.opencode/bin"   # opencode installs here, not in Homebrew
 
 # Common completion dirs for brew + system packages
 for _zfunc in \
