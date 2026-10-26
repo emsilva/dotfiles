@@ -1169,6 +1169,11 @@ class AutonameTests(GateCase):
         body = 'Named this session %s: it is the only agent in %s.' % (name, self.repo)
         self.assertEqual(self.toasts(1), [['notification', 'show', 'Relay gate: repo', '--body', body,
                                             '--sound', 'request']])
+        lead = json.loads((self.project / 'relay' / 'lead.json').read_text())
+        self.assertEqual(set(lead), {'session_id', 'pane_id', 'name', 'since', 'relay_id'})
+        self.assertEqual((lead['session_id'], lead['pane_id'], lead['name'], lead['relay_id']),
+                         (SID, pane, name, None))
+        datetime.datetime.fromisoformat(lead['since'])
         self.assertIsNone(self.state())
 
     def test_a_named_session_is_never_renamed_and_is_read_once(self):
@@ -1245,15 +1250,41 @@ class AutonameTests(GateCase):
         self.assertIn(str(self.repo), ' '.join(self.toasts(1)[0]))
 
     def test_a_target_name_held_elsewhere_blocks(self):
+        pane = self.env['HERDR_PANE_ID']
         name = self.lead_name(self.repo)
         self.unnamed([{'pane_id': 'wT:p9', 'agent': 'claude', 'name': name, 'foreground_cwd': '/other/checkout'}])
+        body = ('%s is held by another live agent (pane wT:p9 in /other/checkout). This session stays unnamed. '
+                'Free the name, then: herdr agent rename %s %s.' % (name, pane, name))
+        toast = ['notification', 'show', 'Relay gate: repo', '--body', body, '--sound', 'request']
         self.at(40)
         self.assertIsNone(self.gate())
         self.assertTrue(self.calls('agent', 'list'))
         self.assertEqual(self.calls('agent', 'rename'), [])
-        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertEqual(self.toasts(1), [toast])
+        taken = self.project / 'relay' / 'gate' / (SID + '.name-taken')
+        self.assertTrue(taken.is_file())
         self.assertFalse(self.marker().exists())
         self.assertIsNone(self.state())
+        self.assertFalse((self.project / 'relay' / 'lead.json').exists())
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.toasts(1), [toast])
+        self.assertEqual(self.calls('agent', 'rename'), [])
+
+    def test_naming_a_lead_replaces_a_stale_lead_json(self):
+        stale = {'session_id': 'old-lead', 'pane_id': 'wT:old', 'name': 'lead-old',
+                 'since': '2026-10-13T00:00:00+00:00', 'relay_id': '20261013T000000Z'}
+        (self.project / 'relay').mkdir(parents=True)
+        (self.project / 'relay' / 'lead.json').write_text(json.dumps(stale))
+        pane = self.unnamed()
+        name = self.lead_name(self.repo)
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, name]])
+        lead = json.loads((self.project / 'relay' / 'lead.json').read_text())
+        self.assertEqual((lead['session_id'], lead['pane_id'], lead['name'], lead['relay_id']),
+                         (SID, pane, name, None))
+        self.assertNotEqual(lead['since'], stale['since'])
+        datetime.datetime.fromisoformat(lead['since'])
 
     def test_a_failed_agent_get_names_nothing(self):
         pane = self.unnamed(get_code=1, get_out='boom')

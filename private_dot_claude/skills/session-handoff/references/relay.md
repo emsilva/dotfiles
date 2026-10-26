@@ -305,7 +305,10 @@ predecessor, on failure). The project's current lead is recorded in
    pane (a lead started by hand), it also requires the checklist's predecessor
    pid to be a live `claude` process. Then it closes the pane, waits up to
    `RELAY_CLOSE_WAIT` seconds (default 10) for the pane and the pid to be gone
-   (exit 1 if either outlives that), renames you `lead-<project>` and writes
+   (exit 1 if either outlives that) and renames you to the predecessor's herdr
+   name when that starts with `lead-` and does not end in `-next`. A `-next`
+   name, or any name that does not start with `lead-`, is not inherited: you
+   are named by `relay-check.py name --repo <repo>` instead. It then writes
    `closed.json` and `relay/lead.json` (exit 1 if it cannot). Exit 0: closed;
    if the rename failed, its warning names the name you kept. Exit 2, before
    any close: not inside herdr, `CLAUDE_CODE_SESSION_ID` unset, no checklist,
@@ -331,11 +334,13 @@ predecessor, on failure). The project's current lead is recorded in
    - Refused because a prompt reached the old pane: tell the owner; the pane
      stays open for them.
    - If it refused and the owner then closes the old pane by hand, the close
-     happened but the rename and the records did not. Run
+     happened but the rename and the records did not. Take the predecessor's
+     herdr name when it starts with `lead-` and does not end in `-next`;
+     otherwise run
      `herdr agent rename $HERDR_PANE_ID <name>` with the name from
      `python3 -I ~/.claude/skills/session-handoff/scripts/relay-check.py name --repo <repo>`
-     (`<repo>` from `checklist.json`), and tell the owner that `closed.json`
-     and `lead.json` were not written.
+     (`<repo>` from `checklist.json`). Tell the owner that `closed.json` and
+     `lead.json` were not written.
 4. **Drive.** A clean pickup continues under the standing instruction exactly
    as `handover.md` quotes it, no wider. Drift you cannot resolve, a mismatch
    the predecessor could not explain, or a question only the owner can answer:
@@ -460,6 +465,8 @@ exits 2 blocks every turn end of every session.
 | Subagent or workflow running, attached work running, git mid-operation | wait; the relay does not start (`checklist` exit 3) |
 | A herdr read fails, or the herd record or note is unreadable at the checklist | `checklist` exit 2, no relay dir; fix the cause and run it again |
 | Successor fails to start | one retry (a start answered `agent_pane_busy` is retried for up to 15 s before it counts); then `failed.json`, the new pane closed, the predecessor keeps driving and tells the owner |
+| Successor's start hits Claude's folder-trust dialog | `relay-launch.sh` answers "Yes, I trust this folder" (the launcher chose that repo) and continues; any other startup block is a failed start (one attempt, then `failed.json`, the new pane closed) |
+| Predecessor's herdr name ends in `-next`, or does not start with `lead-` | `relay-close.sh` does not inherit it; the successor is named by `relay-check.py name` |
 | `relay-launch.sh` killed (Bash timeout, Ctrl-C) | it closes the pane it made and writes `failed.json` with reason `interrupted`; the predecessor keeps driving and tells the owner |
 | No usable receipt: the successor dies, stays `blocked` for about 2 minutes, or 20 minutes pass (15 per fix round) | the waiter ends; `failed.json` with `"stage": "receipt"`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`), keeps the lead and tells the owner |
 | Identity mismatch (a mode other than bypass is not passed on) | no fix round; `failed.json`, the predecessor closes the successor it launched if its pane still hosts it (`successor_closed`) and asks the owner; its own pane stays open |

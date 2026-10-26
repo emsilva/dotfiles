@@ -11,7 +11,6 @@ owned by this launch.
 import datetime
 import json
 import os
-import re
 import subprocess
 import time
 import uuid
@@ -23,8 +22,6 @@ import transcript
 DEFAULTS = {'codex': ('gpt-6.1-sol', 'xhigh'), 'claude': (None, 'high'),   # Claude's model: the lead's own
             'opencode': ('gpt-6.1-sol', 'xhigh'), 'grok': ('grok-4.7', 'xhigh')}
 NO_SANDBOX = ('claude', 'opencode', 'grok')
-TRUST_OPTION = 'Yes, I trust this folder'
-TRUST_YES = re.compile(r'❯\s*(?:\d+\.\s*)?Yes, I trust this folder')
 GROK_TRUST = 'Do you trust the contents of this directory?'   # Grok Build 1.0.70; "y" answers "Yes, proceed"
 GROK_READY = ('Ctrl+.:shortcuts', '─❯')   # its idle input line, as drawn in a short herd pane
 STOP_ON = ('agent_name_taken', 'agent_not_ready')
@@ -130,23 +127,19 @@ def screen(pane):
 
 def answer_startup_dialog(kind, pane, cwd):
     """`agent start` answered agent_not_ready: a dialog holds the agent. Claude's folder-trust dialog is
-    answered yes (it preselects "No, exit"): the agent runs in cwd, which this launch chose (the repo, a worktree
-    it just created, or a --pane already checked to be in cwd), so the dialog can only be about cwd. Codex's
-    update menu is skipped with esc. Anything else fails."""
-    text = screen(pane)
+    answered by relaylib.answer_claude_trust (it preselects "No, exit"): the agent runs in cwd, which this
+    launch chose (the repo, a worktree it just created, or a --pane already checked to be in cwd), so the
+    dialog can only be about cwd. Codex's update menu is skipped with esc. Anything else fails."""
     if kind == 'claude':
-        if TRUST_OPTION not in text:
-            raise herdr_failure('Claude is blocked at startup on something other than the trust dialog for %s'
-                                % cwd, text)
-        relaylib.herdr_text('agent', 'send-keys', pane, 'down')
-        text = screen(pane)
-        if not TRUST_YES.search(text):
-            raise herdr_failure('the trust dialog did not select "Yes, I trust this folder"', text)
-        relaylib.herdr_text('agent', 'send-keys', pane, 'enter')
-    else:
-        if 'trust' in text.lower():
-            raise herdr_failure('Codex asks to trust %s despite the override' % cwd, text)
-        relaylib.herdr_text('agent', 'send-keys', pane, 'esc')
+        try:
+            relaylib.answer_claude_trust(pane, cwd)
+        except relaylib.DialogError as e:
+            raise herdlib.Refusal(str(e))
+        return
+    text = screen(pane)
+    if 'trust' in text.lower():
+        raise herdr_failure('Codex asks to trust %s despite the override' % cwd, text)
+    relaylib.herdr_text('agent', 'send-keys', pane, 'esc')
     # Not `agent wait`: it returns on the first settled state, and the pane is still `blocked` until the key lands.
     deadline = time.monotonic() + SETTLE_BOUND
     while True:

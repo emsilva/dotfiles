@@ -5,11 +5,13 @@
 # Usage: bash relay-launch.sh <relay-dir> [--slug SLUG]
 # Success: prints the new pane id and writes <relay-dir>/launch.json.
 # Failure (split failed, two failed starts, a banner unread or without the
-# model or effort, /pickup not sent): closes the pane it created, writes
-# <relay-dir>/failed.json and exits 1. Exit 2 outside herdr or without a checklist.
+# model or effort, /pickup not sent, a startup block that is not the folder
+# trust dialog): closes the pane it created, writes <relay-dir>/failed.json
+# and exits 1. Exit 2 outside herdr or without a checklist.
 # A start that herdr answers with agent_pane_busy (the new pane's shell is not
 # ready yet) is retried every second for up to RELAY_LAUNCH_BUSY_WAIT seconds
-# (default 15) before it counts as a failed attempt.
+# (default 15) before it counts as a failed attempt. A start answered
+# agent_not_ready is Claude's folder-trust dialog: it is answered, not retried.
 set -uo pipefail
 dir=${1:?usage: relay-launch.sh <relay-dir> [--slug SLUG]}
 shift
@@ -62,9 +64,11 @@ pane=$(herdr pane split "$HERDR_PANE_ID" --direction down --cwd "$repo" --no-foc
 [ -n "$pane" ] || fail "pane split failed"
 
 # A pane fresh from the split may not host a shell yet: herdr then answers agent_pane_busy, which relaylib
-# retries inside the attempt; any other error ends the attempt.
+# retries inside the attempt. A Claude start answered agent_not_ready is the folder-trust dialog: relaylib
+# answers it (this launch chose the repo) instead of failing. Any other error ends the attempt.
 attempt=1
-python3 -I "$here/relaylib.py" start-agent "$name" claude "$pane" "$busy_wait" --report "$start_report" -- "${args[@]}" \
+python3 -I "$here/relaylib.py" start-agent "$name" claude "$pane" "$busy_wait" \
+  --report "$start_report" --cwd "$repo" -- "${args[@]}" \
   || fail "agent start failed: $(field last_error "$start_report")"
 
 # The banner must show the model and the effort (a whole word, so "high" is not found in "xhigh effort").

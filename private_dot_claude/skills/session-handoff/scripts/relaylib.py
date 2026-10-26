@@ -4,7 +4,9 @@ relays, lead names, and bounded herdr calls (reads, agent start, the banner chec
 Stdlib only. The CLIs run under `python3 -I` and put this directory on sys.path before importing it.
 relay-launch.sh runs it as a script: `start-agent` and `check-banner` (see main()).
 """
+import datetime
 import glob
+import hashlib
 import json
 import os
 import re
@@ -19,6 +21,7 @@ ABANDONED_AFTER = 25 * 60
 ACTIVITY = ('checklist.json', 'launch.json', 'receipt.json', 'fix-*', 'fired/*')
 GIT_BOUND = 2   # seconds: the gate runs git on the Stop path, inside its 7 s budget
 NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
+HASH_LEN = 4   # hex chars of the repo path, appended only when the slug must be cut
 
 
 def slug(repo, override=None):
@@ -27,9 +30,43 @@ def slug(repo, override=None):
 
 
 def lead_name(repo, suffix=None, override=None):
-    """lead-<slug>[-<suffix>]: what `relay-check.py name` prints. The slug is cut so `-next` still fits."""
-    base = 'lead-' + slug(repo, override)[:NAME_ROOM].rstrip('-')
+    """lead-<slug>[-<suffix>]: what `relay-check.py name` prints.
+
+    A slug that fits in NAME_ROOM is unchanged. One that must be cut is the cut slug, a hyphen, and the first
+    4 hex characters of sha256(realpath of the repo top level), so two repos that share a prefix do not share
+    a name. `-next` still fits inside herdr's 32-character limit `[a-z][a-z0-9_-]{0,31}`."""
+    text = slug(repo, override)
+    if len(text) <= NAME_ROOM:
+        base = 'lead-' + text
+    else:
+        cut = text[:NAME_ROOM - 1 - HASH_LEN].rstrip('-')
+        tag = hashlib.sha256(os.path.realpath(repo).encode()).hexdigest()[:HASH_LEN]
+        base = 'lead-' + cut + '-' + tag
     return base + ('-' + suffix if suffix else '')
+
+
+def write_lead(path, session_id, pane_id, name, relay_id, since=None):
+    """Atomically write relay/lead.json in the shape relay-close.sh records.
+
+    Keys, in order: session_id, pane_id, name (null when empty), since (UTC ISO with a numeric offset, as
+    relay-close.sh stamps it), relay_id (null when this naming is not a relay). A stale file at path is replaced."""
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    since = since or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    data = {'session_id': session_id, 'pane_id': pane_id, 'name': name or None, 'since': since,
+            'relay_id': relay_id}
+    tmp = '%s.tmp.%d' % (path, os.getpid())
+    try:
+        with open(tmp, 'w') as fh:
+            json.dump(data, fh, indent=1)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def run(cmd, timeout=GIT_BOUND):
@@ -272,29 +309,117 @@ def read_banner(pane, model_text, effort, bound=None):
         time.sleep(1)
 
 
+class DialogError(Exception):
+    """Claude's startup screen was not the folder-trust dialog, or the dialog did not settle."""
+
+
+TRUST_OPTION = 'Yes, I trust this folder'
+TRUST_YES = re.compile(r'❯\s*(?:\d+\.\s*)?Yes, I trust this folder')
+
+
+def _screen(pane):
+    """What the pane shows: its viewport, then the bottom buffer. A dialog in a short pane can sit below the
+    viewport's top lines, and the bottom buffer alone can miss its header."""
+    return (herdr_text('pane', 'read', pane, '--source', 'visible') + '\n'
+            + herdr_text('pane', 'read', pane, '--source', 'detection'))
+
+
+def answer_claude_trust(pane, cwd, settle_bound=None):
+    """Answer Claude's folder-trust dialog and wait until the agent is idle or done.
+
+    The dialog preselects "No, exit". cwd is the folder this launch chose (the repo, a worktree it just created,
+    or a pane already in that folder), so the dialog can only be about cwd. DialogError when the screen is a
+    different block, Yes does not select, or the agent does not settle. A herdr failure raises HerdrError.
+    HERD_SETTLE_SECONDS bounds the wait (default 60), the same knob herd.py launch uses."""
+    bound = int(os.environ.get('HERD_SETTLE_SECONDS', '60')) if settle_bound is None else settle_bound
+    text = _screen(pane)
+    if TRUST_OPTION not in text:
+        raise DialogError('Claude is blocked at startup on something other than the trust dialog for %s '
+                          '(pane shows: %s)' % (cwd, screen_tail(text)))
+    herdr_text('agent', 'send-keys', pane, 'down')
+    text = _screen(pane)
+    if not TRUST_YES.search(text):
+        raise DialogError('the trust dialog did not select "Yes, I trust this folder" (pane shows: %s)'
+                          % screen_tail(text))
+    herdr_text('agent', 'send-keys', pane, 'enter')
+    # Not `agent wait`: it returns on the first settled state, and the pane is still blocked until the key lands.
+    deadline = time.monotonic() + bound
+    while True:
+        agent = (herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
+        if agent.get('agent_status') in ('idle', 'done'):
+            return
+        if time.monotonic() >= deadline:
+            raise DialogError('the agent is still %s %d s after its startup dialog (pane shows: %s)'
+                              % (agent.get('agent_status'), bound, screen_tail(text)))
+        time.sleep(1)
+
+
 def screen_tail(text, lines=3):
     """The last non-blank lines of a pane read, joined on one line: what a failure shows of the screen."""
     return ' | '.join([line.strip() for line in text.splitlines() if line.strip()][-lines:])
 
 
+def _write_start_report(path, attempts, error):
+    if not path:
+        return
+    with open(path + '.tmp', 'w') as fh:
+        json.dump({'attempts': attempts, 'last_error': error}, fh)
+    os.replace(path + '.tmp', path)
+
+
+def _parse_start(argv):
+    """(name, kind, pane, busy, report, cwd, args) for a start-agent invocation, or None."""
+    if argv[:1] != ['start-agent'] or len(argv) < 6:
+        return None
+    name, kind, pane, busy = argv[1:5]
+    rest = list(argv[5:])
+    report = cwd = None
+    while rest and rest[0] != '--':
+        flag = rest.pop(0)
+        if flag not in ('--report', '--cwd') or not rest:
+            return None
+        value = rest.pop(0)
+        if flag == '--report':
+            report = value
+        else:
+            cwd = value
+    if not rest or rest[0] != '--':
+        return None
+    return name, kind, pane, busy, report, cwd, rest[1:]
+
+
 def main(argv):
     """relay-launch.sh's entry points:
-      start-agent NAME KIND PANE BUSY_WAIT [--report PATH] -- ARGS...
+      start-agent NAME KIND PANE BUSY_WAIT [--report PATH] [--cwd PATH] -- ARGS...
                                                        exit 0 started, 1 not; report: attempts, last_error
+                                                       a Claude start answered agent_not_ready is the folder-trust
+                                                       dialog: answered (cwd is the folder this launch chose), not retried
       check-banner PANE KIND MODEL [EFFORT]             exit 0 shown (read again for up to BANNER_BOUND s),
                                                         1 with the reason and the screen's tail on stdout"""
-    split = 7 if len(argv) >= 8 and argv[5] == '--report' else 5
-    if argv[:1] == ['start-agent'] and len(argv) > split and argv[split] == '--':
-        name, kind, pane, busy = argv[1:5]
-        def progress(attempts, error):
-            if split == 7:
-                path = argv[6]
-                with open(path + '.tmp', 'w') as fh:
-                    json.dump({'attempts': attempts, 'last_error': error}, fh)
-                os.replace(path + '.tmp', path)
-        ok, _ = start_agent(name, kind, pane, argv[split + 1:], busy_wait=int(busy), progress=progress,
-                            log=lambda line: print('relay-launch: ' + line, file=sys.stderr))
-        return 0 if ok else 1
+    parsed = _parse_start(argv)
+    if parsed:
+        name, kind, pane, busy, report, cwd, args = parsed
+
+        def progress(attempts, error, _report=report):
+            _write_start_report(_report, attempts, error)
+
+        stop_on = ('agent_not_ready',) if kind == 'claude' else ()
+        ok, out = start_agent(name, kind, pane, args, busy_wait=int(busy), stop_on=stop_on, progress=progress,
+                              log=lambda line: print('relay-launch: ' + line, file=sys.stderr))
+        if ok:
+            return 0
+        if kind == 'claude' and error_code(out) == 'agent_not_ready':
+            try:
+                answer_claude_trust(pane, cwd or 'the launch folder')
+                agent = (herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
+                if agent.get('name') != name:
+                    herdr_text('agent', 'rename', pane, name)
+            except (DialogError, HerdrError) as e:
+                progress(1, str(e))
+                print('relay-launch: ' + str(e), file=sys.stderr)
+                return 1
+            return 0
+        return 1
     if argv[:1] == ['check-banner'] and len(argv) in (4, 5):
         pane, kind, model = argv[1:4]
         try:

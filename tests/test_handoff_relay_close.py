@@ -189,6 +189,43 @@ class CloseTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(['agent', 'rename', 'wT:p1', 'lead-sample'], herdr_calls(self.log))
 
+    def predecessor_name(self, herdr_name):
+        chk = json.loads((self.dir / 'checklist.json').read_text())
+        chk['predecessor']['herdr_name'] = herdr_name
+        (self.dir / 'checklist.json').write_text(json.dumps(chk))
+
+    def test_inherits_a_lead_name_that_does_not_end_in_next(self):
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        self.predecessor_name('lead-kept')
+        r = self.close(None, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-kept'], herdr_calls(self.log))
+        self.assertEqual(json.loads((self.dir.parent / 'lead.json').read_text())['name'], 'lead-kept')
+
+    def test_a_next_name_is_not_inherited(self):
+        # A failed rename leaves the successor as lead-<slug>-next. Inheriting that name would make the
+        # next launch collide with the predecessor's own live name.
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        self.predecessor_name('lead-kept-next')
+        r = self.close(None, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-repo'], herdr_calls(self.log))
+        self.assertNotIn(['agent', 'rename', 'wT:p1', 'lead-kept-next'], herdr_calls(self.log))
+
+    def test_a_name_that_does_not_start_with_lead_is_not_inherited(self):
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        self.predecessor_name('worker-high')
+        r = self.close(None, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-repo'], herdr_calls(self.log))
+
+    def test_an_explicit_slug_wins_over_an_inherited_lead_name(self):
+        env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
+        self.predecessor_name('lead-kept')
+        r = self.close(None, env=env, args=('--slug', 'sample'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(['agent', 'rename', 'wT:p1', 'lead-sample'], herdr_calls(self.log))
+
     def test_refuses_to_close_its_own_pane(self):
         env = self.prepare({'agent get': [{'out': agent_json('idle', session='S0')}, NOT_FOUND]})
         env['HERDR_PANE_ID'] = 'wT:p0'

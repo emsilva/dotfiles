@@ -4,7 +4,9 @@
   stop   Stop hook: at the first safe turn end at or above the threshold, block with "run /relay now"
   tool   PostToolUse hook: once per band, tell the lead a relay is due
 
-On stop, an unnamed session that is the only agent in a project's main checkout is named lead-<project>.
+On stop, an unnamed session that is the only agent in a project's main checkout is named lead-<project>
+and recorded in relay/lead.json. When that name is held by another live agent, one toast per session names
+the conflict and the manual rename.
 
 Reads the hook's JSON on stdin and prints a hook decision, or nothing. It never fails closed: an error is
 logged to <project>/relay/gate/errors.log, toasted once per session, and the call exits 0 with no output.
@@ -396,8 +398,28 @@ def tell_shared(call, top, target):
                          'herdr agent rename %s %s.' % (top, call.pane, target)))
 
 
+def tell_taken(call, target, holder):
+    """One toast per session when the lead name is held by another live agent. Not the state file.
+
+    The body names the conflict and the manual rename. A second call in this session finds the marker and
+    stays quiet."""
+    marker = os.path.join(call.project, 'relay', 'gate', '%s.name-taken' % call.session)
+    try:
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except OSError:
+        return
+    pane = holder.get('pane_id') if isinstance(holder, dict) else None
+    place = agent_place(holder)
+    call.toasts.append(('Relay gate: %s' % call.label,
+                         '%s is held by another live agent (pane %s in %s). This session stays unnamed. '
+                         'Free the name, then: herdr agent rename %s %s.'
+                         % (target, pane or 'unknown', place or 'elsewhere', call.pane, target)))
+
+
 def maybe_name_lead(call):
-    """Name an unnamed session lead-<project> when it is the only agent in a main checkout.
+    """Name an unnamed session lead-<project> when it is the only agent in a main checkout, and write
+    relay/lead.json. A name held elsewhere is toasted once, not taken.
 
     Before the fill is read, so it does not depend on context use. A herdr or git failure leaves the name unset;
     the next turn end tries again. Late propagates. Any other error is reported, and the call prints nothing."""
@@ -426,10 +448,14 @@ def _name_if_only(call):
         if not any(lead_named_here(agent, top) for agent in agents):
             tell_shared(call, top, target)
         return
-    if any(isinstance(agent, dict) and agent.get('name') == target for agent in agents):
+    holders = [agent for agent in agents if isinstance(agent, dict) and agent.get('name') == target]
+    if holders:
+        tell_taken(call, target, holders[0])
         return
     relaylib.herdr_text('agent', 'rename', call.pane, target, timeout=call.clock.left(HERDR_BOUND))
     call._lead = True
+    relaylib.write_lead(os.path.join(call.project, 'relay', 'lead.json'),
+                        call.session, call.pane, target, None)
     call.toasts.append(('Relay gate: %s' % call.label,
                          'Named this session %s: it is the only agent in %s.' % (target, top)))
 

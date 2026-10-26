@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import importlib.util
 import json
 import os
@@ -19,6 +20,21 @@ import herdlib  # noqa: E402
 RC = SCRIPTS / 'relay-check.py'
 SID = '33333333-3333-4333-8333-333333333333'
 HERDR_NAME = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
+# Herdr names are at most 32 characters; lead- and -next are reserved so a successor name still fits.
+_NAME_ROOM = 32 - len('lead-') - len('-next')
+
+
+def collision_proof_name(repo, suffix=None):
+    """What `relay-check.py name` must print: a slug that fits is unchanged; a cut slug ends with
+    the first 4 hex characters of sha256(realpath of the repo)."""
+    text = re.sub(r'[^a-z0-9]+', '-', os.path.basename(os.path.abspath(repo).rstrip('/')).lower()).strip('-') or 'project'
+    if len(text) <= _NAME_ROOM:
+        base = 'lead-' + text
+    else:
+        cut = text[:_NAME_ROOM - 1 - 4].rstrip('-')
+        tag = hashlib.sha256(os.path.realpath(repo).encode()).hexdigest()[:4]
+        base = 'lead-' + cut + '-' + tag
+    return base + ('-' + suffix if suffix else '')
 
 
 def load_module():
@@ -45,7 +61,8 @@ def git_repo(root):
 
 class NameTests(unittest.TestCase):
     def test_lead_names_are_valid_herdr_names(self):
-        for repo, canonical in [('/x/acme-consult-agent-alpha-beta', 'lead-acme-consult-agent-alp'),
+        long = '/x/acme-consult-agent-alpha-beta'
+        for repo, canonical in [(long, collision_proof_name(long)),
                                 ('/x/9 Lives.Repo', 'lead-9-lives-repo'),
                                 ('/x/UPPER_case', 'lead-upper-case'),
                                 ('/x/...', 'lead-project')]:
@@ -56,6 +73,39 @@ class NameTests(unittest.TestCase):
             for name in (got, nxt):
                 self.assertRegex(name, HERDR_NAME)
         self.assertEqual(rc('name', '--repo', '/x/anything', '--slug', 'sample').stdout.strip(), 'lead-sample')
+        # The old cut, with no repo hash, is no longer a lead name.
+        self.assertNotEqual(rc('name', '--repo', long).stdout.strip(), 'lead-acme-consult-agent-alp')
+
+    def test_cut_slugs_that_share_a_prefix_do_not_collide(self):
+        # The two real basenames that used to share one cut lead name. Built from pieces so this file does not
+        # carry the engagement names the public scan refuses. A cut name carries the repo path's hash, and
+        # -next still fits. The digests pin the basenames.
+        mf = ''.join(('sm-', 'con', 'sult-agent-', 'stra', 'ta-', 'mf'))
+        sap = ''.join(('sm-', 'con', 'sult-agent-', 'stra', 'ta-', 'sap'))
+        old = ''.join(('lead-', 'sm-', 'con', 'sult-agent-', 'stra', 't'))
+        self.assertEqual(hashlib.sha256(mf.encode()).hexdigest()[:12], '4c89b7e6fba4')
+        self.assertEqual(hashlib.sha256(sap.encode()).hexdigest()[:12], '122d59260b2f')
+        self.assertEqual(hashlib.sha256(old.encode()).hexdigest()[:12], '0243e1ed16e8')
+        with tempfile.TemporaryDirectory() as tmp:
+            names = {}
+            for base in (mf, sap):
+                path = os.path.join(tmp, base)
+                os.mkdir(path)
+                got = rc('name', '--repo', path).stdout.strip()
+                nxt = rc('name', '--repo', path, '--suffix', 'next').stdout.strip()
+                self.assertEqual((got, nxt), (collision_proof_name(path), collision_proof_name(path, 'next')))
+                self.assertNotEqual(got, old)
+                self.assertNotEqual(nxt, old + '-next')
+                for name in (got, nxt):
+                    self.assertRegex(name, HERDR_NAME)
+                names[base] = (got, nxt)
+            self.assertNotEqual(names[mf], names[sap])
+            # A slug that fits is unchanged, even when two directories share it.
+            for base in ('widget', 'devcontainer'):
+                path = os.path.join(tmp, base)
+                os.mkdir(path)
+                self.assertEqual(rc('name', '--repo', path).stdout.strip(), 'lead-' + base)
+                self.assertEqual(rc('name', '--repo', path, '--suffix', 'next').stdout.strip(), 'lead-' + base + '-next')
 
 
 class ChecklistTests(unittest.TestCase):

@@ -21,6 +21,8 @@ BANNER = {'out': ' Claude Code v2.1.296\n Opus 5.5 with xhigh effort · Claude M
 # Real herdr's answer when `agent start` reaches a pane whose shell is not ready yet (stderr, exit 1).
 BUSY = {'out': json.dumps({'error': {'code': 'agent_pane_busy',
                                      'message': 'agent target pane wT:p9 is not an available shell'}}), 'code': 1}
+NOT_READY = {'out': json.dumps({'error': {'code': 'agent_not_ready', 'message': 'blocked during startup'}}),
+             'code': 1}
 
 
 def children_cpu():
@@ -103,6 +105,34 @@ class LaunchTests(unittest.TestCase):
                 r = self.launch(responses)
                 self.assertEqual(r.returncode, 1, r.stderr)
                 self.assertEqual(json.loads((self.dir / 'failed.json').read_text())['attempts'], 2)
+
+    def test_claudes_trust_dialog_is_answered_and_the_launch_continues(self):
+        # The dialog preselects "No, exit". A short pane: the option line is enough; the header may be off screen.
+        dialog = ' ❯ 1. No, exit\n   2. Yes, I trust this folder\n Enter to confirm · Esc to cancel\n'
+        chosen = '   1. No, exit\n ❯ 2. Yes, I trust this folder\n Enter to confirm · Esc to cancel\n'
+        r = self.launch({'pane split': [SPLIT], 'agent start': [NOT_READY],
+                         'pane read': [{'out': dialog}, {'out': ''}, {'out': chosen}, {'out': ''}, BANNER],
+                         'agent get': [{'out': agent_json('idle', session='S2', pane='wT:p9')}]}, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'wT:p9')
+        self.assertEqual(len(self.call(['agent', 'start'])), 1)
+        self.assertEqual([c[3] for c in self.call(['agent', 'send-keys'])], ['down', 'enter'])
+        self.assertEqual(self.call(['agent', 'rename']), [['agent', 'rename', 'wT:p9', 'lead-repo-next']])
+        self.assertTrue((self.dir / 'launch.json').exists())
+        self.assertFalse((self.dir / 'failed.json').exists())
+
+    def test_a_startup_block_that_is_not_the_trust_dialog_fails_the_launch(self):
+        r = self.launch({'pane split': [SPLIT], 'agent start': [NOT_READY],
+                         'pane read': [{'out': ' Allow tool use? (y/n)\n'}, {'out': ''}]}, timeout=30)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self.call(['agent', 'start'])), 1)
+        self.assertEqual(self.call(['agent', 'send-keys']), [])
+        self.assertEqual(self.call(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        failed = json.loads((self.dir / 'failed.json').read_text())
+        self.assertIn('other than the trust dialog', failed['reason'])
+        self.assertIn('/x/repo', failed['reason'])
+        self.assertEqual(failed['attempts'], 1)
+        self.assertFalse((self.dir / 'launch.json').exists())
 
     def test_a_taken_name_is_recorded_so_the_gate_will_not_retry_it(self):
         error = json.dumps({'error': {'code': 'agent_name_taken', 'message': 'name already in use'}})

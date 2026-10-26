@@ -8,8 +8,10 @@
 # by hand), the checklist's predecessor pid must also be a live claude process.
 # Then closes the pane, confirms the pane and the predecessor's process are
 # gone (exit 1 if either outlives RELAY_CLOSE_WAIT seconds, default 10),
-# renames this agent lead-<project>, and writes <relay-dir>/closed.json and
-# <relay-dir>/../lead.json (exit 1 if they cannot be written). Exit 2, before
+# renames this agent to the predecessor's lead name when that starts with
+# lead- and does not end in -next (otherwise the name relay-check.py name
+# prints), and writes <relay-dir>/closed.json and <relay-dir>/../lead.json
+# (exit 1 if they cannot be written). Exit 2, before
 # any close, outside herdr, without CLAUDE_CODE_SESSION_ID, for a checklist
 # that names no repo, or for arguments that give no lead name.
 set -uo pipefail
@@ -50,9 +52,23 @@ old_pid=$(field predecessor.pid)
 repo=$(field repo)
 relay_id=$(field relay_id)
 # Settle the lead name now: once the pane is closed, a usage error could only be recorded, not refused.
+# Inherit the predecessor's own lead name, free once its pane closes, unless it is a -next name left by a
+# failed rename (the next launch would then collide with it) or the caller passed a name (--slug).
 [ -n "$repo" ] || { echo "relay-close: the checklist names no repo" >&2; exit 2; }
-name=$(python3 -I "$here/relay-check.py" name --repo "$repo" "$@") && [ -n "$name" ] \
-  || { echo "relay-close: could not settle the lead name (arguments: ${*:-none})" >&2; exit 2; }
+name=""
+inherited=$(field predecessor.herdr_name)
+case "$inherited" in
+  lead-*)
+    case "$inherited" in
+      *-next) ;;
+      *) [ $# -eq 0 ] && name=$inherited ;;
+    esac
+    ;;
+esac
+if [ -z "$name" ]; then
+  name=$(python3 -I "$here/relay-check.py" name --repo "$repo" "$@") && [ -n "$name" ] \
+    || { echo "relay-close: could not settle the lead name (arguments: ${*:-none})" >&2; exit 2; }
+fi
 [ -n "$pane" ] || refuse "the checklist names no predecessor pane"
 [ "$pane" != "$HERDR_PANE_ID" ] || refuse "the predecessor pane $pane is this agent's own pane"
 
@@ -110,13 +126,16 @@ except (ValueError, AttributeError):
   name=$kept
 fi
 python3 -I -c 'import datetime, json, os, sys
-d, pane, old, new_pane, new_session, name, relay_id = sys.argv[1:8]
+sys.dont_write_bytecode = True   # this dir is chezmoi source; a .pyc here would be deployed
+sys.path.insert(0, sys.argv[1])
+import relaylib
+d, pane, old, new_pane, new_session, name, relay_id = sys.argv[2:9]
 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 json.dump({"closed_at": now, "predecessor": {"pane_id": pane, "session_id": old},
            "successor": {"pane_id": new_pane, "session_id": new_session, "name": name or None}},
           open(os.path.join(d, "closed.json"), "w"), indent=1)
-json.dump({"session_id": new_session, "pane_id": new_pane, "name": name or None, "since": now, "relay_id": relay_id},
-          open(os.path.join(os.path.dirname(os.path.abspath(d)), "lead.json"), "w"), indent=1)' \
-  "$dir" "$pane" "$old_session" "$HERDR_PANE_ID" "$CLAUDE_CODE_SESSION_ID" "$name" "$relay_id" \
+relaylib.write_lead(os.path.join(os.path.dirname(os.path.abspath(d)), "lead.json"),
+                    new_session, new_pane, name or None, relay_id, now)' \
+  "$here" "$dir" "$pane" "$old_session" "$HERDR_PANE_ID" "$CLAUDE_CODE_SESSION_ID" "$name" "$relay_id" \
   || { echo "relay-close: closed $pane but could not write the records" >&2; exit 1; }
 echo "relay-close: closed $pane; this agent is ${name:-unnamed}"
