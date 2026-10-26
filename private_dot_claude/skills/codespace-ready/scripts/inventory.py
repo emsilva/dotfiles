@@ -22,6 +22,12 @@ import subprocess
 GIT_TIMEOUT = 20
 DOCKER_TIMEOUT = 15
 READ_CAP = 1_000_000
+LIST_CAP = 30
+# A folder larger than this gets a breakdown of its largest children. Tests lower it.
+FOLDER_BREAKDOWN = 100 * 1024 * 1024
+CHILD_CAP = 10
+SUBJECT_CAP = 5
+ENV_SKIP_SUFFIXES = ('.example', '.sample', '.template')
 REBUILDABLE = {'node_modules', '.venv', '__pycache__', 'dist', 'build', '.task', 'target'}
 TASKFILES = ('Taskfile.yml', 'Taskfile.yaml', 'taskfile.yml', 'taskfile.yaml')
 SCRIPT_EXT = {
@@ -185,11 +191,19 @@ def fmt_tracking(info):
 
 
 def commits_not_on_remotes(repo, branch, has_remote):
+    """(log lines, rev-list count). The list is what we count; a mismatch is reported."""
     if has_remote:
         out = git(repo, 'log', '--oneline', branch, '--not', '--remotes')
+        counted = git(repo, 'rev-list', '--count', branch, '--not', '--remotes')
     else:
         out = git(repo, 'log', '--oneline', branch)
-    return [line for line in out.splitlines() if line.strip()]
+        counted = git(repo, 'rev-list', '--count', branch)
+    lines = [line for line in out.splitlines() if line.strip()]
+    try:
+        rev_count = int(counted.strip() or '0')
+    except ValueError:
+        rev_count = len(lines)
+    return lines, rev_count
 
 
 def same_named_remotes(branch, remotes):
@@ -217,7 +231,7 @@ def branches_section(repo):
     lines.append('| --- | --- | --- | --- |')
     commit_lines = []
     for branch in branches:
-        commits = commits_not_on_remotes(repo, branch, has_remote)
+        commits, rev_count = commits_not_on_remotes(repo, branch, has_remote)
         info = tracking(repo, branch)
         upstream = fmt_tracking(info)
         if info is None:
@@ -227,11 +241,16 @@ def branches_section(repo):
         merged = 'yes' if default and is_ancestor(repo, branch, default) else 'no'
         lines.append(f'| `{branch}` | {len(commits)} | {upstream} | {merged} |')
         if commits:
-            shown = '; '.join(f'`{line.split(" ", 1)[0]}` {line.split(" ", 1)[1]}' if ' ' in line else f'`{line}`'
-                               for line in commits[:8])
-            if len(commits) > 8:
-                shown += f'; and {len(commits) - 8} more'
-            commit_lines.append(f'- `{branch}`: {shown}')
+            commit_lines.append(f'- `{branch}` ({len(commits)}):')
+            for line in commits[:SUBJECT_CAP]:
+                sha, _, subject = line.partition(' ')
+                commit_lines.append(f'  - `{sha}` {subject}'.rstrip())
+            if len(commits) > SUBJECT_CAP:
+                commit_lines.append(f'  … and {len(commits) - SUBJECT_CAP} more')
+            if rev_count != len(commits):
+                commit_lines.append(
+                    f'  git rev-list counts {rev_count}; the {len(commits)} above are `git log` '
+                    '(merges can make the two differ).')
     lines.append('')
     lines.append('Commits not on any remote:')
     lines.append('')
@@ -261,6 +280,28 @@ def parse_worktrees(text):
     if cur:
         records.append(cur)
     return records
+
+
+def commit_on_remote(repo, sha):
+    if not sha:
+        return False
+    code, out, err = run(git_cmd(repo, 'branch', '-r', '--contains', sha))
+    if code is None:
+        raise CheckError(err or 'timed out')
+    if code != 0:
+        return False
+    return bool(out.strip())
+
+
+def describe_detached(repo, sha):
+    short = (sha or 'unknown')[:12]
+    try:
+        on_remote = commit_on_remote(repo, sha)
+    except CheckError as exc:
+        return f'detached at `{short}` (could not check: {exc})'
+    if on_remote:
+        return f'detached at `{short}`, on a remote branch'
+    return f'detached at `{short}`, on no remote; unpushed work on no branch'
 
 
 def dirty_counts(path):
@@ -318,10 +359,10 @@ def worktrees_section(repo):
             main = real
         seen.add(real)
         branch = rec.get('branch', '')
-        if branch.startswith('refs/heads/'):
+        if 'detached' in rec:
+            branch = describe_detached(repo, rec.get('HEAD', ''))
+        elif branch.startswith('refs/heads/'):
             branch = branch[len('refs/heads/'):]
-        elif 'detached' in rec:
-            branch = 'detached'
         else:
             branch = branch or 'unknown'
         rows.append((real, branch, real == main))
@@ -331,8 +372,9 @@ def worktrees_section(repo):
         seen.add(path)
         ok, out = try_git(path, 'rev-parse', '--abbrev-ref', 'HEAD')
         branch = out.strip() if ok and out.strip() else 'unknown'
-        if branch == 'HEAD':
-            branch = 'detached'
+        if branch in ('', 'HEAD'):
+            ok_sha, sha_out = try_git(path, 'rev-parse', 'HEAD')
+            branch = describe_detached(repo, sha_out.strip() if ok_sha else '')
         rows.append((path, branch, False))
     lines = ['| Path | Branch | Dirty |', '| --- | --- | --- |']
     if not rows:
@@ -399,47 +441,109 @@ def is_rebuildable(rel):
     return any(part in REBUILDABLE for part in rel.strip('/').split('/'))
 
 
-def group_paths(paths, repo):
-    groups = {}
-    for rel in paths:
+def fmt_size(n):
+    n = int(n)
+    if n < 1024:
+        return f'{n} B'
+    if n < 1024 * 1024:
+        return f'{n / 1024:.1f} KB'
+    if n < 1024 * 1024 * 1024:
+        return f'{n / 1024 / 1024:.1f} MB'
+    return f'{n / 1024 / 1024 / 1024:.1f} GB'
+
+
+def entry_note(rel):
+    norm = rel.strip('/')
+    if norm == '.claude/worktrees' or norm.startswith('.claude/worktrees/'):
+        return 'worktrees (see the worktrees section)'
+    if is_rebuildable(norm):
+        return 'rebuildable'
+    return ''
+
+
+def child_sizes(folder, repo):
+    """(name, size) for each child. Symlinks are not followed."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return None
+    children = []
+    for name in names:
+        child = os.path.join(folder, name)
+        try:
+            st = os.lstat(child)
+        except OSError:
+            continue
+        if stat.S_ISLNK(st.st_mode):
+            children.append((name, st.st_size))
+            continue
+        children.append((name + ('/' if stat.S_ISDIR(st.st_mode) else ''), safe_size(child, repo)))
+    children.sort(key=lambda item: (-item[1], item[0]))
+    return children
+
+
+def measure_entry(rel, repo):
+    """(display path, size, child sizes or None). A directory is walked once."""
+    path = os.path.join(repo, rel.rstrip('/'))
+    try:
+        st = os.lstat(path)
+    except OSError:
+        display = rel if rel.endswith('/') else rel
+        return display, 0, None
+    if stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode):
+        display = rel if rel.endswith('/') else rel + '/'
+        children = child_sizes(path, repo)
+        total = 0 if children is None else sum(size for _, size in children)
+        return display, total, children
+    display = rel.rstrip('/')
+    return display, st.st_size, None
+
+
+def list_entries(entries, repo):
+    """Git's own paths, largest first, capped, with a breakdown of huge folders."""
+    sized = []
+    for rel in entries:
         rel = rel.strip()
         if not rel or rel == '.scratch' or rel.startswith('.scratch/'):
             continue
-        top = rel.split('/', 1)[0].rstrip('/')
-        path = os.path.join(repo, rel.rstrip('/'))
-        bucket = groups.setdefault(top, {'size': 0, 'rebuildable': False})
-        bucket['size'] += safe_size(path, repo)
-        if is_rebuildable(rel):
-            bucket['rebuildable'] = True
-    return groups
-
-
-def table_for(groups):
-    if not groups:
+        sized.append(measure_entry(rel, repo))
+    sized.sort(key=lambda item: (-item[1], item[0]))
+    if not sized:
         return ['none']
-    lines = ['| Top-level | Size | Note |', '| --- | --- | --- |']
-    for name in sorted(groups):
-        note = 'rebuildable' if groups[name]['rebuildable'] else ''
-        lines.append(f'| `{name}` | {groups[name]["size"]} bytes | {note} |')
+    shown, rest = sized[:LIST_CAP], sized[LIST_CAP:]
+    lines = []
+    for rel, size, children in shown:
+        note = entry_note(rel)
+        suffix = f' — {note}' if note else ''
+        lines.append(f'- `{rel}` — {fmt_size(size)}{suffix}')
+        if children is not None and size > FOLDER_BREAKDOWN:
+            for name, child_size in children[:CHILD_CAP]:
+                lines.append(f'  - `{name}` — {fmt_size(child_size)}')
+            if len(children) > CHILD_CAP:
+                extra = sum(child_size for _, child_size in children[CHILD_CAP:])
+                lines.append(f'  … {len(children) - CHILD_CAP} more, {extra / 1024 / 1024:.1f} MB')
+    if rest:
+        extra = sum(item[1] for item in rest)
+        lines.append(f'… {len(rest)} more, {extra / 1024 / 1024:.1f} MB')
     return lines
 
 
 def files_section(repo):
-    untracked = git_z(repo, 'ls-files', '-z', '--others', '--exclude-standard')
+    untracked = git_z(repo, 'ls-files', '-z', '--others', '--exclude-standard', '--directory')
     ignored = git_z(repo, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory')
     lines = ['### untracked', '']
-    lines.extend(table_for(group_paths(untracked, repo)))
+    lines.extend(list_entries(untracked, repo))
     lines.append('')
     lines.append('### ignored')
     lines.append('')
-    lines.extend(table_for(group_paths(ignored, repo)))
+    lines.extend(list_entries(ignored, repo))
     lines.append('')
     lines.append('### .scratch')
     lines.append('')
     scratch = os.path.join(repo, '.scratch')
     if os.path.isdir(scratch) and not os.path.islink(scratch):
         size = safe_size(scratch, repo)
-        lines.append(f'`.scratch/` is {size} bytes. The setup syncs this folder. '
+        lines.append(f'`.scratch/` is {fmt_size(size)}. The setup syncs this folder. '
                      'Do not edit `.scratch/README.md` or `.scratch/.gitignore`.')
     elif os.path.lexists(scratch):
         lines.append('`.scratch/` is a symlink. It was not followed. The setup syncs a real `.scratch/` folder. '
@@ -518,7 +622,8 @@ def outside_paths_section(repo):
                 named.setdefault(None, []).append(rel)
             continue
         try:
-            text = open(path, 'r', encoding='utf-8', errors='replace').read(READ_CAP)
+            with open(path, 'r', encoding='utf-8', errors='replace') as handle:
+                text = handle.read(READ_CAP)
         except OSError:
             continue
         for token in path_tokens(text, home):
@@ -529,6 +634,8 @@ def outside_paths_section(repo):
                 continue
             named.setdefault(os.path.abspath(resolved), []).append(rel)
     skipped = named.pop(None, [])
+    named = {path: files for path, files in named.items()
+             if not named_only_in_devcontainer(files) and not under_hidden_home(path, home)}
     if not named and not skipped:
         return ['none']
     lines = []
@@ -542,35 +649,77 @@ def outside_paths_section(repo):
     return lines or ['none']
 
 
+def named_only_in_devcontainer(files):
+    return bool(files) and all(name == '.devcontainer' or name.startswith('.devcontainer/') for name in files)
+
+
+def under_hidden_home(path, home):
+    """True when the first component under $HOME is hidden (~/.ssh, ~/.zshrc), not ~/data-dir."""
+    if not home:
+        return False
+    bases = {os.path.abspath(home).rstrip('/'), os.path.realpath(home).rstrip('/')}
+    for candidate in (os.path.abspath(path), os.path.realpath(path)):
+        for base in bases:
+            if candidate.startswith(base + os.sep):
+                first = candidate[len(base) + 1:].split('/', 1)[0]
+                if first.startswith('.'):
+                    return True
+    return False
+
+
+def setup_copies_env(name):
+    """The setup copies basename .env or .env.*, except example/sample/template names."""
+    if name.endswith(ENV_SKIP_SUFFIXES):
+        return False
+    return name == '.env' or name.startswith('.env.')
+
+
+def env_skip_dir(rel_dir):
+    parts = [part for part in rel_dir.split('/') if part and part != '.']
+    if 'node_modules' in parts or '.scratch' in parts or 'tmp' in parts:
+        return True
+    return len(parts) >= 2 and parts[0] == '.claude' and parts[1] == 'worktrees'
+
+
 def env_files(repo):
-    found = []
+    """Names the setup copies, and how many other .env* names were skipped."""
+    listed, skipped = [], 0
     for dirpath, dirnames, filenames in os.walk(repo, followlinks=False):
         kept = []
         for name in dirnames:
             child = os.path.join(dirpath, name)
             if name == '.git' or os.path.islink(child):
                 continue
-            real = os.path.realpath(child)
-            if not inside(real, repo):
+            if not inside(os.path.realpath(child), repo):
                 continue
             kept.append(name)
-        dirnames[:] = [name for name in kept if name not in REBUILDABLE]
+        dirnames[:] = kept
+        rel_dir = os.path.relpath(dirpath, repo)
+        skip = env_skip_dir('' if rel_dir == '.' else rel_dir)
         for name in filenames:
-            if is_env_name(name) and not os.path.islink(os.path.join(dirpath, name)):
-                found.append(os.path.relpath(os.path.join(dirpath, name), repo))
-    return sorted(set(found))
+            if not name.startswith('.env') or os.path.islink(os.path.join(dirpath, name)):
+                continue
+            rel = name if rel_dir == '.' else os.path.join(rel_dir, name)
+            if skip or not setup_copies_env(name):
+                skipped += 1
+            else:
+                listed.append(rel)
+    return sorted(set(listed)), skipped
 
 
 def env_section(repo):
     lines = [
         'The setup copies gitignored `.env` files to the Codespace at `task work:cs` and never overwrites them. '
-        'Do not copy them into `.scratch`. Names only:',
+        'Do not copy them into `.scratch`. Names only (not `.example`, `.sample` or `.template`, and not under '
+        '`node_modules/`, `.scratch/`, `tmp/` or `.claude/worktrees/`):',
         '',
     ]
-    names = env_files(repo)
+    names, skipped = env_files(repo)
     lines.extend(f'- `{name}`' for name in names)
     if not names:
         lines.append('none')
+    lines.append('')
+    lines.append(f'Skipped {skipped} other .env* names.')
     return lines
 
 

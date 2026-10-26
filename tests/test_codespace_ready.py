@@ -1,7 +1,9 @@
 """The codespace-ready inventory is read-only and reports what Git does not hold."""
+import importlib.util
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -178,13 +180,14 @@ class InventoryTests(unittest.TestCase):
 
     def test_ignored_fixtures_and_rebuildable_bulk_are_listed(self):
         body = self.section(self.inventory(), 'untracked and ignored files')
-        self.assertIn('`tmp`', body)
-        self.assertIn('`reference`', body)
-        row = next(line for line in body.splitlines() if '`node_modules`' in line)
+        self.assertIn('`tmp/`', body)
+        self.assertIn('reference/', body)
+        row = next(line for line in body.splitlines() if 'node_modules' in line)
         self.assertIn('rebuildable', row)
-        size = int(re.search(r'`tmp` \| (\d+) bytes', body).group(1))
-        self.assertLess(size, 1_000_000)
-        self.assertRegex(body, r'`\.scratch/` is \d+ bytes')
+        tmp_row = next(line for line in body.splitlines() if '`tmp/`' in line)
+        self.assertNotIn('MB', tmp_row)
+        self.assertNotIn('GB', tmp_row)
+        self.assertRegex(body, r'`\.scratch/` is \d+(\.\d+)? (B|KB|MB)')
 
     def test_outside_repo_path_in_a_script_is_listed(self):
         body = self.section(self.inventory(), 'paths outside the repo')
@@ -271,6 +274,159 @@ class ClearFailureTests(unittest.TestCase):
         rest = text[start + len(marker):]
         nxt = rest.find('\n## ')
         return rest if nxt < 0 else rest[:nxt]
+
+
+class QuietInventoryTests(unittest.TestCase):
+    """The r1 report drops noise the r0 inventory printed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.home = self.root / 'home'
+        self.home.mkdir()
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        self.env.update({
+            'HOME': str(self.home), 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+            'GIT_AUTHOR_NAME': 'Owner', 'GIT_AUTHOR_EMAIL': 'owner@example.com',
+            'GIT_COMMITTER_NAME': 'Owner', 'GIT_COMMITTER_EMAIL': 'owner@example.com',
+            'GIT_OPTIONAL_LOCKS': '0'})
+        self.repo = self.home / 'orbit-notes'
+        self.ssh = self.home / '.ssh'
+        self.data = self.home / 'data-dir'
+        self.only_dev = self.home / 'only-devcontainer'
+        self.detached = self.repo / 'detached-wt'
+        self.linked = self.repo / '.claude' / 'worktrees' / 'env-wt'
+        self.build()
+
+    def git(self, *args, cwd):
+        return subprocess.run(
+            ['git', '--no-optional-locks', '-c', 'user.name=Owner', '-c', 'user.email=owner@example.com', *args],
+            cwd=cwd, env=self.env, check=True, capture_output=True, text=True).stdout
+
+    def build(self):
+        remote = self.root / 'remote.git'
+        self.git('init', '-q', '--bare', '-b', 'main', str(remote), cwd=self.root)
+        self.git('clone', '-q', str(remote), str(self.repo), cwd=self.root)
+        checkout = subprocess.run(['git', 'checkout', '-q', '-b', 'main'], cwd=self.repo, env=self.env,
+                                  capture_output=True, text=True)
+        if checkout.returncode != 0:
+            self.git('checkout', '-q', 'main', cwd=self.repo)
+        (self.repo / '.gitignore').write_text('/tmp/\nnode_modules/\nnoise-*\nwide/\n.env\n')
+        (self.repo / 'README.md').write_text('# orbit-notes\n')
+        scripts = self.repo / 'scripts'
+        scripts.mkdir()
+        self.ssh.mkdir()
+        (self.ssh / 'id').write_text('not-a-key\n')
+        self.data.mkdir()
+        (self.data / 'keep.txt').write_text('keep\n')
+        self.only_dev.mkdir()
+        (self.only_dev / 'skip.txt').write_text('skip\n')
+        (scripts / 'paths.sh').write_text('#!/bin/bash\nSSH=%s\nDATA=%s\n' % (self.ssh, self.data))
+        devcontainer = self.repo / '.devcontainer'
+        devcontainer.mkdir()
+        (devcontainer / 'setup.sh').write_text('#!/bin/bash\nONLY=%s\n' % self.only_dev)
+        self.git('add', '-A', cwd=self.repo)
+        self.git('commit', '-qm', 'Start', cwd=self.repo)
+        self.git('push', '-q', 'origin', 'main', cwd=self.repo)
+        self.git('checkout', '-q', '-b', 'wip/seven', cwd=self.repo)
+        for number in range(1, 8):
+            (self.repo / 'seven.txt').write_text('n=%s\n' % number)
+            self.git('add', 'seven.txt', cwd=self.repo)
+            self.git('commit', '-qm', 'seven %s' % number, cwd=self.repo)
+        self.git('worktree', 'add', '--detach', str(self.detached), 'wip/seven', cwd=self.repo)
+        self.git('worktree', 'add', '-q', '-b', 'fix/env', str(self.linked), 'main', cwd=self.repo)
+        (self.linked / '.env').write_text('WORKTREE_KEY=nope\n')
+        (self.repo / '.env').write_text('GEMINI_API_KEY=%s\n' % CANARY)
+        (self.repo / '.env.example').write_text('GEMINI_API_KEY=example\n')
+        (self.repo / '.env.sample').write_text('TOKEN=sample\n')
+        modules = self.repo / 'web' / 'node_modules' / 'pkg'
+        modules.mkdir(parents=True)
+        (modules / 'index.js').write_text('module.exports = {}\n')
+        wide = self.repo / 'wide'
+        wide.mkdir()
+        (wide / 'big.bin').write_bytes(b'b' * 200)
+        (wide / 'small.bin').write_bytes(b's' * 10)
+        for number in range(31):
+            (self.repo / ('noise-%02d' % number)).write_text('x\n')
+        (self.repo / 'tmp' / 'fixtures').mkdir(parents=True)
+        (self.repo / 'tmp' / 'fixtures' / 'corpus.json').write_text('{}\n')
+
+    def run_inventory(self):
+        return subprocess.run([sys.executable, '-I', str(SCRIPT), '--repo', str(self.repo)],
+                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=90)
+
+    def inventory(self):
+        if not hasattr(self, '_text'):
+            result = self.run_inventory()
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            self.assertNotIn('Traceback', result.stdout + result.stderr)
+            self.assertNotIn(CANARY, result.stdout + result.stderr)
+            self._text = result.stdout
+        return self._text
+
+    def section(self, title):
+        text = self.inventory()
+        marker = '## ' + title
+        start = text.find(marker)
+        self.assertNotEqual(start, -1, text)
+        rest = text[start + len(marker):]
+        nxt = rest.find('\n## ')
+        return rest if nxt < 0 else rest[:nxt]
+
+    def test_env_examples_and_worktree_env_are_skipped(self):
+        env = self.section('env files')
+        names = [line for line in env.splitlines() if line.startswith('- ')]
+        self.assertIn('- `.env`', names)
+        self.assertFalse(any('example' in line or 'sample' in line or 'worktrees' in line for line in names), names)
+        self.assertRegex(env, r'Skipped [1-9]\d* other \.env\* names\.')
+
+    def test_nested_ignored_node_modules_is_listed(self):
+        ignored = self.section('untracked and ignored files').split('### ignored', 1)[1]
+        self.assertIn('`web/node_modules/`', ignored)
+
+    def test_ignored_list_caps_at_30(self):
+        ignored = self.section('untracked and ignored files').split('### ignored', 1)[1]
+        self.assertRegex(ignored, r'… \d+ more, \d+\.\d+ MB')
+
+    def test_hidden_home_and_devcontainer_paths_are_dropped(self):
+        body = self.section('paths outside the repo')
+        self.assertIn(str(self.data.resolve()), body)
+        self.assertNotIn(str(self.ssh.resolve()), body)
+        self.assertNotIn(str(self.only_dev.resolve()), body)
+
+    def test_seven_unpushed_commits_show_five_subjects(self):
+        body = self.section('branches')
+        self.assertRegex(body, r'`wip/seven` \| 7 \|')
+        start = body.find('- `wip/seven`')
+        self.assertNotEqual(start, -1, body)
+        block = body[start:]
+        nxt = block.find('\n- `', 1)
+        if nxt > 0:
+            block = block[:nxt]
+        self.assertIn('… and 2 more', block)
+        self.assertEqual(len(re.findall(r'`[0-9a-f]+` seven \d', block)), 5)
+        self.assertNotIn('seven 1', block)
+        self.assertNotIn('seven 2', block)
+
+    def test_detached_worktree_on_no_remote_is_flagged(self):
+        body = self.section('worktrees')
+        row = next(line for line in body.splitlines() if str(self.detached.resolve()) in line)
+        self.assertIn('on no remote', row)
+        self.assertIn('unpushed work on no branch', row)
+
+    def test_folder_over_the_threshold_lists_children(self):
+        sys.dont_write_bytecode = True
+        spec = importlib.util.spec_from_file_location('codespace_ready_inventory', SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.addCleanup(lambda: shutil.rmtree(SCRIPT.parent / '__pycache__', ignore_errors=True))
+        mod.FOLDER_BREAKDOWN = 50
+        text = mod.render(str(self.repo))
+        ignored = text.split('### ignored', 1)[1].split('### ', 1)[0]
+        self.assertIn('`wide/`', ignored)
+        self.assertIn('`big.bin`', ignored)
+        self.assertIn('`small.bin`', ignored)
 
 
 class PackagingTests(unittest.TestCase):
