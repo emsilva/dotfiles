@@ -234,7 +234,8 @@ predecessor, on failure). The project's current lead is recorded in
      not stamp the note.
    - The note is the one `checklist.json` names (`note.path`), not whichever
      note the sweep finds newest: compare FAILs on any other path. A newer note
-     or an unconsumed `EMERGENCY-*.md` the sweep finds is drift.
+     is drift, and so is an unconsumed `EMERGENCY-*.md` the sweep finds, except
+     one this note records as another front's by filename and `session_id`.
    - Read `<dir>/checklist.json` and verify it against reality: git, each
      worker (`herdr agent get`, read-only), deliverables, background tasks.
    - For each open background task you keep and each worker, arm your own

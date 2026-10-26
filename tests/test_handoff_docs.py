@@ -247,6 +247,17 @@ class HandoffDocsTests(unittest.TestCase):
         for name in ('SKILL.md', 'references/relay.md'):
             self.assertNotIn('pgrep -f relay-', (SKILL / name).read_text(), name)
 
+    def test_a_relay_successor_skips_another_fronts_recorded_snapshot(self):
+        # Ruling E: an unconsumed EMERGENCY the note records as another front's, by filename and
+        # session_id, does not send RESUME to Tier 2. A relay successor follows the same rule: that
+        # snapshot is not drift. A newer note still is, and so is any other unconsumed snapshot.
+        text = ' '.join((SKILL / 'references/relay.md').read_text().split())
+        step = text[text.index('1. **Normal RESUME**'):text.index('2. **On "you have the lead":**')]
+        self.assertIn('A newer note is drift', step)
+        self.assertIn('an unconsumed `EMERGENCY-*.md` the sweep finds, except one this note records '
+                      "as another front's by filename and `session_id`", step)
+        self.assertNotIn('or an unconsumed `EMERGENCY-*.md` the sweep finds is drift', step)
+
 
 if __name__ == '__main__':
     unittest.main()
