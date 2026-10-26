@@ -178,12 +178,15 @@ def grok_session_dir(session):
     return hits[0] if len(hits) == 1 and os.path.isdir(hits[0]) else None
 
 
-def grok_prompts(directory):
-    """The session's prompts in order, from updates.jsonl: user_message_chunk texts joined per promptIndex (a
-    chunk without one is a prompt of its own). A line still being written is skipped."""
+def grok_prompts(directory, strict=False):
+    """The session's prompts in order, from updates.jsonl (Grok's ACP update stream, its authoritative conversation
+    log): user_message_chunk texts joined per promptIndex (a chunk without one is a prompt of its own). A line still
+    being written is skipped. No file yet is no prompt yet. A file that cannot be read is None, or with strict (the
+    count before a send, which bounds what a later read may take as delivered) a RecordError."""
     prompts = {}
+    path = os.path.join(directory, 'updates.jsonl')
     try:
-        with open(os.path.join(directory, 'updates.jsonl'), encoding='utf-8') as fh:
+        with open(path, encoding='utf-8') as fh:
             for n, raw in enumerate(fh):
                 try:
                     update = (json.loads(raw).get('params') or {}).get('update') or {}
@@ -197,8 +200,13 @@ def grok_prompts(directory):
                 index = meta.get('promptIndex') if isinstance(meta, dict) else None
                 key = ('prompt', index) if index is not None else ('chunk', n)
                 prompts[key] = prompts.get(key, '') + (text if isinstance(text, str) else '')
-    except (OSError, TypeError):
+    except FileNotFoundError:
         return []
+    except (OSError, UnicodeDecodeError) as e:
+        if strict:
+            raise herdlib.RecordError('cannot read the Grok session updates %s, so a delivered prompt cannot be told '
+                                      'from an earlier one: %s' % (path, e))
+        return None
     return list(prompts.values())
 
 
@@ -207,7 +215,8 @@ def grok_arrived(launch, line, before):
     A session on another model or effort than the launch recorded is reported, not hidden."""
     session = launch['session_id']
     directory = grok_session_dir(session) if session else None
-    if not directory or not any(line in text for text in grok_prompts(directory)[before.get(session, 0):]):
+    prompts = grok_prompts(directory) if directory else None
+    if prompts is None or not any(line in text for text in prompts[before.get(session, 0):]):
         return None
     try:
         with open(os.path.join(directory, 'summary.json'), encoding='utf-8') as fh:
@@ -351,7 +360,7 @@ def run(a):
         if launch['kind'] == 'grok' and launch['session_id']:
             # The prompts already in the session (none before its first): a delivered prompt is a later one.
             directory = grok_session_dir(launch['session_id'])
-            before[launch['session_id']] = len(grok_prompts(directory)) if directory else 0
+            before[launch['session_id']] = len(grok_prompts(directory, strict=True)) if directory else 0
         try:
             for path in paths:
                 try:

@@ -375,8 +375,34 @@ class GrokLaunchTests(HerdCase):
         r = self.launch(self.answers(**{'pane read': [GROK_TRUST]}), env={'HERD_SETTLE_SECONDS': '2'})
         self.assertEqual(r.returncode, 1)
         self.assertIn('still asks to trust', r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [['agent', 'send-keys', 'wT:p9', 'y']])
         self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
         self.assertEqual(self.rows(), [])
+        self.assertEqual(os.listdir(self.repo / '.claude' / 'worktrees'), [])
+
+    def test_a_blank_first_screen_is_read_again_until_the_trust_question_or_the_prompt(self):
+        blank = {'out': '\n\n'}
+        r = self.launch(self.answers(**{'pane read': [blank, blank, GROK_TRUST, GROK_TRUST, GROK_IDLE]}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [['agent', 'send-keys', 'wT:p9', 'y']])
+
+    def test_no_input_prompt_within_the_bound_undoes_the_launch(self):
+        r = self.launch(self.answers(**{'pane read': [{'out': '\n\n'}]}), env={'HERD_SETTLE_SECONDS': '2'})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('shows no input prompt', r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [])
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(self.rows(), [])
+
+    def test_a_lingering_trust_question_is_answered_once(self):
+        # herdr reports idle before Grok redraws: the question is still on screen, and a second "y" would land in
+        # the input line or a later dialog.
+        r = self.launch(self.answers(**{'agent start': [NOT_READY],
+                                        'pane read': [GROK_TRUST, GROK_TRUST, GROK_TRUST, GROK_TRUST, GROK_TRUST,
+                                                      GROK_TRUST, GROK_IDLE],
+                                        'agent get': [agent('idle', 'wT:p9', kind='grok')]}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [['agent', 'send-keys', 'wT:p9', 'y']])
 
     def test_a_startup_block_on_the_trust_question_is_answered_yes(self):
         # Should herdr ever classify the question as blocked, start answers agent_not_ready.

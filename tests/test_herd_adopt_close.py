@@ -96,16 +96,71 @@ class AdoptTests(HerdCase):
         self.assertIn('no brief at', r.stderr)
 
 
+    GROK_SESSION = '0e1c4f4a-2b7d-4c55-9a0e-5f3c2d1b0a99'
+
+    def grok_session(self, cwd):
+        """A Grok session folder as Grok Build 1.0.70 writes it; herdr reports no session for a Grok pane."""
+        home = self.root / 'grok'
+        folder = home / 'sessions' / 'x' / self.GROK_SESSION
+        folder.mkdir(parents=True)
+        (folder / 'summary.json').write_text(json.dumps({'info': {'id': self.GROK_SESSION, 'cwd': str(cwd)},
+                                                         'current_model_id': 'grok-4.7', 'reasoning_effort': 'xhigh'}))
+        (folder / 'updates.jsonl').write_text('')
+        return {'GROK_HOME': str(home)}
+
     def test_a_grok_worker_is_adopted_as_a_builder_and_never_read_only(self):
+        env = self.grok_session(self.repo)
         r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='g-xhigh', kind='grok')]},
-                      'adopt', 'wT:p4', '--role', 'g', '--model', 'grok-4.7', '--effort', 'xhigh')
+                      'adopt', 'wT:p4', '--role', 'g', '--model', 'grok-4.7', '--effort', 'xhigh',
+                      '--session-id', self.GROK_SESSION, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         launch = json.loads(r.stdout)['launch']
-        self.assertEqual((launch['kind'], launch['mode']), ('grok', 'builder'))
+        self.assertEqual((launch['kind'], launch['mode'], launch['session_id']), ('grok', 'builder', self.GROK_SESSION))
         r = self.herd({'agent get': [agent_at('wT:p5', self.repo, name='h-xhigh', kind='grok')]},
-                      'adopt', 'wT:p5', '--role', 'h', '--mode', 'readonly')
+                      'adopt', 'wT:p5', '--role', 'h', '--mode', 'readonly', '--session-id', self.GROK_SESSION, env=env)
         self.assertEqual(r.returncode, 1)
         self.assertIn('a Grok worker has no sandbox', r.stderr)
+
+    def test_an_adopted_grok_worker_takes_a_confirmed_dispatch(self):
+        import herd_dispatch
+        env = self.grok_session(self.repo)
+        r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='g-xhigh', kind='grok')]},
+                      'adopt', 'wT:p4', '--role', 'g', '--model', 'grok-4.7', '--effort', 'xhigh',
+                      '--session-id', self.GROK_SESSION, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        brief, report = self.root / 'BRIEF-g.md', self.root / 'out' / 'R.md'
+        brief.write_text('do it\n')
+        line = herd_dispatch.dispatch_line(str(brief), herd_dispatch.sha256(str(brief)), str(report),
+                                           str(report.parent / 'BLOCKED.md'))
+        updates = self.root / 'grok' / 'sessions' / 'x' / self.GROK_SESSION / 'updates.jsonl'
+        chunk = json.dumps({'method': 'session/update', 'params': {'update': {
+            'sessionUpdate': 'user_message_chunk', 'content': {'type': 'text', 'text': line},
+            '_meta': {'promptIndex': 0}}}}) + '\n'
+        panes, agents = listing({'pane_id': 'wT:p4', 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'grok',
+                                 'agent_status': 'idle', 'name': 'g-xhigh'})
+        r = self.herd({'pane list': [panes], 'agent list': [agents],
+                       'agent prompt': [{'out': '{}', 'write': [[str(updates), chunk]]}],
+                       'agent get': [agent('working', 'wT:p4', kind='grok')]},
+                      'dispatch', 'g-xhigh', '--brief', str(brief), '--deliverable', str(report),
+                      env={**env, 'HERD_RESEND_SECONDS': '2', 'HERD_CONFIRM_SECONDS': '3'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)['session_id'], self.GROK_SESSION)
+        self.assertEqual(len(self.calls(['agent', 'prompt'])), 1)
+
+    def test_a_grok_worker_is_not_adopted_without_its_own_session(self):
+        # Without a session id herd could never confirm a dispatch to it (herdr reports none for Grok).
+        env = self.grok_session(self.root / 'elsewhere')
+        cases = (([], 'needs --session-id'),
+                 (['--session-id', '11111111-2222-4333-8444-555555555555'], 'no Grok session'),
+                 (['--session-id', self.GROK_SESSION], 'not in this pane'))
+        for extra, message in cases:
+            with self.subTest(extra=extra):
+                r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='g-xhigh', kind='grok')]},
+                              'adopt', 'wT:p4', '--role', 'g', '--model', 'grok-4.7', '--effort', 'xhigh', *extra,
+                              env=env)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn(message, r.stderr)
+                self.assertEqual(self.rows(), [])
 
 class CloseTests(HerdCase):
     def test_an_adopted_builder_without_worktree_checks_its_own_checkout(self):

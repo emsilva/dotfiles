@@ -24,9 +24,32 @@ def add_arguments(p):
                    help='default: builder for a Claude, opencode or Grok worker (no sandbox) or one in '
                         '.claude/worktrees/, else readonly')
     p.add_argument('--rename', action='store_true', help='give it a generated name')
+    p.add_argument('--session-id', help="a Grok worker's session (herdr reports none for Grok): the folder name "
+                                        'under ~/.grok/sessions/<cwd>/, as `grok sessions list` shows it')
     p.add_argument('--brief')
     p.add_argument('--deliverable')
     p.add_argument('--blocked')
+
+
+def grok_session(session, cwd):
+    """herdr reports no session for a Grok pane, and without one herd can never confirm a dispatch to it (it reads
+    the session's own updates). So a Grok worker is adopted only with its session id, checked to be a session
+    Grok keeps for this pane's folder."""
+    if not session:
+        raise herdlib.Refusal('a Grok worker needs --session-id to be adopted: herdr reports no session for it, '
+                              'and without one no dispatch to it can be confirmed')
+    directory = herd_dispatch.grok_session_dir(session)
+    if not directory:
+        raise herdlib.Refusal('no Grok session %s under %s' % (session, os.path.join(herd_dispatch.grok_home(),
+                                                                                    'sessions')))
+    try:
+        with open(os.path.join(directory, 'summary.json'), encoding='utf-8') as fh:
+            info = (json.load(fh) or {}).get('info') or {}
+    except (OSError, ValueError, AttributeError) as e:
+        raise herdlib.Refusal('cannot read Grok session %s: %s' % (session, e))
+    there = os.path.realpath(info.get('cwd') or '/') if isinstance(info, dict) else None
+    if there != os.path.realpath(cwd or '/'):
+        raise herdlib.Refusal('Grok session %s is in %s, not in this pane (%s)' % (session, there, cwd))
 
 
 def run(a):
@@ -52,6 +75,11 @@ def run(a):
     if agent.get('agent') not in ('claude', 'codex', 'opencode', 'grok'):
         raise herdlib.Refusal('pane %s hosts %s, not a Claude, Codex, opencode or Grok worker'
                               % (a.pane, agent.get('agent')))
+    if agent['agent'] == 'grok':
+        grok_session(a.session_id, agent.get('cwd'))
+    elif a.session_id:
+        raise herdlib.Refusal('--session-id is for a Grok worker; herdr reports the session of a %s worker'
+                              % agent['agent'])
     pane = {'pane_id': a.pane, 'agent': agent['agent'], 'agent_session': agent.get('agent_session'),
             'name': agent.get('name')}
     pairs, _, _ = herdlib.match(launches, [pane])
@@ -81,7 +109,7 @@ def run(a):
         worktree = herdlib.git_toplevel(cwd)
         branch = subprocess.run(['git', '-C', cwd, 'branch', '--show-current'], capture_output=True, text=True,
                                 timeout=10).stdout.strip() or None
-    session = (agent.get('agent_session') or {}).get('value')
+    session = a.session_id or (agent.get('agent_session') or {}).get('value')
     brief_sha = herd_dispatch.sha256(brief) if brief else None
     if a.rename or not agent.get('name'):
         relaylib.herdr_text('agent', 'rename', a.pane, name)

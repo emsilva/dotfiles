@@ -522,6 +522,18 @@ class GrokDispatchTests(DispatchCase):
             'sessionUpdate': 'user_message_chunk', 'content': {'type': 'text', 'text': text},
             '_meta': {'modelId': 'grok-4.7', 'promptIndex': index}}}}) + '\n'
 
+    def test_prompts_are_joined_per_index_and_an_index_free_chunk_stands_alone(self):
+        def plain(text):
+            return json.dumps({'method': 'session/update', 'params': {'update': {
+                'sessionUpdate': 'user_message_chunk', 'content': {'type': 'text', 'text': text}}}}) + '\n'
+        self.updates.write_text(self.chunk('ab', 0) + self.chunk('cd', 0) + plain('lone') + self.chunk('ef', 1)
+                                + '{"partial')
+        code = ("import herd_dispatch, json\nprint(json.dumps(herd_dispatch.grok_prompts(%r)))\n"
+                % str(self.session_dir))
+        r = self.herd({}, code=code)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), ['abcd', 'lone', 'ef'])
+
     def grok_worker(self):
         row = self.launch_row('one-xhigh-aaaa', 'wT:p2', session=self.SESSION, kind='grok', mode='builder')
         row.update(model='grok-4.7')
@@ -565,16 +577,40 @@ class GrokDispatchTests(DispatchCase):
         self.assertIn('session updates', r.stderr)
         self.assertEqual([row['type'] for row in self.rows()], ['launch'])
 
-    def test_a_session_on_another_model_or_effort_is_reported(self):
+    def mismatch(self, model, effort):
         panes, agents = self.grok_worker()
-        self.summary(model='grok-4.6', effort='high')
+        self.summary(model=model, effort=effort)
         r = self.dispatch({'pane list': [panes], 'agent list': [agents],
                            'agent prompt': [{'out': '{}', 'write': [[str(self.updates), self.chunk(self.line, 1)]]}],
                            'agent get': [agent('working', 'wT:p2', kind='grok')]},
                           env={**FAST, **self.env_grok})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)['session_warning'],
-                         'the session runs grok-4.6 at high, not grok-4.7 at xhigh')
+                         'the session runs %s at %s, not grok-4.7 at xhigh' % (model, effort))
+
+    # Each value alone: a check that compared only one of them fails one of these two.
+    def test_a_session_on_another_model_is_reported(self):
+        self.mismatch('grok-4.6', 'xhigh')
+
+    def test_a_session_at_another_effort_is_reported(self):
+        self.mismatch('grok-4.7', 'high')
+
+    def test_an_unreadable_session_history_refuses_before_sending(self):
+        # The prompts already there bound what counts as delivered; unread, an old identical prompt would confirm.
+        panes, agents = self.grok_worker()
+        with self.updates.open('a') as fh:
+            fh.write(self.chunk(self.line, 1))
+        self.updates.chmod(0)
+        try:
+            r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                               'agent get': [agent('working', 'wT:p2', kind='grok')]},
+                              env={**FAST, **self.env_grok})
+        finally:
+            self.updates.chmod(0o644)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('cannot read', r.stderr)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
 
     def test_a_reset_is_not_offered_for_grok(self):
         panes, agents = self.grok_worker()

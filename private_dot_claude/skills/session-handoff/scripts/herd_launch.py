@@ -26,6 +26,7 @@ NO_SANDBOX = ('claude', 'opencode', 'grok')
 TRUST_OPTION = 'Yes, I trust this folder'
 TRUST_YES = re.compile(r'❯\s*(?:\d+\.\s*)?Yes, I trust this folder')
 GROK_TRUST = 'Do you trust the contents of this directory?'   # Grok Build 1.0.70; "y" answers "Yes, proceed"
+GROK_READY = ('Ctrl+.:shortcuts', '─❯')   # its idle input line, as drawn in a short herd pane
 STOP_ON = ('agent_name_taken', 'agent_not_ready')
 SETTLE_BOUND = int(os.environ.get('HERD_SETTLE_SECONDS', '60'))   # after a startup dialog
 
@@ -142,11 +143,6 @@ def answer_startup_dialog(kind, pane, cwd):
         if not TRUST_YES.search(text):
             raise herdr_failure('the trust dialog did not select "Yes, I trust this folder"', text)
         relaylib.herdr_text('agent', 'send-keys', pane, 'enter')
-    elif kind == 'grok':
-        if GROK_TRUST not in text:
-            raise herdr_failure('Grok is blocked at startup on something other than the trust question for %s'
-                                % cwd, text)
-        relaylib.herdr_text('agent', 'send-keys', pane, 'y')
     else:
         if 'trust' in text.lower():
             raise herdr_failure('Codex asks to trust %s despite the override' % cwd, text)
@@ -163,19 +159,30 @@ def answer_startup_dialog(kind, pane, cwd):
         time.sleep(1)
 
 
-def answer_grok_trust(pane, cwd):
-    """Grok Build asks whether to trust a folder it has not seen, and herdr reports that question as idle, not
-    blocked, so `agent start` returns ok with the question on screen. The worker runs in cwd, which this launch
-    chose, so it is answered yes; it must then leave the screen within the bound. (A worktree under a trusted repo
-    is trusted already: no question.)"""
-    text = screen(pane)
-    if GROK_TRUST not in text:
-        return
-    relaylib.herdr_text('agent', 'send-keys', pane, 'y')
+def grok_startup(pane, cwd, blocked):
+    """Bring a starting Grok Build to its input prompt. It may ask whether to trust a folder it has not seen, and
+    herdr reports that question as idle, not blocked, so a successful `agent start` can return with it on screen,
+    or before it is drawn. The worker runs in cwd, which this launch chose, so the question is answered "y", once:
+    herdr's status is no evidence that the question has cleared, and a second "y" would land in the input line or
+    a later dialog. Done when the input prompt shows and the question does not; anything else for the bound fails.
+    blocked: herdr answered agent_not_ready, so a dialog is up; one that is not the trust question fails at once.
+    (A worktree under a trusted repo is trusted already: no question.)"""
     deadline = time.monotonic() + SETTLE_BOUND
-    while GROK_TRUST in text:
+    answered = False
+    text = screen(pane)
+    if blocked and GROK_TRUST not in text:
+        raise herdr_failure('Grok is blocked at startup on something other than the trust question for %s' % cwd,
+                            text)
+    while True:
+        if GROK_TRUST in text:
+            if not answered:
+                relaylib.herdr_text('agent', 'send-keys', pane, 'y')
+                answered = True
+        elif any(mark in text for mark in GROK_READY):
+            return
         if time.monotonic() >= deadline:
-            raise herdr_failure('Grok still asks to trust %s %d s after "y"' % (cwd, SETTLE_BOUND), text)
+            raise herdr_failure('Grok still asks to trust %s %d s after "y"' % (cwd, SETTLE_BOUND) if answered else
+                                'Grok shows no input prompt %d s after it started' % SETTLE_BOUND, text)
         time.sleep(1)
         text = screen(pane)
 
@@ -268,14 +275,17 @@ def run(a, taken_names=(), attempts=3):
             created_pane, created_worktree = None, False
             return run(a, taken | {name}, attempts - 1)
         if not ok and relaylib.error_code(out) == 'agent_not_ready':
-            answer_startup_dialog(a.kind, pane, cwd)
+            if a.kind == 'grok':
+                grok_startup(pane, cwd, blocked=True)
+            else:
+                answer_startup_dialog(a.kind, pane, cwd)
             agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
             if agent.get('name') != name:
                 relaylib.herdr_text('agent', 'rename', pane, name)
         elif not ok:
             raise herdlib.Refusal('agent start failed: %s' % out)
-        if a.kind == 'grok':
-            answer_grok_trust(pane, cwd)
+        elif a.kind == 'grok':
+            grok_startup(pane, cwd, blocked=False)
         if a.kind not in ('opencode', 'grok'):
             # opencode's home screen draws no model line until its first prompt (and draws badly in a short pane):
             # opencode_defaults checked the config above, and dispatch checks the session's model and variant.
