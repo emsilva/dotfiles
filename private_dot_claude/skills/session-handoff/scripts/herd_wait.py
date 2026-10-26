@@ -88,10 +88,14 @@ BACKGROUND_OPEN = {
 
 
 def background_open(launch, projects):
-    """True when a background job is open, False when none is, None when the read failed (keep waiting)."""
+    """True when a background job is open, False when none is, None when the read failed (keep waiting).
+
+    A kind with no hook has no signal: today's behaviour, a settled worker may count as done. A hook that
+    raises is a failed read, not proof the job finished.
+    """
     hook = BACKGROUND_OPEN.get(launch.get('kind'))
     if hook is None:
-        return None
+        return False
     try:
         return hook(launch, projects)
     except Exception:

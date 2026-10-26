@@ -25,6 +25,11 @@ class HandoffDocsTests(unittest.TestCase):
         row = next(line for line in text.splitlines() if line.startswith('- **Reuse panes, recycle context.**'))
         self.assertIn('`herd.py launch <role> --pane <id>`', row)
 
+    def test_memory_check_names_the_handoff_pointer_fix(self):
+        text = (SKILL / 'SKILL.md').read_text()
+        self.assertNotIn('only two safe fixes', text)
+        self.assertIn('every pointer is into `handoffs/`', text)
+
     def test_every_script_the_docs_name_exists(self):
         text = ''.join((SKILL / name).read_text() for name in ('SKILL.md', 'references/relay.md', 'references/feedback.md'))
         named = set(re.findall(r'scripts/([\w.-]+\.(?:py|sh))', text))

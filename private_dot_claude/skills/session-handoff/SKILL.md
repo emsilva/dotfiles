@@ -32,8 +32,9 @@ them in the note.
    Do not ask first: this is the wrap-up, where an unanswered question is how a
    fact gets lost, and a wrong call costs one deletion. Then run
    `python3 -I ~/.claude/skills/session-handoff/scripts/memory-check.py <memory-dir> --fix`.
-   It applies only two safe fixes (an index line for each memory written this
-   session; removal of index lines whose every link is dead) and measures
+   It applies only three safe fixes (an index line for each memory written this
+   session; removal of index lines whose every link is dead; removal of an index
+   line whose every pointer is into `handoffs/`) and measures
    MEMORY.md as the loader does (200 lines, 25,000 UTF-16 units; the tail past
    the cap never loads). Exit 0 prints `clean (checked)`: that line is the
    note's Memory section. Exit 1 means debt remains: record it in the note's

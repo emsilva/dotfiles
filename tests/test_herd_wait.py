@@ -234,6 +234,29 @@ class BackgroundAndCloseTests(WaitCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn('nothing to wait on', r.stderr)
 
+    def test_an_unknown_kind_keeps_todays_behaviour(self):
+        import herd_wait
+        self.assertIs(herd_wait.background_open({'kind': 'gemini'}, self.projects), False)
+        self.assertIs(herd_wait.background_open({'kind': 'pi'}, self.projects), False)
+        (self.pdir / 'herd.jsonl').unlink()
+        launch = self.launch_row('one-xhigh-aaaa', 'wT:p2', kind='gemini')
+        self.record(launch, self.dispatch_row(launch['launch_id'], deliverable=self.report,
+                                              blocked=self.blocked, sent_at=PAST))
+        self.report.write_text('done\n')
+        r = self.wait(self.herd_with([self.entry('idle')], [self.entry('idle')], []))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa deliverable %s' % self.report)
+
+    def test_a_hook_that_raises_keeps_waiting(self):
+        import herd_wait
+        def boom(launch, projects):
+            raise OSError('transcript unreadable')
+        herd_wait.BACKGROUND_OPEN['claude'] = boom
+        try:
+            self.assertIs(herd_wait.background_open({'kind': 'claude', 'session_id': 'x'}, self.projects), None)
+        finally:
+            herd_wait.BACKGROUND_OPEN['claude'] = herd_wait.background_open_claude
+
     def test_codex_grok_and_opencode_hooks_keep_todays_behaviour(self):
         import herd_wait
         for name in ('background_open_codex', 'background_open_grok', 'background_open_opencode'):

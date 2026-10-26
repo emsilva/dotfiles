@@ -95,7 +95,7 @@ class FeedbackImportTests(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertEqual(len(lines), 1)
         line = lines[0]
-        self.assertTrue(line.startswith('- [ ] Review session-handoff proposal: quote the checker (`'), line)
+        self.assertTrue(line.startswith('- [ ] **session-handoff proposal: quote the checker** — '), line)
         self.assertIn(name, line)
         self.assertIn('#session-handoff %s' % datetime.date.today().isoformat(), line)
         self.assertTrue(line.endswith('  '), repr(line))
@@ -114,6 +114,87 @@ class FeedbackImportTests(unittest.TestCase):
         self.assertIn('gaps.jsonl', r.stderr)
         self.assertEqual(list(self.dest.rglob('*')), before)
         self.assertEqual(r.stdout, '')
+
+    def test_parked_codespace_files_are_imported_and_other_suffixes_are_not(self):
+        self.write_gaps(gap('s-mac', 'on the mac'), dest=True)
+        (self.src / 'gaps.jsonl').write_text(gap('s-live', 'in gaps.jsonl') + '\n'
+                                             + gap('s-cs', 'also in the live file') + '\n')
+        (self.src / 'gaps.jsonl.codespace-2').write_text(gap('s-cs2', 'second park') + '\n'
+                                                         + gap('s-cs', 'also in the live file') + '\n')
+        (self.src / 'gaps.jsonl.codespace-10').write_text(gap('s-cs10', 'tenth park') + '\n')
+        (self.src / 'gaps.jsonl.codespace-1').write_text(gap('s-cs1', 'first park') + '\n')
+        (self.src / 'gaps.jsonl.codespace-0').write_text(gap('s-zero', 'ignored zero') + '\n')
+        (self.src / 'gaps.jsonl.codespace-01').write_text(gap('s-pad', 'ignored pad') + '\n')
+        (self.src / 'gaps.jsonl.bak').write_text(gap('s-bak', 'ignored bak') + '\n')
+        (self.src / 'other.jsonl.codespace-1').write_text(gap('s-other', 'ignored other') + '\n')
+        body = '# Proposal: parked title\n'
+        (self.proposals / '2026-10-26-parked.md.codespace-1').write_text(body)
+        (self.proposals / 'notes.txt.codespace-1').write_text('no\n')
+        (self.proposals / '2026-10-26-nope.md.codespace-1.bak').write_text('# Proposal: nope\n')
+        r = run(self.project, self.dest, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.dest / 'gaps.jsonl').read_text().splitlines()
+        missing = [json.loads(line)['missing'] for line in lines]
+        self.assertEqual(missing, ['on the mac', 'in gaps.jsonl', 'also in the live file', 'first park',
+                                   'second park', 'tenth park'])
+        for ignored in ('ignored zero', 'ignored pad', 'ignored bak', 'ignored other'):
+            self.assertNotIn(ignored, missing)
+        copied = self.dest / 'proposals' / '2026-10-26-parked.md.codespace-1'
+        self.assertEqual(copied.read_text(), body)
+        self.assertFalse((self.dest / 'proposals' / 'notes.txt.codespace-1').exists())
+        self.assertFalse((self.dest / 'proposals' / '2026-10-26-nope.md.codespace-1.bak').exists())
+        self.assertIn('parked title', r.stdout)
+        self.assertIn('2026-10-26-parked.md.codespace-1', r.stdout)
+
+    def test_a_bad_line_in_a_parked_gap_file_writes_nothing(self):
+        (self.src / 'gaps.jsonl.codespace-1').write_text('{"missing": "ok", "successor_session": "s"}\n{torn\n')
+        (self.proposals / 'x.md').write_text('# Proposal: should not copy\n')
+        self.dest.mkdir()
+        before = list(self.dest.rglob('*'))
+        r = run(self.project, self.dest, self.home)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('gaps.jsonl.codespace-1', r.stderr)
+        self.assertEqual(list(self.dest.rglob('*')), before)
+        self.assertEqual(r.stdout, '')
+
+    def test_an_existing_gap_row_keeps_its_exact_bytes(self):
+        odd = b'  { "successor_session" : "s-old" , "missing" : "already here" }  \n'
+        self.dest.mkdir()
+        path = self.dest / 'gaps.jsonl'
+        path.write_bytes(odd)
+        self.write_gaps(gap('s-new', 'a codespace row'))
+        r = run(self.project, self.dest, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = path.read_bytes()
+        self.assertTrue(data.startswith(odd), data)
+        self.assertIn(b'a codespace row', data)
+        self.assertEqual(data[:len(odd)], odd)
+
+    def test_a_store_without_a_trailing_newline_gets_one_then_the_new_rows(self):
+        odd = b'{ "missing" : "kept" , "successor_session" : "s" }  '
+        self.dest.mkdir()
+        path = self.dest / 'gaps.jsonl'
+        path.write_bytes(odd)
+        self.write_gaps(gap('s-new', 'appended'))
+        r = run(self.project, self.dest, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = path.read_bytes()
+        self.assertTrue(data.startswith(odd + b'\n'), data)
+        self.assertIn(b'appended', data)
+        self.assertTrue(data.endswith(b'\n'))
+
+    def test_a_todo_line_matches_the_open_proposal_shape(self):
+        name = '2026-10-26-next-step.md'
+        (self.proposals / name).write_text('# Proposal: quote the checker\n')
+        r = run(self.project, self.dest, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = r.stdout.splitlines()[0]
+        path = str(self.dest / 'proposals' / name)
+        expected = ('- [ ] **session-handoff proposal: quote the checker** — owner review, then apply with '
+                    'superpowers:writing-skills in the dotfiles repo; `%s` #session-handoff %s  '
+                    % (path, datetime.date.today().isoformat()))
+        self.assertEqual(line, expected)
+        self.assertTrue(line.endswith('  '))
 
     def test_a_missing_scratch_dir_is_a_no_op(self):
         empty = self.root / 'empty-project'
