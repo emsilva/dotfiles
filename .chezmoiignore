@@ -67,6 +67,8 @@ LICENSE
 !.claude/skills/todo/**
 !.claude/skills/ux-writing
 !.claude/skills/ux-writing/**
+!.claude/skills/codespace-ready
+!.claude/skills/codespace-ready/**
 # Retired: machine-specific lint script (leaked private identifiers) — never re-add.
 .claude/harness-lint.sh
 # Runtime log written by the local (unmanaged) cswap LaunchAgent.
