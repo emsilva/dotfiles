@@ -57,6 +57,8 @@ Pass `--repo <path>` outside the project root. Repeat `could not check`. Do not 
 
 Carry everything the work reads and every reference the owner gave, whoever owns it and whatever its license: the Codespace is the owner's own workspace. Ask only about client or licensed data that nothing in the work reads, and about any single item over 1 GB, in one batched question with each item's size. If nobody answers, hold those back and say so in the report.
 
+The report to the owner opens with **What won't work on the Codespace until you answer**: one line per held-back item or failing gate, each with what it breaks. A failing proof goes there, never in a footnote.
+
 ## `.scratch/RESTORE.md`
 
 Update in place. Sections, in order:
