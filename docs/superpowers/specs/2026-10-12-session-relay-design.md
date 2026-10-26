@@ -49,7 +49,8 @@ this repo). The defects this spec fixes:
 ### 1. SAVE changes (every `/handoff`, relay or not)
 
 1. **Attached work first.** A test, build or paid run still attached to the session (a `run_in_background`
-   command that is work, not a waiter) finishes before the session closes. SAVE records anything still running.
+   command that is work, not a waiter) finishes before the session closes. A task that samples, spends or writes
+   while it waits is detached before a relay instead of being waited out. SAVE records anything still running.
 2. **Memory before the note** (moved up from the old step 4). Write durable facts, then run
    `memory-check.py --fix`. Safe fixes only: add an index line for each memory file written this session that
    the index lacks, and remove index lines whose target file is gone. If the index would still load cut off, or
@@ -57,16 +58,19 @@ this repo). The defects this spec fixes:
 3. **Snapshots.** Git and `herd-snapshot.sh` as today. "Background work you started" comes from `bg-tasks.py`.
    The model labels each open task:
    - **waiter**: command recorded verbatim, plus its condition run once now with the result recorded; it must
-     be false. A condition that is already true is a broken waiter (D2) and is fixed before the note is written.
-     Conditions on a report check that it was written by this dispatch (mtime after the dispatch), not that it
-     exists.
-   - **work**: its log path and exit-code file.
+     be false, and able to turn true. A condition that is already true, or that nothing can ever make true, is a
+     broken waiter (D2) and is fixed before the note is written. Conditions on a report check that it was written
+     by this dispatch (mtime after the dispatch), not that it exists. A task that samples, spends or writes while
+     it waits is work, not a waiter, and is detached before a relay.
+   - **work**: its log path, exit-code file and expected end. A detached process also names what it creates and
+     each result file with its waiter, or "unwatched".
 4. **Template additions.**
-   - `## Backlog`: every plan item not done (deferred or not started), one line each: what it means, why it
-     waits, what unblocks it.
+   - `## Backlog`: every plan item not done (deferred or not started), read from the plan file the note names,
+     one line each: what it means, why it waits, what unblocks it.
    - `## Memory`: `clean (checked)` or the debt for the successor.
    - `## In flight`: background tasks come from `bg-tasks.py`, one line per task id: command, waiter or work,
-     and the condition result or log path.
+     and the condition result, or log path, exit-code file and expected end. Detached processes name what they
+     create and each result file with its waiter or "unwatched".
 5. **Timing line** (SKILL.md line 60, "save at ~50-60% ... for direct continuation, compact instead") becomes:
    hand off at 50% of the context meter by relaying to a new session (`/relay`) inside herdr; outside herdr,
    `/handoff`, `/clear`, `/pickup`. A lead never compacts instead.
@@ -272,7 +276,8 @@ Prototypes for `bg-tasks.py` and `memory-check.py` exist from the research (`ope
   successor removes each from the receipt once an answer settles it, moving anything only informational to
   `gaps`. Both block the compare while non-empty; `gaps` do not.
 - `handover.md` (old lead): the standing instruction (quoted, with its time), deliveries that arrived during
-  the relay, late facts for memory.
+  the relay (and, when a task that does work while it waits is still attached, the verbatim command to restart
+  it after the hand-over), late facts for memory.
 - `launch.json`, `closed.json` (scripts); `failed.json` (`relay-launch.sh`, or the old lead). `launch.json` holds
   the successor's `pane_id`, `name` and `session_id`, which step 6's identity check compares. `failed.json` holds
   `stage` (`launch` | `receipt` | `check` | `handover`), `reason`, `attempts` and `at`; after a failed receipt,

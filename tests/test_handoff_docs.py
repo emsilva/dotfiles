@@ -229,6 +229,14 @@ class HandoffDocsTests(unittest.TestCase):
             self.assertTrue((SCRIPTS / ('herd_%s.py' % name)).is_file(), name)
             self.assertRegex(herd.__doc__, r'\n  %s ' % name)
 
+    def test_prose_rules_from_the_2026_10_26_review_stay_named(self):
+        # These three rules have no script behind them. Dropping the phrase drops the rule.
+        text = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        time_rule = text.index('read from `date -u` or the event\'s own record')
+        self.assertIn('never estimated', text[time_rule:time_rule + 160])
+        self.assertIn('absolute or `~/`', text)
+        self.assertIn('every recorded check can fail', text.lower())
+
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.
         for name in ('SKILL.md', 'references/relay.md'):
