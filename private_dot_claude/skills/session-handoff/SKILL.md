@@ -23,23 +23,34 @@ them in the note.
 1. **Finish the current micro-step first** — never abandon a working change
    because the meter grew. Attached long work (a `run_in_background` test,
    build or paid run) must finish before this session closes: it dies with
-   the session. Long work should have been started detached (global
+   the session. Before a relay, detach a task that samples, spends or writes
+   while it waits (step 3) rather than waiting it out: left attached, the
+   hand-over kills it. Long work should have been started detached (global
    CLAUDE.md, "Long work outlives its session").
 2. **Memory before the note.** Decide which durable facts (traps,
    preferences, recipes) are worth keeping and write them to memory files now.
    Do not ask first: this is the wrap-up, where an unanswered question is how a
    fact gets lost, and a wrong call costs one deletion. Then run
    `python3 -I ~/.claude/skills/session-handoff/scripts/memory-check.py <memory-dir> --fix`.
-   It applies only two safe fixes (an index line for each memory written this
-   session; removal of index lines whose every link is dead) and measures
+   It applies only three safe fixes (an index line for each memory written this
+   session; removal of index lines whose every link is dead; removal of an index
+   line whose every pointer is into `handoffs/`) and measures
    MEMORY.md as the loader does (200 lines, 25,000 UTF-16 units; the tail past
    the cap never loads). Exit 0 prints `clean (checked)`: that line is the
    note's Memory section. Exit 1 means debt remains: record it in the note's
    Memory section as the successor's first job. Never strand a durable fact in
    the note.
 3. **Run the snapshots** — the note records **command output, not conversational
-   memory**. Never write State / anchor / In flight from what you remember:
+   memory**. Every figure, list or verdict, in every section, is copied from a
+   command or file read at SAVE and named beside it with its scope (population,
+   tree, commit range); anything not read that way is called an estimate. Every
+   time the note or a lead file states is read from `date -u` or the event's own
+   record (file mtime, a run's createdAt, a log line), never estimated or
+   forecast; an unknown time says "unknown".
    - `git status --porcelain --branch` · `git log --oneline -5` ·
+     `git log --oneline <merge-base>..HEAD` (the branch's own commits;
+     `<merge-base>` is `git merge-base` against the branch this one forked
+     from. `-5` cannot list them) ·
      `git log --oneline @{u}.. 2>/dev/null || git log --oneline HEAD --not --remotes 2>/dev/null`
      (skip silently only if there is no repo. With no upstream — or no remote at
      all — the second form IS the answer, not a failure: record it as
@@ -58,9 +69,27 @@ them in the note.
        broken waiter (a stale report file passes a bare `[ -f … ]`): fix it
        before writing the note. A report condition checks the report was
        written by this dispatch (mtime after the dispatch), never bare existence.
-     - **work** — its log path and exit-code file.
+       It must also be able to turn true: a condition on a file nothing can
+       write never fires. For a work task's exit-code file, read the line that
+       writes it and confirm it runs on every path (an `exit` inside a
+       redirected `{ … } > log` group ends the script before it), and have the
+       waiter also fire when the work's pid is gone. A task that samples, spends
+       or writes while it waits is **work**, not a waiter. Before a relay,
+       detach that work (`nohup … ; echo $? > <x>.exit`) and let a passive
+       `run_in_background` waiter watch its effect: the relay mirrors only the
+       passive waiter.
+     - **work** — its log path and exit-code file, and when it should end
+       (an earlier comparable run's duration, with that run's log), so the
+       successor can tell a slow run from a hung one without re-deriving it.
      Also record running workflows (each `resumeFromRunId`) and detached
-     processes + the ports they hold.
+     processes + the ports they hold, and what each creates while it runs
+     (a worktree, a temp dir, a lock) and whether it removes it: RESUME's
+     `git worktree list` and drift checks otherwise meet it unaccounted for.
+     Name every result file a detached process will write, each with its
+     waiter (or "unwatched"), and mark a file it writes only on a later event
+     as not yet written: a queue of N jobs has N results to wait on. A process
+     that respawns is recorded by the command or loop that respawns it, not
+     its current pid.
    - **Herd panes**, when `HERDR_ENV=1`:
      `python3 -I ~/.claude/skills/session-handoff/scripts/herd.py status [extra-root …]`
      (read-only; `herd-snapshot.sh` is the same command). Its **workers** are the
@@ -71,20 +100,46 @@ them in the note.
      **unclassified** panes (in scope, matching no launch): **self**, **shell**
      (the command it runs + its log), **not mine**, or **mine, launched by
      hand**: then `herd.py adopt <pane> --role <role>` and record it as a worker.
+     A not-mine agent pane is recorded by what stays true (pane id, kind,
+     session, cwd). The status column is as of the table's timestamp, not a
+     claim that it still holds. One whose cwd is a tree this front writes is a
+     possible live writer there, idle or not: say so, so the successor writes
+     only in a worktree.
      A **lost** launch (no live pane) is recorded with what happened to it.
      Pass any dir outside the repo where this front launched panes.
    - Session crons — and ANY text the Next step orders re-issued (cron prompt,
-     agent dispatch brief, relaunch line): VERBATIM in the note, or in a durable
-     file (`.scratch/tmp/…` where the project has one, else `./tmp/…`; never
+     agent dispatch brief, relaunch line) or run (a check, gate or re-gate:
+     the command, not just the result it should give): VERBATIM and runnable
+     as written (no `…`, no `<…>` left to fill: a value written elsewhere
+     names its file and line, one not known yet names where it will come
+     from, such as a worker's report path), in the note or in a durable file or
+     script (`.scratch/tmp/…` where the project has one, else `./tmp/…`; never
      `/tmp`) whose path the note records. Includes a cron
      deleted at wrap-up. "In this session's transcript" is never a valid location
      — RESUME is forbidden to read it.
    - `gh pr status` (skip silently if no remote / no gh)
+   - **Other open fronts**, swept at every SAVE (grep, as RESUME does), in
+     `<memory-dir>/handoffs/`. Record the finding, or `none (checked)`:
+     - every other `kind: handoff` note whose `status:` is not `resumed`,
+       `done` or `superseded`. It becomes the next `/pickup` target once this
+       note is consumed. If this session closed its front, stamp it
+       `superseded` with `superseded_by: <this note>`; otherwise record it in
+       Backlog with what is still open in it;
+     - every `EMERGENCY-*.md` without `status: consumed`, with its
+       `session_id`. One this session wrote is accounted for by this note:
+       stamp it `status: consumed` before writing the note. One another
+       session wrote is not this front's: record it in In flight by name and
+       session, and leave it unstamped. Do not wait for a pane match. Inside
+       herdr, name the pane `herd.py status` shows for that session, or record
+       "no pane here (other host or ended)".
 4. **Write the note** (template below). Fill every section: for In flight, write
    the finding for each class **or `none (checked)`** — a present `none` proves
    you looked; an absent section reads as "forgot to check". Backlog lists
-   every plan item not done, each with what it means: an item name alone
-   forces the successor to guess.
+   every plan item not done, each with what it means, and names the plan file
+   it was read from: an item name alone forces the successor to guess.
+   A lead file the note cites (LEAD-STATE.md, COMMON.md, a spike's state file)
+   is not called "current": quote its header line verbatim beside its mtime
+   (`stat`). Tops drift behind appended bodies; the quote is the check.
 
 Discipline: hand off at 50% of the context meter, not at the wire. Inside
 herdr, relay to a new session (`/relay`; the relay gate asks a lead to, once
@@ -109,12 +164,13 @@ never compacts instead.
 
     ## State              (✅ done / 🔄 in progress / ⛔ blocked)
 
-    ## Next step          (ONE concrete move)
+    ## Next step          (ONE concrete move, runnable as written: each command
+                          verbatim or a script path, no `…` or `<…>` to fill)
 
     ## Backlog            (every plan item not done: deferred or not started)
-    <one line each: what it means · why it waits · what unblocks it. A name
-    alone is not enough: the successor must never have to guess what an item
-    means.>
+    <one line each: what it means · why it waits · what unblocks it. Name the
+    plan file it was read from. A name alone is not enough: the successor must
+    never have to guess what an item means.>
 
     ## What we tried / dead ends
     <chronological; EACH with the reason it was rejected, so the next session
@@ -122,17 +178,21 @@ never compacts instead.
     rediscover. If you truly lack the reason, say so; still do not invite a redo.>
 
     ## Verified vs NOT verified
-    <what ran green (command + result) vs what was NEVER run — mandatory whenever
-    any code changed>
+    <what ran green (command + scope + result) vs what was NEVER run — mandatory
+    whenever any code changed. Every recorded check can fail. A verification that
+    passes by printing nothing (an empty diff, no matches, exit 0 and no output)
+    names the case it was checked against, or why the command would print on a
+    failure; otherwise it goes under NOT verified.>
 
     ## In flight
     <for EACH class: the finding, or `none (checked)` — background tasks from
     bg-tasks.py, one line per task id: command, waiter or work, and the
-    condition result (waiter) or log + exit-code file (work) · workflow
-    run IDs · session crons VERBATIM · detached processes+ports+log paths · open PRs+CI
+    condition result (waiter) or log + exit-code file + expected end (work) · workflow
+    run IDs · session crons VERBATIM · detached processes+ports+log paths+what they create+each result file with its waiter or "unwatched" · open PRs+CI
     · herd panes (only when HERDR_ENV=1): `herd.py status` as printed (workers
     with brief, deliverable and the `herd.py wait` waiter; lost launches), and
-    each unclassified pane classified self / shell / not mine / adopted>
+    each unclassified pane classified self / shell / not mine / adopted
+    · other open fronts: unconsumed notes and EMERGENCY snapshots>
 
     ## Artifacts          (paths, branches, PRs)
 
@@ -146,6 +206,9 @@ Keep the anchor quoted and colon-free — an unquoted `:` inside it makes the
 frontmatter unparseable, and the harness memory layer re-serializes what you
 write. `dirty=` must NAME the paths: they are the only operands RESUME's drift
 check has, and a bare `dirty` makes that check pass on anything.
+
+Every path in the note is absolute or `~/`-rooted: the successor's cwd may be
+a worktree or another checkout.
 
 Core four (Summary, Decisions, State, Next step) plus Backlog and Memory always; the rest adapt to the
 project — a content project has no anchor or Verified section, but In flight is
@@ -253,17 +316,21 @@ confirmation. Log anything the note lacked per `references/feedback.md`.
    -f` its command, and offer to re-arm it verbatim only when it is gone (one
    `herd.py wait`, run with `run_in_background`, covers every worker).
 3. **Classify → tier:**
-   - **Tier 1 (clean):** note exists · anchor matches reality · no newer /
-     EMERGENCY / drifted evidence · in-flight items all accounted for →
+   - **Tier 1 (clean):** note exists · anchor matches reality · no newer note ·
+     no drifted evidence · no unconsumed EMERGENCY, except one this note records
+     as another front's by filename and `session_id` · in-flight items all
+     accounted for →
      summarize in **~3 lines** (**where we are → next step → what to avoid**),
      offer to re-arm any recorded session crons, then **WAIT for confirmation**
      — do NOT start implementing.
    - **Tier 2 (recovery)** when ANY of: no note · every note already consumed ·
      any **unconsumed** `EMERGENCY-*.md` in the directory, whatever its mtime —
-     an unconsumed EMERGENCY ALWAYS routes to Tier 2 by design, even if its git
-     state matches the anchor, and even if it now sorts OLDER than the note
-     (stamping a note bumps it above an EMERGENCY it postdates; verification is
-     cheap, missed drift is not). **Unconsumed** = no `status: consumed` in it,
+     an unconsumed EMERGENCY routes to Tier 2 by design, even if its git state
+     matches the anchor, and even if it now sorts OLDER than the note (stamping
+     a note bumps it above an EMERGENCY it postdates; verification is cheap,
+     missed drift is not). One the newest unconsumed note records as another
+     front's, by its filename and `session_id`, does not send RESUME to Tier 2.
+     **Unconsumed** = no `status: consumed` in it,
      grepped the same loose way as a note's · a
      note newer (by mtime) than the one being resumed · anchor drift vs reality ·
      crash signals (hours-scale gap, dead/stalled agents, compact marker,
@@ -282,9 +349,12 @@ confirmation. Log anything the note lacked per `references/feedback.md`.
      `status: consumed`** to its frontmatter, edited in place. Never rename it:
      the hook's own prune and `references/recovery.md` §1 item 6 both match
      `EMERGENCY-*.md`, so a renamed file escapes the retention AND the sweep.
-     Nothing else retires a snapshot, and the hook writes one per compaction
-     *attempt* — so absent this stamp, one keypress latches every later
-     `/pickup` in that project into Tier 2 permanently. Stamp only snapshots in
+     Renaming does not retire it. SAVE stamps this session's own snapshots when
+     it writes the note; this stamp retires the ones this pass accounted for.
+     A snapshot the note records as another front's is left unstamped. The hook
+     writes one per compaction *attempt* — an unstamped snapshot the note does
+     not record as another front's latches every later `/pickup` here into
+     Tier 2. Stamp only snapshots in
      THIS front's memory dir; one surfaced in another project's dir (§1 item 6)
      is reported, never written.
    Session crons recorded in the note NEVER survive into a fresh session —
@@ -333,7 +403,7 @@ still name a lead yourself when several sessions share a checkout. Details:
 
 ## Red flags — you are about to violate this skill
 
-- Writing State / anchor / In flight from memory instead of command output
+- Writing a figure, list or verdict from memory instead of a named command or file
 - Recording a bare `dirty` anchor with no paths — it disarms RESUME's only check
 - Resuming the mtime-newest note without reading its `status:` — a `resumed` /
   `done` / `superseded` note is a closed front, and consuming one is what put it
@@ -341,6 +411,9 @@ still name a lead yourself when several sessions share a checkout. Details:
 - "The note looks complete, no need to run git status" — verify anyway
 - Treating an `EMERGENCY-*.md` snapshot as a curated, authoritative note
 - Pointing the successor at "this session's transcript" for anything it must re-issue
+- A Next step that gives a check's expected result without its command, or a
+  command with a `…`, a `<placeholder>` or an elided path left to fill, or a
+  path in the note that is not absolute or `~/`-rooted
 - Continuing a dead agent's "finished" work without re-running its gates
 - Declaring a recorded agent dead from a frozen transcript, an empty `ps`, or a
   quiet minute or two — and then writing to the files it owns
@@ -354,7 +427,8 @@ still name a lead yourself when several sessions share a checkout. Details:
   "compaction will summarize it anyway"
 - Recording background tasks from a hand-written `ps | grep` instead of
   `bg-tasks.py`
-- Saving a waiter whose condition is already true
+- Saving a waiter whose condition is already true, or that can never turn true
+- A recorded check that passes by printing nothing, with no case it was checked against
 - In a relay: closing your own pane, stamping the note before the hand-over,
   or acting in the old pane after it; as the successor, typing into the old
   pane (`relay-close.sh` then refuses to close it)

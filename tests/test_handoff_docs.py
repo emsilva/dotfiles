@@ -25,6 +25,11 @@ class HandoffDocsTests(unittest.TestCase):
         row = next(line for line in text.splitlines() if line.startswith('- **Reuse panes, recycle context.**'))
         self.assertIn('`herd.py launch <role> --pane <id>`', row)
 
+    def test_memory_check_names_the_handoff_pointer_fix(self):
+        text = (SKILL / 'SKILL.md').read_text()
+        self.assertNotIn('only two safe fixes', text)
+        self.assertIn('every pointer is into `handoffs/`', text)
+
     def test_every_script_the_docs_name_exists(self):
         text = ''.join((SKILL / name).read_text() for name in ('SKILL.md', 'references/relay.md', 'references/feedback.md'))
         named = set(re.findall(r'scripts/([\w.-]+\.(?:py|sh))', text))
@@ -228,6 +233,14 @@ class HandoffDocsTests(unittest.TestCase):
         for name in herd.COMMANDS:
             self.assertTrue((SCRIPTS / ('herd_%s.py' % name)).is_file(), name)
             self.assertRegex(herd.__doc__, r'\n  %s ' % name)
+
+    def test_prose_rules_from_the_2026_10_26_review_stay_named(self):
+        # These three rules have no script behind them. Dropping the phrase drops the rule.
+        text = ' '.join((SKILL / 'SKILL.md').read_text().split())
+        time_rule = text.index('read from `date -u` or the event\'s own record')
+        self.assertIn('never estimated', text[time_rule:time_rule + 160])
+        self.assertIn('absolute or `~/`', text)
+        self.assertIn('every recorded check can fail', text.lower())
 
     def test_no_pgrep_check_of_the_successors_waiters(self):
         # A fired waiter is legitimately dead: the compare PASS, not pgrep, proves coverage.

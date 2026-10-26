@@ -235,6 +235,79 @@ class MemoryCheckTests(unittest.TestCase):
             self.assertEqual(index_text(mem), index)
             self.assertEqual(sorted(os.listdir(mem)), ['MEMORY.md', 'kept.md', 'new.md'])
 
+    def test_exit_1_ends_with_counts_that_match_the_lines_above(self):
+        with tempfile.TemporaryDirectory() as mem:
+            old = time.time() - 86400
+            memory(mem, 'old-orphan', mtime=old)
+            memory(mem, 'new-orphan', desc='written this session')
+            memory(mem, 'kept')
+            Path(mem, 'MEMORY.md').write_text('- [Kept](kept.md) — stays\n- [Gone](gone.md) — deleted file\n'
+                                               '- [Also](also-gone.md)\n')
+            since = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 3600))
+            r = mc(mem, '--since', since)
+            self.assertEqual(r.returncode, 1, r.stderr)
+            lines = r.stdout.splitlines()
+            summary = lines[-1]
+            self.assertEqual(summary, 'debt: 1 unindexed_older, 1 unindexed_recent, 2 dead link, '
+                             '0 lines lost at load, 0 handoff pointer')
+            self.assertEqual(summary.count('unindexed_older'), 1)
+            for label, prefix in (('unindexed_older', 'unindexed_older:'),
+                                  ('unindexed_recent', 'unindexed_recent:'),
+                                  ('dead link', 'dead link,')):
+                count = int(summary.split(label)[0].split()[-1])
+                self.assertEqual(count, sum(1 for line in lines if line.startswith(prefix)), label)
+            lost = int(summary.split('lines lost')[0].split()[-1])
+            self.assertIn('%d line(s) lost at load' % lost, lines[0])
+            code, rep = run_mc(mem, '--since', since)
+            self.assertEqual(rep['counts'], {'unindexed_older': 1, 'unindexed_recent': 1, 'dead_link': 2,
+                                              'lost_lines': 0, 'handoff_pointer': 0})
+            self.assertEqual(code, 1)
+
+    def test_an_index_pointer_into_handoffs_is_its_own_finding_and_fix_removes_it(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            snap = Path(mem, 'handoffs')
+            snap.mkdir()
+            (snap / 'EMERGENCY-2026-10-24.md').write_text('consumed snapshot\n')
+            Path(mem, 'MEMORY.md').write_text(
+                '- [kept](kept.md) — x\n- [Snap](handoffs/EMERGENCY-2026-10-24.md) — consumed\n')
+            code, rep = run_mc(mem, '--since', SINCE)
+            self.assertEqual(code, 1)
+            self.assertEqual(rep['handoff_pointers'],
+                             [{'line': 2, 'targets': ['handoffs/EMERGENCY-2026-10-24.md'], 'removable': True}])
+            self.assertEqual(rep['dead_links'], [])
+            self.assertEqual(rep['counts']['handoff_pointer'], 1)
+            r = mc(mem, '--since', SINCE)
+            self.assertIn('handoff pointer, line 2: handoffs/EMERGENCY-2026-10-24.md', r.stdout)
+            self.assertTrue(r.stdout.splitlines()[-1].endswith('1 handoff pointer'))
+            code, rep = run_mc(mem, '--since', SINCE, '--fix')
+            self.assertEqual(code, 0)
+            self.assertEqual(index_text(mem), '- [kept](kept.md) — x\n')
+            self.assertEqual(rep['fixed']['removed'],
+                             ['- [Snap](handoffs/EMERGENCY-2026-10-24.md) — consumed'])
+            self.assertEqual(rep['handoff_pointers'], [])
+
+    def test_a_handoff_pointer_beside_a_live_memory_is_not_removed(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'kept')
+            Path(mem, 'handoffs').mkdir()
+            (Path(mem, 'handoffs') / 'note.md').write_text('note\n')
+            line = '- [kept](kept.md) and [snap](handoffs/note.md)'
+            Path(mem, 'MEMORY.md').write_text(line + '\n')
+            code, rep = run_mc(mem, '--since', SINCE, '--fix')
+            self.assertEqual(rep['handoff_pointers'],
+                             [{'line': 1, 'targets': ['handoffs/note.md'], 'removable': False}])
+            self.assertEqual(rep['fixed']['removed'], [])
+            self.assertEqual(index_text(mem), line + '\n')
+            self.assertEqual(code, 1)
+
+    def test_a_file_named_handoffs_md_is_not_a_handoff_pointer(self):
+        with tempfile.TemporaryDirectory() as mem:
+            memory(mem, 'handoffs')
+            Path(mem, 'MEMORY.md').write_text('- [h](handoffs.md) — a memory, not a note\n')
+            code, rep = run_mc(mem, '--since', SINCE)
+            self.assertEqual((code, rep['handoff_pointers'], rep['debt']), (0, [], False))
+
     def test_loader_constants_match_the_installed_claude_code(self):
         exe = shutil.which('claude')
         self.assertIsNotNone(exe, 'claude is not on PATH: the loader caps cannot be checked')

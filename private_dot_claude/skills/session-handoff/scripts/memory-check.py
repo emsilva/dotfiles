@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a project memory dir before a handoff; optionally apply the two safe fixes.
+"""Check a project memory dir before a handoff; optionally apply the safe fixes.
 
 Usage: python3 -I memory-check.py <memory-dir> [--since ISO | --session ID] [--fix] [--json]
 
@@ -12,9 +12,13 @@ URL scheme, not start with ~ or /, end in .md and stay inside the memory dir;
 links in `code spans` are not pointers. --since defaults to the first record of
 $CLAUDE_CODE_SESSION_ID's transcript (or --session's). --fix adds an index line
 for each missing file written since --since (only a pointer this check reads
-back) and removes index lines whose every pointer is dead. It edits the index
-text the check read and replaces MEMORY.md in one step, then measures again.
-Exit 0 when no debt remains, 1 when it does, 2 on a usage error.
+back), removes index lines whose every pointer is dead, and removes index lines
+whose every pointer is into handoffs/ (a note is task-state, not a memory). It
+edits the index text the check read and replaces MEMORY.md in one step, then
+measures again. Exit 0 prints `clean (checked)`. Exit 1's last line is
+`debt: N unindexed_older, N unindexed_recent, N dead link, N lines lost at load, N handoff pointer`;
+those counts match the lines printed above it, and `--json` carries them under
+`counts`. Exit 2 is a usage error.
 """
 import argparse
 import contextlib
@@ -37,6 +41,12 @@ CAP_LINES, CAP_UNITS = 200, 25000
 LINK = re.compile(r'\]\(([^()\n]+?)\)')
 SCHEME = re.compile(r'[A-Za-z][A-Za-z0-9+.-]*:')
 CODE_SPAN = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)')
+
+
+def under_handoffs(name):
+    """True when name points into a handoffs/ directory. Notes are task-state, not memories, so an index
+    pointer there is a finding even when the file exists."""
+    return 'handoffs' in name.split('/')[:-1]
 
 
 def pointers(mem, line):
@@ -112,17 +122,21 @@ def read_index(mem):
 def check(mem, since, text, exists):
     lines = text.split('\n')
     links = [pointers(mem, line) for line in lines]
-    linked = {name for names in links for name in names}
+    linked = {name for names in links for name in names if not under_handoffs(name)}
     files = sorted(f for f in os.listdir(mem) if f.endswith('.md') and f != 'MEMORY.md')
     missing = [f for f in files if f not in linked]
     recent = [f for f in missing if since is not None and os.path.getmtime(os.path.join(mem, f)) >= since]
-    dead = []
+    dead, handoff = [], []
     for n, names in enumerate(links, 1):
-        gone = [name for name in names if not os.path.exists(os.path.join(mem, name))]
+        noted = [name for name in names if under_handoffs(name)]
+        if noted:
+            handoff.append({'line': n, 'targets': noted, 'removable': len(noted) == len(names)})
+        gone = [name for name in names if name not in noted and not os.path.exists(os.path.join(mem, name))]
         if gone:
             dead.append({'line': n, 'targets': gone, 'removable': len(gone) == len(names)})
     return {'index_exists': exists, 'index': measure(text), 'unindexed_recent': recent,
-            'unindexed_older': [f for f in missing if f not in recent], 'dead_links': dead}
+            'unindexed_older': [f for f in missing if f not in recent], 'dead_links': dead,
+            'handoff_pointers': handoff}
 
 
 def fix(mem, text, report):
@@ -133,6 +147,7 @@ def fix(mem, text, report):
     """
     lines = text.split('\n')
     drop = {d['line'] for d in report['dead_links'] if d['removable']}
+    drop.update(d['line'] for d in report['handoff_pointers'] if d['removable'])
     removed = [lines[n - 1] for n in sorted(drop)]
     kept = [line for n, line in enumerate(lines, 1) if n not in drop]
     added = []
@@ -187,9 +202,23 @@ def since_from(args):
     return transcript.epoch(first) if first else None
 
 
+def counts(report):
+    """The numbers the exit-1 summary quotes, one per finding kind."""
+    return {'unindexed_older': len(report['unindexed_older']), 'unindexed_recent': len(report['unindexed_recent']),
+            'dead_link': len(report['dead_links']), 'lost_lines': report['index']['lost_lines'],
+            'handoff_pointer': len(report['handoff_pointers'])}
+
+
+def debt_line(report):
+    c = report['counts']
+    return ('debt: %d unindexed_older, %d unindexed_recent, %d dead link, %d lines lost at load, '
+            '%d handoff pointer' % (c['unindexed_older'], c['unindexed_recent'], c['dead_link'], c['lost_lines'],
+                                    c['handoff_pointer']))
+
+
 def has_debt(report):
     return bool(report['index']['lost_lines'] or report['unindexed_recent'] or report['unindexed_older']
-                or report['dead_links'])
+                or report['dead_links'] or report['handoff_pointers'])
 
 
 def main(argv=None):
@@ -215,6 +244,7 @@ def main(argv=None):
         fixed = fix(args.memory_dir, text, report)
         report = check(args.memory_dir, since, *read_index(args.memory_dir))
         report['fixed'] = fixed
+    report['counts'] = counts(report)
     report['debt'] = has_debt(report)
     if args.json:
         print(json.dumps(report, indent=1, ensure_ascii=False))
@@ -228,11 +258,14 @@ def main(argv=None):
         for d in report['dead_links']:
             print('dead link, line %d: %s%s' % (d['line'], ', '.join(d['targets']),
                                                 '' if d['removable'] else ' (the line has live links too)'))
+        for h in report['handoff_pointers']:
+            print('handoff pointer, line %d: %s%s' % (h['line'], ', '.join(h['targets']),
+                                                      '' if h['removable'] else ' (the line has other links too)'))
         for line in report.get('fixed', {}).get('added', []):
             print('added: %s' % line)
         for line in report.get('fixed', {}).get('removed', []):
             print('removed: %s' % line)
-        print('debt' if report['debt'] else 'clean (checked)')
+        print(debt_line(report) if report['debt'] else 'clean (checked)')
     return 1 if report['debt'] else 0
 
 

@@ -36,7 +36,8 @@ def add_arguments(p):
 
 
 def dispatch_line(brief, sha, deliverable, blocked):
-    return ('Read and execute %s (sha256 %s). Deliver %s, reply with its path and sha256, then end your turn. '
+    return ('Read and execute %s (sha256 %s). Finish any background job before writing the deliverable. '
+            'Deliver %s, reply with its path and sha256, then end your turn. '
             'For a ruling, write %s and end your turn.' % (brief, sha[:16], deliverable, blocked))
 
 

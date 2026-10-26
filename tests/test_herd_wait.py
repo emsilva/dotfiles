@@ -4,6 +4,7 @@ import subprocess
 import time
 import unittest
 
+from handoff_fixtures import notice, tool_result, tool_use, write_transcript
 from herd_fixtures import HerdCase, listing
 
 FAST = ('--interval', '0.1')
@@ -169,6 +170,98 @@ class ReportTests(WaitCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn('--fired-dir needs --marker', r.stderr)
 
+
+CLAUDE = '66666666-6666-4666-8666-666666666666'
+
+
+class BackgroundAndCloseTests(WaitCase):
+    def claude(self, recs, session=CLAUDE):
+        (self.pdir / 'herd.jsonl').unlink()
+        launch = self.launch_row('one-xhigh-aaaa', 'wT:p2', session=session, kind='claude')
+        self.record(launch, self.dispatch_row(launch['launch_id'], deliverable=self.report,
+                                              blocked=self.blocked, sent_at=PAST))
+        if recs is not None:
+            write_transcript(self.projects, session, recs)
+        return launch
+
+    def open_shell(self):
+        return [tool_use('tu1', 'Bash', {'command': 'sleep 100', 'description': 'suite'}, 1),
+                tool_result('tu1', 'Command running in background', 2,
+                            tool_use_result={'backgroundTaskId': 'bopen0001'})]
+
+    def test_an_open_background_job_keeps_a_fresh_report_from_counting_as_delivered(self):
+        self.claude(self.open_shell())
+        self.report.write_text('provisional\n')
+        r = self.wait(self.herd_with([self.entry('idle')], [self.entry('idle')], []))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa status=gone wT:p2')
+        self.assertNotIn('deliverable', r.stdout)
+        self.assertEqual(self.reported(), [])
+
+    def test_a_failed_transcript_read_keeps_waiting(self):
+        self.claude(None)
+        self.report.write_text('provisional\n')
+        r = self.wait(self.herd_with([self.entry('idle')], [self.entry('idle')], []))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('deliverable', r.stdout)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa status=gone wT:p2')
+
+    def test_a_closed_background_job_lets_a_fresh_report_deliver(self):
+        self.claude(self.open_shell() + [notice('bopen0001', 'completed', 3)])
+        self.report.write_text('done\n')
+        r = self.wait(self.herd_with([self.entry('idle')], [self.entry('idle')]))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa deliverable %s' % self.report)
+        self.assertEqual(self.reported(), [(self.rows()[0]['launch_id'], 1, 'deliverable')])
+
+    def test_a_status_event_is_printed_and_does_not_close_the_dispatch(self):
+        r = self.wait(self.herd_with(*[[self.entry('blocked')]] * 4))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa status=blocked wT:p2')
+        self.assertEqual(self.reported(), [])
+        r = self.wait(self.herd_with([]))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('nothing to wait on', r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa status=gone wT:p2')
+        self.assertEqual(self.reported(), [])
+
+    def test_a_blocked_file_still_closes_the_dispatch(self):
+        self.blocked.write_text('which base?\n')
+        r = self.wait(self.herd_with([self.entry('idle')]))
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa blocked %s' % self.blocked)
+        self.assertEqual(self.reported(), [(self.one['launch_id'], 1, 'blocked')])
+        r = self.wait(self.herd_with([self.entry('idle')]))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('nothing to wait on', r.stderr)
+
+    def test_an_unknown_kind_keeps_todays_behaviour(self):
+        import herd_wait
+        self.assertIs(herd_wait.background_open({'kind': 'gemini'}, self.projects), False)
+        self.assertIs(herd_wait.background_open({'kind': 'pi'}, self.projects), False)
+        (self.pdir / 'herd.jsonl').unlink()
+        launch = self.launch_row('one-xhigh-aaaa', 'wT:p2', kind='gemini')
+        self.record(launch, self.dispatch_row(launch['launch_id'], deliverable=self.report,
+                                              blocked=self.blocked, sent_at=PAST))
+        self.report.write_text('done\n')
+        r = self.wait(self.herd_with([self.entry('idle')], [self.entry('idle')], []))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'one-xhigh-aaaa deliverable %s' % self.report)
+
+    def test_a_hook_that_raises_keeps_waiting(self):
+        import herd_wait
+        def boom(launch, projects):
+            raise OSError('transcript unreadable')
+        herd_wait.BACKGROUND_OPEN['claude'] = boom
+        try:
+            self.assertIs(herd_wait.background_open({'kind': 'claude', 'session_id': 'x'}, self.projects), None)
+        finally:
+            herd_wait.BACKGROUND_OPEN['claude'] = herd_wait.background_open_claude
+
+    def test_codex_grok_and_opencode_hooks_keep_todays_behaviour(self):
+        import herd_wait
+        for name in ('background_open_codex', 'background_open_grok', 'background_open_opencode'):
+            hook = getattr(herd_wait, name)
+            self.assertIs(hook({'session_id': 'unused'}, self.projects), False)
 
 
 if __name__ == '__main__':

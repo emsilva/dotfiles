@@ -192,6 +192,22 @@ def herdr_failure(message, text):
     return herdlib.Refusal('%s (pane shows: %s)' % (message, relaylib.screen_tail(text)))
 
 
+def screen_note(pane):
+    """The pane's screen tail, read before undo closes it. A failed read is named: an empty tail would look
+    like a blank pane, and the failure that brought us here must still be the error."""
+    try:
+        return relaylib.screen_tail(screen(pane))
+    except (relaylib.HerdrError, OSError) as e:
+        return 'unreadable: %s' % e
+
+
+def attach_pane(error, note):
+    message = '%s (pane shows: %s)' % (error, note)
+    if isinstance(error, relaylib.HerdrError):
+        return relaylib.HerdrError(message, error.code)
+    return type(error)(message)
+
+
 def run(a, taken_names=(), attempts=3):
     self_pane = herdlib.require_herdr()
     pdir = herdlib.project_dir(a.projects, a.record_dir)
@@ -299,9 +315,17 @@ def run(a, taken_names=(), attempts=3):
             raise herdlib.RecordError('launch failed after starting agent %s (%s) in reused pane %s; '
                                       'it may still be running unrecorded; close the agent manually: %s'
                                       % (name, a.kind, pane, e)) from e
+        # Read before undo closes the pane this launch created. Dialog and banner failures already carry the
+        # tail through herdr_failure; every other failure must too, or the pane's own error dies with it.
+        note = screen_note(created_pane) if created_pane and '(pane shows:' not in str(e) else None
         undo(created_pane, repo, worktree if created_worktree else None, branch if created_worktree else None, a.base)
         if isinstance(e, OSError):
-            raise herdlib.RecordError('launch could not write its record or resources: %s' % e)
+            message = 'launch could not write its record or resources: %s' % e
+            if note:
+                message += ' (pane shows: %s)' % note
+            raise herdlib.RecordError(message) from e
+        if note:
+            raise attach_pane(e, note) from e
         raise
     print(json.dumps(row))
     return 0

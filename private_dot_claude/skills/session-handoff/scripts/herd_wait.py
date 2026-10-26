@@ -1,10 +1,12 @@
-"""wait: the herd's one waiter; exits on the first event of any open dispatch not yet reported.
+"""wait: the herd's one waiter; exits on the first event of any open dispatch not yet closed.
 
 Run it with the Bash tool's run_in_background (never nohup or &: only such a task wakes the session). Events:
-deliverable (written after the dispatch, worker idle on 2 polls), blocked (BLOCKED file written after it),
-status=blocked (the worker blocked for 4 polls), status=gone (no live pane). Prints `<name> <event> <path>`,
-records a `reported` row, and with --fired-dir touches <dir>/<marker>. An event another waiter recorded for a
-dispatch this one watches fires here too (a relay's two waiters on one worker).
+deliverable (written after the dispatch, worker idle on 2 polls, and no background job open in the worker),
+blocked (BLOCKED file written after it), status=blocked (the worker blocked for 4 polls), status=gone (no live
+pane). Prints `<name> <event> <path>`. A deliverable or BLOCKED.md records a `reported` row and closes the
+dispatch; a status= event is printed and does not, so a re-armed wait still has it. With --fired-dir touches
+<dir>/<marker>. An event another waiter recorded for a dispatch this one watches fires here too (a relay's two
+waiters on one worker).
 """
 import os
 import sys
@@ -12,9 +14,11 @@ import time
 
 import herdlib
 import relaylib
+import transcript
 
 DELIVERED_POLLS = 2
 BLOCKED_POLLS = 4
+CLOSES_DISPATCH = ('deliverable', 'blocked')
 
 
 def add_arguments(p):
@@ -42,8 +46,64 @@ def pending(launches, names):
     return out
 
 
+def background_open_claude(launch, projects):
+    """True when the worker's transcript still has an open background task.
+
+    No session id, or a transcript that cannot be read, is not done: a failed read is not proof the job
+    finished. The session id is the one the herd record keeps, the same lookup bg-tasks.py uses.
+    """
+    session = launch.get('session_id')
+    if not session:
+        return None
+    path = transcript.find_transcript(session, projects)
+    return bool(transcript.open_tasks([path]))
+
+
+def background_open_opencode(launch, projects):
+    """Today's behaviour: a settled worker may count as done.
+
+    Measured 2026-10-26 on opencode v2.0.32: `opencode session export` omits a shell tool whose live session
+    row has state.status running, so the export does not mark a running shell. `opencode export <id>` is not a
+    command. Do not treat that missing signal as an open job, and do not call the export on each poll.
+    """
+    return False
+
+
+def background_open_codex(launch, projects):
+    """No pane-footer scrape in this change (it needs fixtures captured from real panes). Today's behaviour."""
+    return False
+
+
+def background_open_grok(launch, projects):
+    """No pane-footer scrape in this change (it needs fixtures captured from real panes). Today's behaviour."""
+    return False
+
+
+BACKGROUND_OPEN = {
+    'claude': background_open_claude,
+    'opencode': background_open_opencode,
+    'codex': background_open_codex,
+    'grok': background_open_grok,
+}
+
+
+def background_open(launch, projects):
+    """True when a background job is open, False when none is, None when the read failed (keep waiting).
+
+    A kind with no hook has no signal: today's behaviour, a settled worker may count as done. A hook that
+    raises is a failed read, not proof the job finished.
+    """
+    hook = BACKGROUND_OPEN.get(launch.get('kind'))
+    if hook is None:
+        return False
+    try:
+        return hook(launch, projects)
+    except Exception:
+        return None
+
+
 def fire(a, pdir, launch, seq, event, path, record=True):
-    if record:
+    if record and event in CLOSES_DISPATCH:
         herdlib.append(pdir, {'type': 'reported', 'launch_id': launch['launch_id'], 'seq': seq, 'event': event})
     print('%s %s %s' % (launch['name'], event, path))
     if a.fired_dir:
@@ -90,7 +150,10 @@ def run(a):
         for key, (launch, d) in watched.items():
             pane = panes.get(launch['launch_id'])
             status = pane.get('agent_status') if pane else None
-            ready = fresh(d['deliverable'], d) and status in ('idle', 'done')
+            current = launches.get(launch['launch_id'], launch)
+            ready = False
+            if fresh(d['deliverable'], d) and status in ('idle', 'done'):
+                ready = background_open(current, a.projects) is False
             delivered[key] = delivered.get(key, 0) + 1 if ready else 0
             blocked[key] = blocked.get(key, 0) + 1 if status == 'blocked' else 0
             if delivered[key] >= DELIVERED_POLLS:

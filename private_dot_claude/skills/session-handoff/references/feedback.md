@@ -34,14 +34,23 @@ away.
 Kinds: **no-slot**, the template has no place for it; **slot-empty**, the place
 exists but was left empty or incomplete; **stale-or-wrong**, present but stale
 or wrong; **check-cannot-fail**, a recorded check that passes whatever happens;
-**protocol**, a relay or pickup step missing or wrong.
+**protocol**, a relay or pickup step missing or wrong, or a script defect.
 
 **Serious**: an owner question the predecessor could have answered; a wrong or
 duplicate action; a safety check that could not fail. Everything else is minor.
 
+A script defect found outside a pickup is a row with `predecessor_session: null`
+and kind `protocol`.
+
+On the Mac, before the Fire step, run
+`python3 -I ~/.claude/skills/session-handoff/scripts/feedback-import.py <project>`
+for the current project when `<project>/.scratch/handoff-feedback/` exists.
+
 ## Fire
 
-Draft a proposal when the new gap is serious, or when `gaps.jsonl` already
+Before drafting, read the open proposals' change lines and add an addendum when
+the failure matches, whatever the kind and section key says. Otherwise draft a
+proposal when the new gap is serious, or when `gaps.jsonl` already
 holds a gap with the same `kind` and `section` from a different handoff (a
 different `predecessor_session`). A recurring gap whose earlier line has
 `fixed_by` set is a regression: always propose, and say so.
@@ -51,9 +60,12 @@ different `predecessor_session`). A recurring gap whose earlier line has
 1. Write `~/.claude/handoff-feedback/proposals/<YYYY-MM-DD>-<slug>.md`: the
    gap lines (evidence), the change in one sentence, and a unified diff against
    the chezmoi source `~/.local/share/chezmoi/private_dot_claude/skills/session-handoff/`
-   (never the deployed copy).
+   (never the deployed copy). Check every proposal diff with
+   `git -C ~/.local/share/chezmoi apply --check` before filing.
 2. Add a `~/TODO.md` entry tagged `#session-handoff` pointing at it, in the
    `todo` skill's format.
 3. Mention it in your next report to the owner. Applying it is the owner's
    call; once approved, a separate session applies it with
-   `superpowers:writing-skills` and commits it in the dotfiles repo.
+   `superpowers:writing-skills` and commits it in the dotfiles repo. The session
+   that applies a proposal sets `fixed_by` on its gap rows and updates the
+   proposal's Status line.

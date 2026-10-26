@@ -217,6 +217,9 @@ predecessor, on failure). The project's current lead is recorded in
 
     ## Arrived during the relay
     <deliveries, notifications and worker state changes since the freeze, or `none`>
+    <a task that samples, spends or writes while it waits and is still attached:
+    its command verbatim, for the successor to restart after the hand-over; or
+    `none`. SAVE detaches this before the relay; the line is the fallback>
 
     ## Late facts for memory
     <durable facts learned after the SAVE, or `none`; the successor writes them>
@@ -244,6 +247,13 @@ predecessor, on failure). The project's current lead is recorded in
      waiter is a loop of this shape:
 
          : relay-<relay-id>-w<k>; until <condition>; do sleep 30; done; mkdir -p <dir>/fired && touch <dir>/fired/relay-<relay-id>-w<k>
+
+     A task that does work while it waits (samples, spends or writes) and is
+     still attached is not mirrored: a second copy doubles the work during the
+     read-only phase. Arm a passive waiter on its effect (the line it appends,
+     or no process running its script), record it as `rearmed` with a `gaps`
+     line naming the task, and restart the task after the hand-over from the
+     command under Arrived during the relay. SAVE should have detached it.
 
      For a version-2 checklist's workers, one waiter covers them all, and
      every worker's `waiter_marker` names it:
@@ -291,8 +301,9 @@ predecessor, on failure). The project's current lead is recorded in
      again.
 2. **On "you have the lead":** read `handover.md`, write its late facts to
    memory (then `memory-check.py --fix` as in SAVE), stamp the note `resumed`.
-   A second copy of the line (the predecessor retries a send it could not
-   confirm) changes nothing.
+   Restart each still-attached work-while-waiting task from the command
+   `handover.md` names; its passive waiter is already armed. A second copy of
+   the line (the predecessor retries a send it could not confirm) changes nothing.
    If the note's Memory section carries debt, fix it first (read MEMORY.md in
    full: the part past the cap never loaded into your context).
 3. **Close the predecessor:**
