@@ -3,7 +3,8 @@
 # compaction — every realistic path exits 0, and the registration in
 # settings.json carries a `timeout` (the harness default ceiling is 10 MINUTES,
 # and PreCompact awaits its hooks, so wall-clock is the real risk, not exit code).
-# Project dir: taken from the payload's transcript_path, whose dirname IS the
+# Folder: the autoMemoryDirectory setting when set (see memory_setting below).
+# Otherwise the project dir: taken from the payload's transcript_path, whose dirname IS the
 # harness encoding verbatim. The sed fallback applies the harness rule (every
 # non-alphanumeric -> '-') but not its >200-char truncate+hash, so an exotic cwd
 # lands the snapshot orphaned (harmless, unread) rather than in the wrong place.
@@ -15,7 +16,42 @@ cwd="$(jget cwd)"
 tp="$(jget transcript_path)"
 sid="$(jget session_id)"
 trg="$(jget trigger)"
-if [ -n "$tp" ] && [ -d "$(dirname "$tp")" ]; then
+# The memory folder Claude uses for this session, which /pickup reads: the
+# autoMemoryDirectory setting when one is set (a Codespace routes it to
+# .scratch/memory/claude, which syncs to the Mac), else the default folder
+# beside the transcript. Claude reads the key from every scope and ranks
+# local > project > user; it takes only an absolute or ~/ path. The local
+# file lives at the git root (the launch dir before v2.1.211); the project
+# file is read from the working dir. Without python3 the default stands.
+memory_setting() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  python3 -I - "$HOME" "$cwd" "$top" 2>/dev/null <<'PY' || true
+import json, os, sys
+home, cwd, top = sys.argv[1:4]
+local = [r for r in dict.fromkeys((top, cwd)) if r]
+shared = [r for r in dict.fromkeys((cwd, top)) if r]
+files = [os.path.join(r, '.claude', 'settings.local.json') for r in local]
+files += [os.path.join(r, '.claude', 'settings.json') for r in shared]
+files.append(os.path.join(home, '.claude', 'settings.json'))
+for path in files:
+    try:
+        with open(path, encoding='utf-8') as handle:
+            value = json.load(handle).get('autoMemoryDirectory')
+    except (OSError, ValueError, AttributeError):
+        continue
+    if isinstance(value, str) and value.startswith('~/'):
+        print(os.path.join(home, value[2:]))
+        break
+    if isinstance(value, str) and value.startswith('/'):
+        print(value)
+        break
+PY
+}
+mem="$(memory_setting)"
+if [ -n "$mem" ]; then
+  dir="$mem/handoffs"
+elif [ -n "$tp" ] && [ -d "$(dirname "$tp")" ]; then
   dir="$(dirname "$tp")/memory/handoffs"
 else
   dir="$HOME/.claude/projects/$(printf '%s' "$cwd" | LC_ALL=C sed 's/[^a-zA-Z0-9]/-/g')/memory/handoffs"
