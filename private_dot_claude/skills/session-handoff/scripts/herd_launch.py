@@ -2,7 +2,8 @@
 
 Codex at xhigh unless told otherwise; Claude with the lead's model at high effort when --kind claude, and only as a
 builder (Claude has no sandbox to hold it read-only); opencode with its configured default model and effort when --kind
-opencode, also only as a builder (no sandbox either). A builder gets its own worktree and branch; a read-only worker
+opencode, also only as a builder (no sandbox either); Grok Build at grok-4.7 xhigh when --kind grok, also only as
+a builder (its sandbox off, permissions bypassed). A builder gets its own worktree and branch; a read-only worker
 runs in the repo. Any failure closes the pane this command created, removes the worktree it created, and records
 nothing. After starting in a reused pane, a failure reports the agent for manual cleanup because the pane is not
 owned by this launch.
@@ -20,17 +21,18 @@ import relaylib
 import transcript
 
 DEFAULTS = {'codex': ('gpt-6.1-sol', 'xhigh'), 'claude': (None, 'high'),   # Claude's model: the lead's own
-            'opencode': ('gpt-6.1-sol', 'xhigh')}
-NO_SANDBOX = ('claude', 'opencode')
+            'opencode': ('gpt-6.1-sol', 'xhigh'), 'grok': ('grok-4.7', 'xhigh')}
+NO_SANDBOX = ('claude', 'opencode', 'grok')
 TRUST_OPTION = 'Yes, I trust this folder'
 TRUST_YES = re.compile(r'❯\s*(?:\d+\.\s*)?Yes, I trust this folder')
+GROK_TRUST = 'Do you trust the contents of this directory?'   # Grok Build 1.0.70; "y" answers "Yes, proceed"
 STOP_ON = ('agent_name_taken', 'agent_not_ready')
 SETTLE_BOUND = int(os.environ.get('HERD_SETTLE_SECONDS', '60'))   # after a startup dialog
 
 
 def add_arguments(p):
     p.add_argument('role', help='what the worker does: [a-z][a-z0-9-]*, the start of its name')
-    p.add_argument('--kind', choices=('codex', 'claude', 'opencode'), default='codex')
+    p.add_argument('--kind', choices=('codex', 'claude', 'opencode', 'grok'), default='codex')
     mode = p.add_mutually_exclusive_group()
     mode.add_argument('--builder', action='store_true', help='a worktree and branch of its own; it commits')
     mode.add_argument('--readonly', action='store_true', help='the default: runs in the repo, cannot write .git')
@@ -78,6 +80,10 @@ def agent_args(kind, mode, model, effort, cwd, session_id):
         # The TUI takes no model or effort flag: they come from the opencode config (opencode_defaults checks them).
         # --session names the session up front, so the record knows it before the first prompt.
         return [cwd, '--auto', '--session', session_id]
+    if kind == 'grok':
+        # bypassPermissions runs tools without asking (the session records yolo_mode); its sandbox profile is off.
+        return ['-m', model, '--reasoning-effort', effort, '--session-id', session_id,
+                '--permission-mode', 'bypassPermissions']
     return ['--model', model, '--effort', effort, '--dangerously-skip-permissions', '--session-id', session_id]
 
 
@@ -136,6 +142,11 @@ def answer_startup_dialog(kind, pane, cwd):
         if not TRUST_YES.search(text):
             raise herdr_failure('the trust dialog did not select "Yes, I trust this folder"', text)
         relaylib.herdr_text('agent', 'send-keys', pane, 'enter')
+    elif kind == 'grok':
+        if GROK_TRUST not in text:
+            raise herdr_failure('Grok is blocked at startup on something other than the trust question for %s'
+                                % cwd, text)
+        relaylib.herdr_text('agent', 'send-keys', pane, 'y')
     else:
         if 'trust' in text.lower():
             raise herdr_failure('Codex asks to trust %s despite the override' % cwd, text)
@@ -150,6 +161,23 @@ def answer_startup_dialog(kind, pane, cwd):
             raise herdr_failure('the agent is still %s %d s after its startup dialog'
                                 % (agent.get('agent_status'), SETTLE_BOUND), text)
         time.sleep(1)
+
+
+def answer_grok_trust(pane, cwd):
+    """Grok Build asks whether to trust a folder it has not seen, and herdr reports that question as idle, not
+    blocked, so `agent start` returns ok with the question on screen. The worker runs in cwd, which this launch
+    chose, so it is answered yes; it must then leave the screen within the bound. (A worktree under a trusted repo
+    is trusted already: no question.)"""
+    text = screen(pane)
+    if GROK_TRUST not in text:
+        return
+    relaylib.herdr_text('agent', 'send-keys', pane, 'y')
+    deadline = time.monotonic() + SETTLE_BOUND
+    while GROK_TRUST in text:
+        if time.monotonic() >= deadline:
+            raise herdr_failure('Grok still asks to trust %s %d s after "y"' % (cwd, SETTLE_BOUND), text)
+        time.sleep(1)
+        text = screen(pane)
 
 
 def verify_banner(pane, model_text, effort):
@@ -196,7 +224,7 @@ def run(a, taken_names=(), attempts=3):
         lid, name = herdlib.new_name(a.role, effort, rows, taken)
     except ValueError as e:
         raise herdlib.Refusal(str(e))
-    session_id = (str(uuid.uuid4()) if a.kind == 'claude' else
+    session_id = (str(uuid.uuid4()) if a.kind in ('claude', 'grok') else
                   'ses_herd' + uuid.uuid4().hex[:20] if a.kind == 'opencode' else None)
     worktree = branch = None
     created_worktree = False
@@ -246,9 +274,13 @@ def run(a, taken_names=(), attempts=3):
                 relaylib.herdr_text('agent', 'rename', pane, name)
         elif not ok:
             raise herdlib.Refusal('agent start failed: %s' % out)
-        if a.kind != 'opencode':
+        if a.kind == 'grok':
+            answer_grok_trust(pane, cwd)
+        if a.kind not in ('opencode', 'grok'):
             # opencode's home screen draws no model line until its first prompt (and draws badly in a short pane):
             # opencode_defaults checked the config above, and dispatch checks the session's model and variant.
+            # Grok draws no model or effort line either; its argv names both, and dispatch checks them against
+            # the session's summary.json.
             verify_banner(pane, relaylib.banner_model(a.kind, model), effort)
         agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
         session_id = (agent.get('agent_session') or {}).get('value') or session_id

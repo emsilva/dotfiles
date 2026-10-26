@@ -168,6 +168,60 @@ def opencode_arrived(launch, line, before):
     return session, None
 
 
+def grok_home():
+    return os.environ.get('GROK_HOME') or os.path.join(os.path.expanduser('~'), '.grok')
+
+
+def grok_session_dir(session):
+    """Grok Build keeps a session at <grok home>/sessions/<url-encoded cwd>/<session id>/ (Grok Build 1.0.70)."""
+    hits = glob.glob(os.path.join(glob.escape(grok_home()), 'sessions', '*', glob.escape(session)))
+    return hits[0] if len(hits) == 1 and os.path.isdir(hits[0]) else None
+
+
+def grok_prompts(directory):
+    """The session's prompts in order, from updates.jsonl: user_message_chunk texts joined per promptIndex (a
+    chunk without one is a prompt of its own). A line still being written is skipped."""
+    prompts = {}
+    try:
+        with open(os.path.join(directory, 'updates.jsonl'), encoding='utf-8') as fh:
+            for n, raw in enumerate(fh):
+                try:
+                    update = (json.loads(raw).get('params') or {}).get('update') or {}
+                except (ValueError, AttributeError):
+                    continue
+                if not isinstance(update, dict) or update.get('sessionUpdate') != 'user_message_chunk':
+                    continue
+                content = update.get('content')
+                text = content.get('text') if isinstance(content, dict) else None
+                meta = update.get('_meta')
+                index = meta.get('promptIndex') if isinstance(meta, dict) else None
+                key = ('prompt', index) if index is not None else ('chunk', n)
+                prompts[key] = prompts.get(key, '') + (text if isinstance(text, str) else '')
+    except (OSError, TypeError):
+        return []
+    return list(prompts.values())
+
+
+def grok_arrived(launch, line, before):
+    """(session, warning) once the session holds the prompt after the prompts counted before the send, else None.
+    A session on another model or effort than the launch recorded is reported, not hidden."""
+    session = launch['session_id']
+    directory = grok_session_dir(session) if session else None
+    if not directory or not any(line in text for text in grok_prompts(directory)[before.get(session, 0):]):
+        return None
+    try:
+        with open(os.path.join(directory, 'summary.json'), encoding='utf-8') as fh:
+            summary = json.load(fh)
+    except (OSError, ValueError):
+        summary = {}
+    if not isinstance(summary, dict):
+        summary = {}
+    runs = (summary.get('current_model_id'), summary.get('reasoning_effort'))
+    if runs != (launch['model'], launch['effort']):
+        return session, 'the session runs %s at %s, not %s at %s' % (runs + (launch['model'], launch['effort']))
+    return session, None
+
+
 def herdr_session(pane):
     agent = (relaylib.herdr_json('agent', 'get', pane).get('result') or {}).get('agent') or {}
     return (agent.get('agent_session') or {}).get('value')
@@ -178,6 +232,8 @@ def arrived(launch, pane, line, known, stale, before, not_before, claimed, proje
     stale: the session a reset just ended; herdr reporting it still is no answer."""
     if launch['kind'] == 'opencode':
         return opencode_arrived(launch, line, before)
+    if launch['kind'] == 'grok':
+        return grok_arrived(launch, line, before)
     reported = herdr_session(pane)
     reported = None if reported == stale else reported
     if launch['kind'] == 'claude':
@@ -286,12 +342,16 @@ def run(a):
     claimed |= {d['session_id'] for l in launches.values() if l is not launch for d in l['dispatches']
                 if d['session_id']}
     with herdlib.locked(pdir, 'herd.lock.' + hashlib.sha1(launch['cwd'].encode()).hexdigest()):
-        paths = (rollouts() if launch['kind'] == 'codex' else [] if launch['kind'] == 'opencode' else
+        paths = (rollouts() if launch['kind'] == 'codex' else [] if launch['kind'] in ('opencode', 'grok') else
                  glob.glob(os.path.join(glob.escape(a.projects), '*', '*.jsonl')))
         before = {}
         if launch['kind'] == 'opencode' and launch['session_id']:
             # The user messages already in the session: a delivered prompt is a later one.
             before[launch['session_id']] = len(opencode_user_texts(opencode_session(launch['session_id'])))
+        if launch['kind'] == 'grok' and launch['session_id']:
+            # The prompts already in the session (none before its first): a delivered prompt is a later one.
+            directory = grok_session_dir(launch['session_id'])
+            before[launch['session_id']] = len(grok_prompts(directory)) if directory else 0
         try:
             for path in paths:
                 try:
@@ -314,7 +374,8 @@ def run(a):
                 break
     if result is None:
         raise herdlib.Refusal('the brief did not reach %s (sent twice; its %s holds no such prompt)'
-                              % (a.name, {'claude': 'transcript', 'opencode': 'session export'}.get(
+                              % (a.name, {'claude': 'transcript', 'opencode': 'session export',
+                                          'grok': 'session updates'}.get(
                                   launch['kind'], 'session file')))
     session, warning = result
     row = {'type': 'dispatch', 'launch_id': launch['launch_id'],

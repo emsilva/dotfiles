@@ -10,6 +10,7 @@ import subprocess
 import uuid
 
 import herd_dispatch
+import herd_launch
 import herdlib
 import relaylib
 
@@ -20,7 +21,8 @@ def add_arguments(p):
     p.add_argument('--model')
     p.add_argument('--effort')
     p.add_argument('--mode', choices=('builder', 'readonly'),
-                   help='default: builder for a Claude or opencode worker (no sandbox) or one in .claude/worktrees/, else readonly')
+                   help='default: builder for a Claude, opencode or Grok worker (no sandbox) or one in '
+                        '.claude/worktrees/, else readonly')
     p.add_argument('--rename', action='store_true', help='give it a generated name')
     p.add_argument('--brief')
     p.add_argument('--deliverable')
@@ -47,8 +49,9 @@ def run(a):
     agent = result.get('agent') if isinstance(result, dict) else None
     if not isinstance(agent, dict):
         raise relaylib.HerdrError('herdr agent get %s: result.agent is not an object' % a.pane)
-    if agent.get('agent') not in ('claude', 'codex', 'opencode'):
-        raise herdlib.Refusal('pane %s hosts %s, not a Claude, Codex or opencode worker' % (a.pane, agent.get('agent')))
+    if agent.get('agent') not in ('claude', 'codex', 'opencode', 'grok'):
+        raise herdlib.Refusal('pane %s hosts %s, not a Claude, Codex, opencode or Grok worker'
+                              % (a.pane, agent.get('agent')))
     pane = {'pane_id': a.pane, 'agent': agent['agent'], 'agent_session': agent.get('agent_session'),
             'name': agent.get('name')}
     pairs, _, _ = herdlib.match(launches, [pane])
@@ -67,12 +70,12 @@ def run(a):
         if any(l['name'] == name for l in herdlib.open_launches(launches)):
             raise herdlib.Refusal('an open launch is already called %s: adopt with --rename' % name)
         lid = uuid.uuid4().hex
-    if agent['agent'] in ('claude', 'opencode') and a.mode == 'readonly':
+    if agent['agent'] in herd_launch.NO_SANDBOX and a.mode == 'readonly':
         raise herdlib.Refusal('a %s worker has no sandbox, so it cannot be recorded read-only'
                               % agent['agent'].capitalize())
     cwd = os.path.realpath(agent.get('cwd') or '/')
     in_worktree = '/.claude/worktrees/' in cwd + '/'
-    mode = a.mode or ('builder' if agent['agent'] in ('claude', 'opencode') or in_worktree else 'readonly')
+    mode = a.mode or ('builder' if agent['agent'] in herd_launch.NO_SANDBOX or in_worktree else 'readonly')
     worktree = branch = None
     if in_worktree:
         worktree = herdlib.git_toplevel(cwd)

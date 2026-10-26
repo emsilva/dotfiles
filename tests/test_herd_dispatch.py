@@ -491,6 +491,101 @@ class OpencodeDispatchTests(DispatchCase):
         self.assertEqual([row['type'] for row in self.rows()], ['launch'])
 
 
+
+class GrokDispatchTests(DispatchCase):
+    """Grok Build keeps a session at $GROK_HOME/sessions/<url-encoded cwd>/<session id>/: updates.jsonl holds each
+    prompt as user_message_chunk updates numbered by promptIndex, summary.json the model and effort it runs
+    (measured on Grok Build 1.0.70, 2026-10-26)."""
+
+    SESSION = '9d911752-bc31-4e8c-9ae5-b91105aaee4b'
+
+    def setUp(self):
+        super().setUp()
+        self.grok_home = self.root / 'grok'
+        self.session_dir = self.grok_home / 'sessions' / '%2Fx%2Frepo' / self.SESSION
+        self.session_dir.mkdir(parents=True)
+        self.updates = self.session_dir / 'updates.jsonl'
+        self.summary(model='grok-4.7', effort='xhigh')
+        self.updates.write_text(self.chunk('Read and execute an earlier brief.', 0)
+                                + json.dumps({'method': 'session/update', 'params': {'update': {
+                                    'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text',
+                                                                                        'text': 'done'}}}}) + '\n')
+        self.env_grok = {'GROK_HOME': str(self.grok_home)}
+
+    def summary(self, model, effort):
+        (self.session_dir / 'summary.json').write_text(json.dumps({
+            'info': {'id': self.SESSION, 'cwd': '/x/repo'}, 'current_model_id': model, 'reasoning_effort': effort,
+            'sandbox_profile': 'off'}))
+
+    def chunk(self, text, index):
+        return json.dumps({'method': 'session/update', 'params': {'sessionId': self.SESSION, 'update': {
+            'sessionUpdate': 'user_message_chunk', 'content': {'type': 'text', 'text': text},
+            '_meta': {'modelId': 'grok-4.7', 'promptIndex': index}}}}) + '\n'
+
+    def grok_worker(self):
+        row = self.launch_row('one-xhigh-aaaa', 'wT:p2', session=self.SESSION, kind='grok', mode='builder')
+        row.update(model='grok-4.7')
+        self.record(row)
+        return listing({'pane_id': 'wT:p2', 'tab_id': 'wT:t1', 'cwd': str(self.repo), 'agent': 'grok',
+                        'agent_status': 'idle', 'name': 'one-xhigh-aaaa'})
+
+    def test_a_delivered_brief_is_confirmed_on_the_first_send(self):
+        panes, agents = self.grok_worker()
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [[str(self.updates), self.chunk(self.line, 1)]]}],
+                           'agent get': [agent('working', 'wT:p2', kind='grok')]},
+                          env={**FAST, **self.env_grok})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line], 'the brief was sent more than once')
+        row = json.loads(r.stdout)
+        self.assertEqual(row['session_id'], self.SESSION)
+        self.assertNotIn('session_warning', row)
+        self.assertEqual([row['type'] for row in self.rows()], ['launch', 'dispatch'])
+
+    def test_a_prompt_written_in_several_chunks_is_one_prompt(self):
+        panes, agents = self.grok_worker()
+        half = len(self.line) // 2
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [[str(self.updates), self.chunk(self.line[:half], 1)
+                                                                     + self.chunk(self.line[half:], 1)]]}],
+                           'agent get': [agent('working', 'wT:p2', kind='grok')]},
+                          env={**FAST, **self.env_grok})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.prompts(), [self.line])
+
+    def test_an_old_identical_prompt_cannot_confirm_a_lost_redispatch(self):
+        panes, agents = self.grok_worker()
+        with self.updates.open('a') as fh:
+            fh.write(self.chunk(self.line, 1))
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents], 'agent prompt': [{'out': '{}'}],
+                           'agent get': [agent('working', 'wT:p2', kind='grok')]},
+                          env={'HERD_RESEND_SECONDS': '0', 'HERD_CONFIRM_SECONDS': '0', **self.env_grok})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.prompts(), [self.line, self.line])
+        self.assertIn('session updates', r.stderr)
+        self.assertEqual([row['type'] for row in self.rows()], ['launch'])
+
+    def test_a_session_on_another_model_or_effort_is_reported(self):
+        panes, agents = self.grok_worker()
+        self.summary(model='grok-4.6', effort='high')
+        r = self.dispatch({'pane list': [panes], 'agent list': [agents],
+                           'agent prompt': [{'out': '{}', 'write': [[str(self.updates), self.chunk(self.line, 1)]]}],
+                           'agent get': [agent('working', 'wT:p2', kind='grok')]},
+                          env={**FAST, **self.env_grok})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)['session_warning'],
+                         'the session runs grok-4.6 at high, not grok-4.7 at xhigh')
+
+    def test_a_reset_is_not_offered_for_grok(self):
+        panes, agents = self.grok_worker()
+        for reset in ('new', 'clear'):
+            with self.subTest(reset=reset):
+                r = self.dispatch({'pane list': [panes], 'agent list': [agents]}, '--reset', reset,
+                                  env=self.env_grok)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('one-xhigh-aaaa is grok', r.stderr)
+                self.assertEqual(self.prompts(), [])
+
 class DispatchHygieneTests(unittest.TestCase):
     def test_the_running_session_fixture_closes_its_rollout_file(self):
         case = CodexDispatchTests('test_a_running_session_takes_the_brief_in_its_own_file')

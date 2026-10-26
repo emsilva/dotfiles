@@ -317,5 +317,91 @@ class LaunchTests(HerdCase):
         self.assertEqual(self.calls(['pane', 'split']), [])
 
 
+
+# What Grok Build 1.0.70 draws in a short herd pane (measured 2026-10-26): its idle input line, no model banner;
+# and its folder-trust question, which herdr reports as idle, not blocked.
+GROK_IDLE = {'out': '\n │─❯ ──────────────────────────────────│\n Ctrl+.:shortcuts\n'}
+GROK_TRUST = {'out': '\n                Do you trust the contents of this directory?\n /x/repo\n'
+                     '                       Yes, proceed                 y\n'
+                     '                       No, quit                     n\n'}
+UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+
+
+class GrokLaunchTests(HerdCase):
+    """Grok Build: model and effort on the command line, a session id fixed up front, permissions bypassed;
+    builders only (it runs without a sandbox here, as Claude and opencode do)."""
+
+    def answers(self, **extra):
+        base = {'agent list': [ok({'result': {'agents': []}})], 'pane layout': [layout((LEAD, 0, 0, 159, 51))],
+                'pane split': [split('wT:p9')], 'agent start': [ok()], 'pane read': [GROK_IDLE],
+                'agent get': [agent('idle', 'wT:p9', kind='grok')]}
+        base.update(extra)
+        return base
+
+    def start_tail(self):
+        start = self.calls(['agent', 'start'])[-1]
+        return start[start.index('--') + 1:]
+
+    def launch(self, answers, *extra, env=None):
+        return self.herd(answers, 'launch', 'build', '--kind', 'grok', '--builder', '--base', 'HEAD', *extra,
+                         env=env)
+
+    def test_a_grok_builder_gets_its_model_effort_session_and_no_permission_prompts(self):
+        r = self.launch(self.answers())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads(r.stdout)
+        self.assertRegex(row['session_id'], UUID)
+        self.assertEqual(self.start_tail(), ['-m', 'grok-4.7', '--reasoning-effort', 'xhigh', '--session-id',
+                                             row['session_id'], '--permission-mode', 'bypassPermissions'])
+        self.assertEqual(self.calls(['agent', 'start'])[0][2:5], [row['name'], '--kind', 'grok'])
+        self.assertEqual({k: row[k] for k in ('kind', 'model', 'effort', 'mode')},
+                         {'kind': 'grok', 'model': 'grok-4.7', 'effort': 'xhigh', 'mode': 'builder'})
+        self.assertTrue(row['name'].startswith('build-xhigh-'))
+        self.assertEqual(self.calls(['agent', 'send-keys']), [])
+        self.assertEqual(self.rows(), [row])
+
+    def test_model_and_effort_can_be_named(self):
+        r = self.launch(self.answers(), '--model', 'grok-4.7-build-fast', '--effort', 'high')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.start_tail()[:4], ['-m', 'grok-4.7-build-fast', '--reasoning-effort', 'high'])
+
+    def test_groks_trust_question_for_the_workers_folder_is_answered_yes(self):
+        r = self.launch(self.answers(**{'pane read': [GROK_TRUST, GROK_TRUST, GROK_IDLE]}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [['agent', 'send-keys', 'wT:p9', 'y']])
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_a_trust_question_that_does_not_clear_fails_within_the_bound(self):
+        r = self.launch(self.answers(**{'pane read': [GROK_TRUST]}), env={'HERD_SETTLE_SECONDS': '2'})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('still asks to trust', r.stderr)
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(self.rows(), [])
+
+    def test_a_startup_block_on_the_trust_question_is_answered_yes(self):
+        # Should herdr ever classify the question as blocked, start answers agent_not_ready.
+        r = self.launch(self.answers(**{'agent start': [NOT_READY], 'pane read': [GROK_TRUST, GROK_TRUST, GROK_IDLE],
+                                        'agent get': [agent('blocked', 'wT:p9', kind='grok'),
+                                                      agent('idle', 'wT:p9', kind='grok')]}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [['agent', 'send-keys', 'wT:p9', 'y']])
+
+    def test_another_grok_startup_block_fails_without_answering_it(self):
+        r = self.launch(self.answers(**{'agent start': [NOT_READY], 'pane read': [{'out': ' Sign in to Grok\n'}],
+                                        'agent get': [agent('blocked', 'wT:p9', kind='grok')]}))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('other than the trust question', r.stderr)
+        self.assertEqual(self.calls(['agent', 'send-keys']), [])
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+
+    def test_a_grok_worker_cannot_be_read_only(self):
+        for extra in ([], ['--readonly']):
+            with self.subTest(extra=extra):
+                r = self.herd(self.answers(), 'launch', 'review', '--kind', 'grok', *extra)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('a Grok worker has no sandbox, so it cannot be read-only', r.stderr)
+                self.assertEqual(self.calls(['pane', 'split']), [])
+                self.assertEqual(self.rows(), [])
+
 if __name__ == '__main__':
     unittest.main()

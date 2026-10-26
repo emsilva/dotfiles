@@ -96,6 +96,17 @@ class AdoptTests(HerdCase):
         self.assertIn('no brief at', r.stderr)
 
 
+    def test_a_grok_worker_is_adopted_as_a_builder_and_never_read_only(self):
+        r = self.herd({'agent get': [agent_at('wT:p4', self.repo, name='g-xhigh', kind='grok')]},
+                      'adopt', 'wT:p4', '--role', 'g', '--model', 'grok-4.7', '--effort', 'xhigh')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        launch = json.loads(r.stdout)['launch']
+        self.assertEqual((launch['kind'], launch['mode']), ('grok', 'builder'))
+        r = self.herd({'agent get': [agent_at('wT:p5', self.repo, name='h-xhigh', kind='grok')]},
+                      'adopt', 'wT:p5', '--role', 'h', '--mode', 'readonly')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('a Grok worker has no sandbox', r.stderr)
+
 class CloseTests(HerdCase):
     def test_an_adopted_builder_without_worktree_checks_its_own_checkout(self):
         sub = self.repo / 'sub'
