@@ -4,6 +4,8 @@
   stop   Stop hook: at the first safe turn end at or above the threshold, block with "run /relay now"
   tool   PostToolUse hook: once per band, tell the lead a relay is due
 
+On stop, an unnamed session that is the only agent in a project's main checkout is named lead-<project>.
+
 Reads the hook's JSON on stdin and prints a hook decision, or nothing. It never fails closed: an error is
 logged to <project>/relay/gate/errors.log, toasted once per session, and the call exits 0 with no output.
 Only a lead (herdr name lead-*, or the session in <project>/relay/lead.json) is gated, and only a lead gets
@@ -161,24 +163,44 @@ def reset_bands(state, pct, cfg):
 
 
 def herdr_name(pane, timeout):
-    """The herdr name of the agent in pane, or None (no agent, no name, herdr failed or slow)."""
+    """The herdr name of the agent in pane, or None when it has none.
+
+    HerdrError when herdr failed or was slow: that is not an unnamed agent, and must not be renamed."""
     try:
         r = subprocess.run(['herdr', 'agent', 'get', pane], capture_output=True, text=True, timeout=timeout)
-        agent = (json.loads(r.stdout).get('result') or {}).get('agent') or {} if r.returncode == 0 else {}
-    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
-        return None
-    name = agent.get('name') if isinstance(agent, dict) else None
+    except subprocess.TimeoutExpired:
+        raise relaylib.HerdrError('herdr agent get did not answer within %s s' % timeout)
+    except Exception as e:
+        # OSError is a missing herdr; a test (and only a test) makes Popen raise RuntimeError. Either way herdr
+        # did not answer, which is not a gate bug.
+        raise relaylib.HerdrError('herdr agent get: %s' % e)
+    if r.returncode != 0:
+        raise relaylib.HerdrError('herdr agent get exited %d' % r.returncode)
+    try:
+        result = json.loads(r.stdout).get('result')
+        agent = result.get('agent') if isinstance(result, dict) else None
+    except (ValueError, AttributeError):
+        raise relaylib.HerdrError('herdr agent get printed no agent')
+    if not isinstance(agent, dict):
+        raise relaylib.HerdrError('herdr agent get printed no agent')
+    name = agent.get('name')
     return name if isinstance(name, str) else None
 
 
-def is_lead(project, session, pane, clock):
+def is_lead(call):
+    """Whether this session is a lead: lead.json, or a herdr name starting with lead-.
+
+    The name is Call.pane_name, read once per call. A herdr failure is not a lead by name."""
     try:
-        lead = relaylib.read_json(os.path.join(project, 'relay', 'lead.json'))
-        if isinstance(lead, dict) and lead.get('session_id') == session:
+        lead = relaylib.read_json(os.path.join(call.project, 'relay', 'lead.json'))
+        if isinstance(lead, dict) and lead.get('session_id') == call.session:
             return True
     except (OSError, ValueError):
         pass
-    name = herdr_name(pane, clock.left(HERDR_BOUND))
+    try:
+        name = call.pane_name()
+    except relaylib.HerdrError:
+        return False
     return bool(name) and name.startswith('lead-')
 
 
@@ -241,11 +263,30 @@ class Call:
         self.label = os.path.basename((inp.get('cwd') or self.project).rstrip('/')) or 'lead'
         self.toasts = []
         self._lead = None
+        self._name = None
+        self._name_read = False
+        self._name_error = None
+
+    def pane_name(self):
+        """This pane's herdr name, or None when it has none. Read once. HerdrError if herdr failed or was slow."""
+        if self._name_read:
+            if self._name_error is not None:
+                raise self._name_error
+            return self._name
+        try:
+            name = herdr_name(self.pane, self.clock.left(HERDR_BOUND))
+        except relaylib.HerdrError as e:
+            self._name_read = True
+            self._name_error = e
+            raise
+        self._name_read = True
+        self._name = name
+        return name
 
     def lead(self):
         """Whether this session is a lead: checked once per call, since it cannot change within one."""
         if self._lead is None:
-            self._lead = is_lead(self.project, self.session, self.pane, self.clock)
+            self._lead = is_lead(self)
         return self._lead
 
     def alert(self, text, then):
@@ -278,7 +319,123 @@ def below(call, pct):
             save_state(call.state_path, state)
 
 
+def main_checkout(cwd, timeout):
+    """The absolute top of cwd's main working tree, or None.
+
+    A linked worktree's git dir is not the common dir, so a herd builder never names itself. Git failing or not
+    answering cannot tell: None, and the caller does nothing."""
+    code, out = relaylib.run(
+        ['git', '-C', cwd, 'rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
+        timeout=timeout)
+    if code != 0:
+        return None
+    lines = out.splitlines()
+    if len(lines) != 3 or not all(lines):
+        return None
+    top, git_dir, common = lines
+    if not os.path.isabs(common):
+        common = os.path.join(cwd, common)   # relative --git-common-dir is relative to the -C directory
+    if os.path.realpath(git_dir) != os.path.realpath(common):
+        return None
+    return os.path.realpath(top)
+
+
+def _inside(path, root):
+    """path is root, or a directory inside it. Both absolute, no trailing slash."""
+    if path == root:
+        return True
+    return path.startswith('/' if root == '/' else root + '/')
+
+
+def agent_place(agent):
+    """Where the agent is working: foreground_cwd, or cwd when that is absent or empty."""
+    if not isinstance(agent, dict):
+        return None
+    fg = agent.get('foreground_cwd')
+    if isinstance(fg, str) and fg:
+        return fg
+    cwd = agent.get('cwd')
+    return cwd if isinstance(cwd, str) and cwd else None
+
+
+def in_checkout(path, top):
+    """Whether path is the main checkout or inside it, and not under <top>/.claude/worktrees."""
+    path = os.path.realpath(path).rstrip('/') or '/'
+    root = top.rstrip('/') or '/'
+    trees = os.path.join(root, '.claude', 'worktrees')
+    if _inside(path, trees):
+        return False
+    return _inside(path, root)
+
+
+def other_in_checkout(agent, pane, top):
+    if not isinstance(agent, dict) or agent.get('pane_id') == pane:
+        return False
+    place = agent_place(agent)
+    return bool(place) and in_checkout(place, top)
+
+
+def lead_named_here(agent, top):
+    if not isinstance(agent, dict):
+        return False
+    name = agent.get('name')
+    place = agent_place(agent)
+    return isinstance(name, str) and name.startswith('lead-') and bool(place) and in_checkout(place, top)
+
+
+def tell_shared(call, top, target):
+    """One toast per session when several agents share a checkout and none is named lead-…. Not the state file."""
+    marker = os.path.join(call.project, 'relay', 'gate', '%s.autoname' % call.session)
+    try:
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except OSError:
+        return
+    call.toasts.append(('Relay gate: %s' % call.label,
+                         'Two or more sessions share %s and none is named lead-…; name the lead with '
+                         'herdr agent rename %s %s.' % (top, call.pane, target)))
+
+
+def maybe_name_lead(call):
+    """Name an unnamed session lead-<project> when it is the only agent in a main checkout.
+
+    Before the fill is read, so it does not depend on context use. A herdr or git failure leaves the name unset;
+    the next turn end tries again. Late propagates. Any other error is reported, and the call prints nothing."""
+    try:
+        _name_if_only(call)
+    except Late:
+        raise
+    except relaylib.HerdrError:
+        return
+    except Exception:
+        report_error({'project': call.project, 'session': call.session}, traceback.format_exc())
+
+
+def _name_if_only(call):
+    if call.pane_name() is not None:   # any name, whatever it is: never rename a named agent
+        return
+    cwd = call.inp.get('cwd')
+    if not isinstance(cwd, str) or not cwd:
+        return
+    top = main_checkout(cwd, call.clock.left(relaylib.GIT_BOUND))
+    if not top:
+        return
+    target = relaylib.lead_name(top)
+    agents = relaylib.herdr_list('agents', 'agent', 'list', timeout=call.clock.left(HERDR_BOUND))
+    if any(other_in_checkout(agent, call.pane, top) for agent in agents):
+        if not any(lead_named_here(agent, top) for agent in agents):
+            tell_shared(call, top, target)
+        return
+    if any(isinstance(agent, dict) and agent.get('name') == target for agent in agents):
+        return
+    relaylib.herdr_text('agent', 'rename', call.pane, target, timeout=call.clock.left(HERDR_BOUND))
+    call._lead = True
+    call.toasts.append(('Relay gate: %s' % call.label,
+                         'Named this session %s: it is the only agent in %s.' % (target, top)))
+
+
 def stop(call):
+    maybe_name_lead(call)   # before the fill: naming does not depend on context use
     cfg = call.cfg
     fill = transcript.context_fill(call.transcript, cfg.window)
     if fill is None:

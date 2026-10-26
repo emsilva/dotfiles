@@ -43,6 +43,10 @@ def shell(tid, desc='Wait for r', status='running'):
     return {'id': tid, 'type': 'shell', 'status': status, 'description': desc, 'command': 'until [ -f r ]; do sleep 5; done'}
 
 
+def listed(*agents):
+    return json.dumps({'result': {'agents': list(agents)}})
+
+
 def git_repo(root):
     repo = Path(root) / 'repo'
     repo.mkdir()
@@ -148,11 +152,14 @@ class IdentityTests(GateCase):
         self.at(52)
         self.assertAsk(self.gate(env={'CLAUDE_CODE_CHILD_SESSION': '1'}))
 
-    def test_lead_json_is_a_fast_path_with_no_herdr_call(self):
+    def test_lead_json_skips_a_second_herdr_call(self):
+        # Autoname reads the name once: an unnamed session recorded in lead.json still needs a herdr name. The lead
+        # check itself does not call herdr again.
         self.make_lead()
         self.at(52)
         self.assertAsk(self.gate())
-        self.assertEqual([c for c in herdr_calls(self.log) if c[:2] == ['agent', 'get']], [])
+        self.assertEqual([c for c in herdr_calls(self.log) if c[:2] == ['agent', 'get']],
+                         [['agent', 'get', 'wT:p1']])
 
     def test_a_lead_name_is_gated(self):
         self.herd({'agent get': [{'out': agent_json('idle', pane='wT:p1', name='lead-repo')}]})
@@ -173,10 +180,12 @@ class IdentityTests(GateCase):
         self.assertIsNone(self.gate(session_id=None))
         self.assertFalse((self.project / 'relay' / 'gate').exists())
 
-    def test_below_the_threshold_nothing_is_read_or_written(self):
+    def test_below_the_threshold_a_named_session_is_not_gated(self):
+        # Naming reads the herdr name even below the threshold. A session that already has one is not renamed,
+        # and nothing is written or decided.
         self.at(49.9)
         self.assertIsNone(self.gate())
-        self.assertEqual(herdr_calls(self.log), [])
+        self.assertEqual(herdr_calls(self.log), [['agent', 'get', 'wT:p1']])
         self.assertFalse((self.project / 'relay').exists())
 
     def test_an_unknown_model_toasts_a_lead_once_and_stays_inert(self):
@@ -1121,6 +1130,177 @@ class ToolTests(GateCase):
         self.at(62, self.delivered('toolu_A'))    # a new band; the pane's herdr name is worker-high
         self.assertIsNone(self.gate('tool'))
         self.assertEqual(self.state(), before)
+
+
+class AutonameTests(GateCase):
+    """Stop names an unnamed session lead-<project> only when it is the only agent in a main checkout."""
+
+    def calls(self, *prefix):
+        return [c for c in herdr_calls(self.log) if c[:len(prefix)] == list(prefix)]
+
+    def lead_name(self, repo):
+        """What `relay-check.py name --repo` prints: the name the gate must reuse, not reimplement."""
+        r = subprocess.run(['python3', '-I', str(SCRIPTS / 'relay-check.py'), 'name', '--repo', str(repo)],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def unnamed(self, agents=(), rename_code=0, list_code=0, get_code=0, get_out=None, get_sleep=0):
+        pane = self.env['HERDR_PANE_ID']
+        get = {'out': agent_json('idle', pane=pane) if get_out is None else get_out, 'code': get_code}
+        if get_sleep:
+            get['sleep'] = get_sleep
+        self.herd({'agent get': [get],
+                   'agent list': [{'out': listed(*agents), 'code': list_code}],
+                   'agent rename': [{'out': '{}', 'code': rename_code}]})
+        return pane
+
+    def marker(self):
+        return self.project / 'relay' / 'gate' / (SID + '.autoname')
+
+    def test_an_unnamed_session_alone_in_a_main_checkout_is_renamed(self):
+        pane = self.unnamed([
+            {'pane_id': self.env['HERDR_PANE_ID'], 'agent': 'claude', 'foreground_cwd': str(self.repo)},
+            {'pane_id': 'wT:p9', 'agent': 'codex', 'name': 'other', 'foreground_cwd': '/elsewhere'}])
+        name = self.lead_name(self.repo)
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, name]])
+        body = 'Named this session %s: it is the only agent in %s.' % (name, self.repo)
+        self.assertEqual(self.toasts(1), [['notification', 'show', 'Relay gate: repo', '--body', body,
+                                            '--sound', 'request']])
+        self.assertIsNone(self.state())
+
+    def test_a_named_session_is_never_renamed_and_is_read_once(self):
+        # Below the threshold the gate used to touch herdr not at all, so one get is this step. Above it, a second
+        # get would mean the name was not cached for the lead check.
+        pane = self.env['HERDR_PANE_ID']
+        for name, pct, asks in (('worker-high', 40, False), ('lead-other', 40, False),
+                                ('worker-high', 52, False), ('lead-other', 52, True)):
+            with self.subTest(name=name, pct=pct):
+                self.unnamed(get_out=agent_json('idle', pane=pane, name=name))
+                self.at(pct)
+                out = self.gate()
+                if asks:
+                    self.assertAsk(out)
+                else:
+                    self.assertIsNone(out)
+                self.assertEqual(self.calls('agent', 'get'), [['agent', 'get', pane]])
+                self.assertEqual(self.calls('agent', 'rename'), [])
+                self.assertEqual(self.calls('agent', 'list'), [])
+
+    def test_a_linked_worktree_is_not_renamed(self):
+        subprocess.run(['git', '-C', str(self.repo), '-c', 'user.name=T', '-c', 'user.email=t@example.invalid',
+                        'commit', '--allow-empty', '-qm', 'init'], check=True)
+        wt = self.repo / '.claude' / 'worktrees' / 'x'
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', str(wt), '-b', 'feat/x'], check=True)
+        pane = self.unnamed()
+        self.at(40)
+        self.assertIsNone(self.gate(cwd=str(wt)))
+        self.assertEqual(self.calls('agent', 'get'), [['agent', 'get', pane]])
+        self.assertEqual(self.calls('agent', 'rename'), [])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+
+    def test_another_agent_in_the_checkout_blocks_and_warns_once(self):
+        pane = self.env['HERDR_PANE_ID']
+        name = self.lead_name(self.repo)
+        body = ('Two or more sessions share %s and none is named lead-…; name the lead with herdr agent rename %s %s.'
+                % (self.repo, pane, name))
+        toast = ['notification', 'show', 'Relay gate: repo', '--body', body, '--sound', 'request']
+        for kind, place in (('claude', {'cwd': str(self.repo / 'src')}),
+                            ('codex', {'foreground_cwd': str(self.repo)})):
+            with self.subTest(kind=kind):
+                if self.marker().exists():
+                    self.marker().unlink()
+                self.unnamed([dict({'pane_id': 'wT:p2', 'agent': kind, 'name': 'worker'}, **place)])
+                self.at(40)
+                self.assertIsNone(self.gate())
+                self.assertEqual(self.calls('agent', 'rename'), [])
+                self.assertEqual(self.toasts(1), [toast])
+                self.assertTrue(self.marker().is_file())
+                self.assertIsNone(self.state())
+                self.assertIsNone(self.gate())
+                self.assertEqual(self.toasts(1), [toast])
+                self.assertEqual(self.calls('agent', 'rename'), [])
+
+    def test_an_agent_inside_worktrees_does_not_block(self):
+        pane = self.unnamed([
+            {'pane_id': 'wT:p8', 'agent': 'codex', 'name': 'builder-xhigh-abcd',
+             'foreground_cwd': str(self.repo / '.claude' / 'worktrees' / 'x')},
+            {'pane_id': 'wT:p9', 'agent': 'claude', 'name': 'other', 'cwd': '/elsewhere'}])
+        name = self.lead_name(self.repo)
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, name]])
+
+    def test_a_subdirectory_uses_the_top_levels_name(self):
+        sub = self.repo / 'src'
+        sub.mkdir()
+        top_name, sub_name = self.lead_name(self.repo), self.lead_name(sub)
+        self.assertNotEqual(top_name, sub_name)
+        pane = self.unnamed()
+        self.at(40)
+        self.assertIsNone(self.gate(cwd=str(sub)))
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, top_name]])
+        self.assertIn(str(self.repo), ' '.join(self.toasts(1)[0]))
+
+    def test_a_target_name_held_elsewhere_blocks(self):
+        name = self.lead_name(self.repo)
+        self.unnamed([{'pane_id': 'wT:p9', 'agent': 'claude', 'name': name, 'foreground_cwd': '/other/checkout'}])
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertTrue(self.calls('agent', 'list'))
+        self.assertEqual(self.calls('agent', 'rename'), [])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertFalse(self.marker().exists())
+        self.assertIsNone(self.state())
+
+    def test_a_failed_agent_get_names_nothing(self):
+        pane = self.unnamed(get_code=1, get_out='boom')
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertEqual(herdr_calls(self.log), [['agent', 'get', pane]])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertFalse((self.project / 'relay' / 'gate' / 'errors.log').exists())
+
+    def test_a_slow_agent_get_names_nothing(self):
+        pane = self.unnamed(get_sleep=5)
+        self.at(40)
+        started = time.time()
+        self.assertIsNone(self.gate())
+        self.assertLess(time.time() - started, 4.5)
+        self.assertEqual(herdr_calls(self.log), [['agent', 'get', pane]])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertFalse((self.project / 'relay' / 'gate' / 'errors.log').exists())
+
+    def test_a_failed_agent_list_names_nothing(self):
+        self.unnamed(list_code=1)
+        self.at(40)
+        self.assertIsNone(self.gate())
+        self.assertEqual([c[:2] for c in herdr_calls(self.log)], [['agent', 'get'], ['agent', 'list']])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertFalse((self.project / 'relay' / 'gate' / 'errors.log').exists())
+        self.assertIsNone(self.state())
+
+    def test_a_failed_rename_names_nothing(self):
+        # Above the threshold, a rename that failed must not be treated as a lead: the ask would be stdout.
+        pane = self.unnamed(rename_code=1)
+        name = self.lead_name(self.repo)
+        self.at(52)
+        self.assertIsNone(self.gate())
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, name]])
+        self.assertEqual(self.toasts(0, wait=0.2), [])
+        self.assertFalse((self.project / 'relay' / 'gate' / 'errors.log').exists())
+        self.assertIsNone(self.state())
+
+    def test_a_rename_above_the_threshold_is_gated_this_turn(self):
+        # The smallest high-fill pattern: a safe lead at 52% is asked. Nothing else names this session a lead.
+        pane = self.unnamed()
+        name = self.lead_name(self.repo)
+        self.at(52)
+        self.assertAsk(self.gate())
+        self.assertEqual(self.calls('agent', 'rename'), [['agent', 'rename', pane, name]])
+        self.assertEqual(self.state()['asked']['band'], 50)
 
 
 if __name__ == '__main__':

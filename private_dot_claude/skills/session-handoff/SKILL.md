@@ -326,7 +326,9 @@ file formats and the failure table. Outline:
 **Automatic relays.** Once the owner registers `scripts/relay-gate.py` as a
 Stop and PostToolUse hook, a lead (named `lead-…`) is blocked at its first safe
 turn end at or above 50% with "Run /relay now": run it, or end your turn if a
-listed task is long work that must finish first. Details:
+listed task is long work that must finish first. The relay gate now names the
+only session in a main checkout `lead-<project>` at its first turn end, and you
+still name a lead yourself when several sessions share a checkout. Details:
 `references/relay.md` § Automatic relays.
 
 ## Red flags — you are about to violate this skill

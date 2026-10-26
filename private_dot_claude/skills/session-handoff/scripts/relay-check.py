@@ -25,25 +25,13 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import herdlib  # noqa: E402
 import relaylib  # noqa: E402
-from relaylib import HerdrError, herdr_json  # noqa: E402
+from relaylib import HerdrError, herdr_json, lead_name  # noqa: E402
 import transcript  # noqa: E402
-
-NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
 
 
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.returncode, r.stdout.strip()
-
-
-def slug(repo, override=None):
-    text = override or os.path.basename(os.path.abspath(repo).rstrip('/'))
-    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-') or 'project'
-
-
-def lead_name(repo, suffix=None, override=None):
-    base = 'lead-' + slug(repo, override)[:NAME_ROOM].rstrip('-')
-    return base + ('-' + suffix if suffix else '')
 
 
 def sha256(path):

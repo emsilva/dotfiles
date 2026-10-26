@@ -1,5 +1,5 @@
 """Relay facts shared by relay-check.py, relay-gate.py and herd.py: the safe-point blockers, this session's
-relays, and bounded herdr calls (reads, agent start, the banner check).
+relays, lead names, and bounded herdr calls (reads, agent start, the banner check).
 
 Stdlib only. The CLIs run under `python3 -I` and put this directory on sys.path before importing it.
 relay-launch.sh runs it as a script: `start-agent` and `check-banner` (see main()).
@@ -18,6 +18,18 @@ GIT_BUSY = ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 're
 ABANDONED_AFTER = 25 * 60
 ACTIVITY = ('checklist.json', 'launch.json', 'receipt.json', 'fix-*', 'fired/*')
 GIT_BOUND = 2   # seconds: the gate runs git on the Stop path, inside its 7 s budget
+NAME_ROOM = 32 - len('lead-') - len('-next')   # herdr names are at most 32 characters
+
+
+def slug(repo, override=None):
+    text = override or os.path.basename(os.path.abspath(repo).rstrip('/'))
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-') or 'project'
+
+
+def lead_name(repo, suffix=None, override=None):
+    """lead-<slug>[-<suffix>]: what `relay-check.py name` prints. The slug is cut so `-next` still fits."""
+    base = 'lead-' + slug(repo, override)[:NAME_ROOM].rstrip('-')
+    return base + ('-' + suffix if suffix else '')
 
 
 def run(cmd, timeout=GIT_BOUND):
