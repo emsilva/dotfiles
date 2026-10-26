@@ -10,6 +10,7 @@ import warnings
 
 from handoff_fixtures import prompt
 from herd_fixtures import CODEX_BANNER, HerdCase, agent, herdlib, listing, opencode_stub
+import herd_dispatch
 
 TIME = '2026-10-14T10:00:01.000Z'
 FAST = {'HERD_RESEND_SECONDS': '2', 'HERD_CONFIRM_SECONDS': '3'}
@@ -26,9 +27,8 @@ class DispatchCase(HerdCase):
         self.brief.write_text('do the thing\n')
         self.sha = hashlib.sha256(self.brief.read_bytes()).hexdigest()
         self.report = self.root / 'out' / 'REPORT.md'
-        self.line = ('Read and execute %s (sha256 %s). Deliver %s, reply with its path and sha256, then end your '
-                     'turn. For a ruling, write %s and end your turn.'
-                     % (self.brief, self.sha[:16], self.report, self.root / 'out' / 'BLOCKED.md'))
+        self.line = herd_dispatch.dispatch_line(str(self.brief), self.sha, str(self.report),
+                                                str(self.root / 'out' / 'BLOCKED.md'))
 
     def rollout(self, sid, line=None, cwd=None, timestamp=TIME, subagent=False):
         """(path, text) of a Codex session file as 0.162.1 writes it."""
@@ -322,6 +322,11 @@ class RefusalTests(DispatchCase):
                 self.assertEqual(r.returncode, 1)
                 self.assertIn('is %s: dispatch only to an idle worker' % status, r.stderr)
                 self.assertEqual(self.prompts(), [])
+
+    def test_the_line_asks_to_finish_any_background_job_and_stays_within_700(self):
+        self.assertIn('Finish any background job before writing the deliverable', self.line)
+        self.assertLessEqual(len(self.line), herd_dispatch.LIMIT)
+        self.assertLess(len(self.line), 700)
 
     def test_a_line_over_700_characters_is_refused_with_the_lengths(self):
         panes, agents = self.codex_worker()

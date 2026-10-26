@@ -39,6 +39,10 @@ or wrong; **check-cannot-fail**, a recorded check that passes whatever happens;
 **Serious**: an owner question the predecessor could have answered; a wrong or
 duplicate action; a safety check that could not fail. Everything else is minor.
 
+On the Mac, before the Fire step, run
+`python3 -I ~/.claude/skills/session-handoff/scripts/feedback-import.py <project>`
+for the current project when `<project>/.scratch/handoff-feedback/` exists.
+
 ## Fire
 
 Draft a proposal when the new gap is serious, or when `gaps.jsonl` already

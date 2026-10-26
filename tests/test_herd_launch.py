@@ -8,8 +8,8 @@ import sys
 import unittest
 
 from handoff_fixtures import SCRIPTS
-from herd_fixtures import (CODEX_BANNER, LEAD, NOT_READY, SID, TAKEN, HerdCase, agent, layout, listing, ok,
-                           pane_entry, split)
+from herd_fixtures import (CODEX_BANNER, LEAD, NOT_READY, SID, TAKEN, HerdCase, agent, herdr_calls, layout,
+                           listing, ok, pane_entry, split)
 
 sys.path.insert(0, str(SCRIPTS))
 import herd_launch  # noqa: E402
@@ -75,6 +75,37 @@ class LaunchTests(HerdCase):
                            'launch', 'review', '--pane', 'wT:p5')
         self.assert_unrecorded_reused_agent(result)
         self.assertIn('Codex asks to trust', result.stderr)
+
+    def test_a_failed_start_reads_the_pane_screen_before_closing_it(self):
+        # Codex's real error is on the pane. Closing first leaves only herdr's agent_not_found.
+        failed = {'out': json.dumps({'error': {'code': 'agent_not_found', 'message': 'not found'}}), 'code': 1}
+        screen = {'out': 'Error: model not available\nCodex refused to start\n'}
+        r = self.herd(self.answers(**{'agent start': [failed], 'pane read': [screen]}), 'launch', 'review')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('agent start failed', r.stderr)
+        shown = r.stderr.split('pane shows:', 1)[1]
+        self.assertIn('Error: model not available', shown)
+        self.assertIn('Codex refused to start', shown)
+        log = herdr_calls(self.log)
+        read_at = next(i for i, c in enumerate(log) if c[:2] == ['pane', 'read'])
+        close_at = next(i for i, c in enumerate(log) if c[:2] == ['pane', 'close'])
+        self.assertLess(read_at, close_at)
+        self.assertEqual(self.calls(['pane', 'close']), [['pane', 'close', 'wT:p9']])
+        self.assertEqual(self.rows(), [])
+
+    def test_a_record_write_failure_keeps_the_screen_of_the_pane_it_closes(self):
+        code = ("import herd, herdlib; herdlib.append = lambda *a: (_ for _ in ()).throw(OSError('record disk failed')); "
+                "sys.exit(herd.main(sys.argv[1:]))")
+        r = self.herd(self.answers(**{'pane read': [{'out': 'GPT-6.1-Sol xhigh\nreal banner\n'}]}),
+                      'launch', 'review', code=code)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn('record disk failed', r.stderr)
+        self.assertIn('pane shows:', r.stderr)
+        self.assertIn('real banner', r.stderr)
+        log = herdr_calls(self.log)
+        read_at = max(i for i, c in enumerate(log) if c[:2] == ['pane', 'read'])
+        close_at = next(i for i, c in enumerate(log) if c[:2] == ['pane', 'close'])
+        self.assertLess(read_at, close_at)
 
     def test_a_failed_start_in_a_reused_pane_does_not_report_a_running_agent(self):
         failed = {'out': 'start failed', 'code': 1}
